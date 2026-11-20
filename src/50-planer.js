@@ -53,6 +53,21 @@ const PLANER_CSS = `
   color:#fff;background:var(--sc);text-shadow:0 1px 2px rgba(0,0,0,.3)}
 .woche .sch.frei{background:var(--g-fuell);color:var(--g-text2);font-weight:500;text-shadow:none}
 .woche .sch.heute{box-shadow:0 0 0 2px var(--g-akzent)}
+.klapp{display:inline-flex;align-items:center;gap:var(--g-a1)}
+.klapp ha-icon{--mdc-icon-size:20px;transition:transform .25s cubic-bezier(.32,.72,0,1)}
+.klapp[aria-expanded="true"] ha-icon{transform:rotate(180deg)}
+.monat{display:flex;flex-direction:column;gap:4px}
+.mkopf,.mraster{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.mkopf span{text-align:center;font-size:var(--g-s-mini);font-weight:600;color:var(--g-text2)}
+.mtag{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:44px;border-radius:12px;color:var(--g-text);transition:background-color .2s ease}
+.mtag.vorbei{color:var(--g-text2)}
+.mzahl{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--g-s-name);font-variant-numeric:tabular-nums}
+.mtag.heute .mzahl{color:var(--g-rot-text);font-weight:700}
+.mtag[aria-pressed="true"] .mzahl{background:var(--g-aktiv);color:var(--g-aktiv-text);font-weight:700}
+.mtag.heute[aria-pressed="true"] .mzahl{background:var(--g-rot-voll);color:#fff}
+.mpunkte{display:flex;gap:2px;height:5px}
+.mpunkte i{width:5px;height:5px;border-radius:50%}
+.mpunkte i.t{background:var(--g-orange)}
 .legende{display:flex;flex-wrap:wrap;gap:var(--g-a2)}
 .feld{width:100%;min-height:48px;padding:10px 14px;border-radius:var(--g-r-klein);font:inherit;font-size:var(--g-s-text);color:var(--g-text);
   background:var(--g-fuell);border:1px solid var(--g-glas-rand);outline-color:var(--g-akzent)}
@@ -63,7 +78,7 @@ const PLANER_CSS = `
 const MONATE = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."];
 
 class GlasPlanerCard extends GlasKarte {
-  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6, seite_planer: true, seite_kalender: true, seite_schichten: true }; }
+  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6, seite_planer: true, seite_kalender: true, seite_monat: true, seite_schichten: true }; }
   static getConfigElement() { return document.createElement("glas-planer-card-editor"); }
   static getStubConfig() { return {}; }
   getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
@@ -125,8 +140,11 @@ class GlasPlanerCard extends GlasKarte {
     const schluessel = heuteIso() + ids.join(",");
     if (schluessel === this._termineSchl && Date.now() - (this._termineZeit || 0) < 5 * 60 * 1000) return;
     this._termineSchl = schluessel; this._termineZeit = Date.now();
-    const start = new Date(); start.setHours(0, 0, 0, 0);
-    const ende = new Date(start); ende.setDate(ende.getDate() + 7); // eine Woche: Seite „Kalender“
+    // Vom Monatsanfang bis mindestens 7 Tage voraus (Seiten „Kalender“ und „Monat“)
+    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(1);
+    const ende = new Date(); ende.setHours(0, 0, 0, 0); ende.setDate(ende.getDate() + 7);
+    const monatsEnde = new Date(start); monatsEnde.setMonth(monatsEnde.getMonth() + 1);
+    if (monatsEnde > ende) ende.setTime(monatsEnde.getTime());
     const q = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(ende.toISOString())}`;
     const listen = await Promise.all(ids.map((id) => this._hass.callApi("GET", `calendars/${id}${q}`).then((l) => l.map((t) => ({ ...t, kalender: id }))).catch(() => [])));
     const gesehen = new Set();
@@ -215,9 +233,9 @@ class GlasPlanerCard extends GlasKarte {
     const seite1 = `<section class="seite" aria-label="Planer">
       <div class="oben"><h2 class="datum">${esc(titel)}</h2><button class="rund" data-neu aria-label="Aufgabe hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div>
       ${schicht}${koerper}
-      <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger ⌃" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"} ⌄`}</button>
+      <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"}`}<ha-icon data-i="mdi:chevron-down"></ha-icon></button>
       <button class="link" data-oeffnen>Planer öffnen ›</button></div></section>`;
-    const seiten = [["planer", "Planer", seite1], ["kalender", "Kalender", this.kalenderSeite(terminHtml)], ["schichten", "Schichten", this.schichtSeite()]]
+    const seiten = [["planer", "Planer", seite1], ["kalender", "Kalender", this.kalenderSeite(terminHtml)], ["monat", "Monat", this.monatSeite(terminHtml)], ["schichten", "Schichten", this.schichtSeite()]]
       .filter(([id]) => c[`seite_${id}`] !== false);
     if (seiten.length <= 1) return `<div class="karte glas">${(seiten[0] || [, , seite1])[2].replace('class="seite"', 'class="seite" style="padding:0"')}</div>`;
     const akt = klemmen(this._seite || 0, 0, seiten.length - 1);
@@ -238,6 +256,32 @@ class GlasPlanerCard extends GlasKarte {
     return `<section class="seite" aria-label="Kalender"><div class="oben"><h2 class="datum">Nächste 7 Tage</h2></div>
       ${tage.length ? tage.map((t) => `<div class="tag-titel ${t.i === 0 ? "heute" : ""}">${esc(name(t))}</div>${t.liste.map(terminHtml).join("")}`).join("")
         : `<div class="leise leer">Keine Termine in den nächsten 7 Tagen.</div>`}</section>`;
+  }
+  // Seite Monat: kleiner Monatskalender mit Punkten, Tag antippen zeigt die Termine darunter groß
+  monatSeite(terminHtml) {
+    const jetzt = new Date(), heute = heuteIso();
+    const wahl = this._tagWahl || heute;
+    const erster = new Date(jetzt.getFullYear(), jetzt.getMonth(), 1);
+    const versatz = (erster.getDay() + 6) % 7;
+    const tageImMonat = new Date(jetzt.getFullYear(), jetzt.getMonth() + 1, 0).getDate();
+    const alle = this._termine || [];
+    const termineAm = (iso) => { const a = new Date(`${iso}T00:00`), b = new Date(a); b.setDate(b.getDate() + 1); return alle.filter((t) => t.start < b && t.ende > a); };
+    const p = this.person(), d = this._daten || {};
+    const plan = p && !p.tablet ? d.schichten?.[p.benutzer] : null;
+    const zellen = [];
+    for (let i = 0; i < versatz; i++) zellen.push(`<span></span>`);
+    for (let t = 1; t <= tageImMonat; t++) {
+      const iso = isoTag(new Date(jetzt.getFullYear(), jetzt.getMonth(), t));
+      const n = termineAm(iso).length, art = plan?.arten?.find((x) => x.id === plan.tage?.[iso]);
+      zellen.push(`<button class="mtag ${iso === heute ? "heute" : ""} ${iso < heute ? "vorbei" : ""}" data-tag="${iso}" aria-pressed="${iso === wahl}" aria-label="${t}.${n ? `, ${n} Termine` : ""}${art ? `, ${esc(art.name)}` : ""}">
+        <span class="mzahl">${t}</span><span class="mpunkte">${art ? `<i style="background:${esc(art.farbe)}"></i>` : ""}${n ? `<i class="t"></i>` : ""}${n > 1 ? `<i class="t"></i>` : ""}</span></button>`);
+    }
+    const liste = termineAm(wahl);
+    const titel = wahl === heute ? "Heute" : new Date(`${wahl}T00:00`).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+    return `<section class="seite" aria-label="Monat"><div class="oben"><h2 class="datum">${jetzt.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</h2></div>
+      <div class="monat"><div class="mkopf">${["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((x) => `<span>${x}</span>`).join("")}</div><div class="mraster">${zellen.join("")}</div></div>
+      <div class="tag-titel ${wahl === heute ? "heute" : ""}">${esc(titel)}</div>
+      ${liste.length ? liste.map(terminHtml).join("") : `<div class="leise leer">Keine Termine.</div>`}</section>`;
   }
   // Seite 3: Schichten der Woche für alle Personen (Mo–So), heute markiert
   schichtSeite() {
@@ -288,6 +332,7 @@ class GlasPlanerCard extends GlasKarte {
         bahn.scrollTo({ left: this._seite * breite(), behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       }));
     }
+    this.$$("[data-tag]").forEach((b) => b.addEventListener("click", () => { this._tagWahl = b.dataset.tag; this._seite = this._seiteAnzeige; this.render(); }));
     this.$("[data-klapp]")?.addEventListener("click", () => { this._auf = !this._auf; this.render(); });
     this.$("[data-oeffnen]")?.addEventListener("click", () => navigieren(this._config.planer_pfad || "/planer"));
     this.$("[data-neu]")?.addEventListener("click", () => this.neu());
@@ -341,15 +386,22 @@ class GlasPlanerCard extends GlasKarte {
 }
 
 class GlasPlanerEditor extends GlasEditor {
+  render() {
+    // Standardwerte sichtbar machen (nicht gesetzt = an)
+    for (const k of ["ohne_datum", "seite_planer", "seite_kalender", "seite_monat", "seite_schichten"]) if (this._config[k] === undefined) this._config[k] = true;
+    if (this._config.max_aufgaben === undefined) this._config.max_aufgaben = 6;
+    super.render();
+  }
   schema() {
     return [
       { name: "titel", selector: { text: {} } },
       { name: "ohne_datum", selector: { boolean: {} } },
       { name: "max_aufgaben", selector: { number: { min: 0, max: 30, mode: "box" } } },
       { name: "planer_pfad", selector: { text: {} } },
-      { type: "grid", name: "", schema: [{ name: "seite_planer", selector: { boolean: {} } }, { name: "seite_kalender", selector: { boolean: {} } }, { name: "seite_schichten", selector: { boolean: {} } }] },
+      { type: "grid", name: "", schema: [{ name: "seite_planer", selector: { boolean: {} } }, { name: "seite_kalender", selector: { boolean: {} } }] },
+      { type: "grid", name: "", schema: [{ name: "seite_monat", selector: { boolean: {} } }, { name: "seite_schichten", selector: { boolean: {} } }] },
     ];
   }
-  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer", seite_planer: "Seite Planer", seite_kalender: "Seite Kalender (7 Tage)", seite_schichten: "Seite Schichten (Woche)" }; }
+  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer", seite_planer: "Seite Planer", seite_kalender: "Seite Kalender (7 Tage)", seite_monat: "Seite Monat (kleiner Kalender)", seite_schichten: "Seite Schichten (Woche)" }; }
   hilfen() { return { titel: "Welche Person gezeigt wird, steuert die Personenwahl in der Kopf-Karte (C, L, Tablet)." }; }
 }

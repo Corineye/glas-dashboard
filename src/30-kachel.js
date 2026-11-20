@@ -7,6 +7,10 @@ const STEUER_CSS = `
 .saeule{position:relative;flex:none;width:96px;height:250px;border-radius:28px;overflow:hidden;touch-action:none;cursor:ns-resize;background:var(--g-fuell)}
 .saeule .fuell{position:absolute;inset:0;background:var(--f,#ff9f0a);transform-origin:bottom;will-change:transform}
 .wert{font-size:44px;font-weight:300;line-height:1;color:var(--g-text);text-align:center;font-variant-numeric:tabular-nums}
+.anzeige-gross{display:flex;flex-direction:column;align-items:center;gap:var(--g-a2);padding:var(--g-a2) 0}
+.gross-sym{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-fuell-text);--mdc-icon-size:44px}
+.gross-sym.an{background:var(--sf);color:#fff}
+.gross-sym ha-state-icon{--mdc-icon-size:44px}
 .reihe{display:flex;gap:var(--g-a2);justify-content:center;flex-wrap:wrap}
 .farben{display:flex;align-items:center;justify-content:center;gap:var(--g-a3)}
 .farbe{position:relative;width:48px;height:48px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
@@ -80,8 +84,8 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   const neu = () => { if (sig() !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
   // Verlauf (wird einmal geladen, Zeitraum umschaltbar)
   const vIds = verlaufIds(entityId, cfg);
-  const vZustand = { auf: cfg.verlauf_offen === true, stunden: cfg.verlauf_tage ? 168 : 24, daten: null };
-  let radAuf = false;
+  const vZustand = { auf: cfg.verlauf_offen ?? ["sensor", "binary_sensor"].includes(domainVon(entityId)), stunden: cfg.verlauf_tage ? 168 : 24, daten: null };
+  let radAuf = false, letztePct = null;
   const vLaden = async () => { vZustand.daten = null; zeichnen(); vZustand.daten = await verlaufHolen(Glas.hass, vIds, vZustand.stunden); zeichnen(); };
   const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
@@ -108,16 +112,19 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     } else if (Geraet.schaltbar(st) || Geraet.ausloesbar(st)) {
       mitte = `<button class="schalter" data-schalten aria-pressed="${an}" aria-label="${esc(name)} ${an ? "ausschalten" : "einschalten"}"><span></span></button>`;
     } else {
-      mitte = `<div class="wert">${esc(zustandText(h, st))}</div>`;
+      // Sensoren, Fenster, Bewegung: großes Symbol + Zustand, darunter der Verlauf
+      const warn = Geraet.istWarnung(st);
+      mitte = `<div class="anzeige-gross"><span class="gross-sym ${an || warn ? "an" : ""}" style="--sf:${warn ? FARBEN[warn] : Geraet.farbe(st)}"><ha-state-icon></ha-state-icon></span>
+        <div class="wert">${esc(zustandText(h, st))}</div><div class="leise">seit ${esc(relativeZeit(st.last_changed).replace(/^vor /, ""))}</div></div>`;
     }
     let extra = "";
-    if (d === "light" && st.state === "on") {
+    if (d === "light") { // Lichtstimmungen auch bei Aus zeigen: Antippen schaltet mit dieser Farbe ein
       const modes = a.supported_color_modes || [];
       const farbig = modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m));
       const temp = modes.includes("color_temp");
       if (farbig || temp) {
         extra += `<div class="farben">${LICHT_FARBEN.map((f, i) => {
-          const akt = lichtFarbeAktiv(st, f);
+          const akt = st.state === "on" && lichtFarbeAktiv(st, f);
           return `<button class="farbe" data-farbe="${i}" style="background:${f[3]}" aria-label="${f[0]}" title="${f[0]}" aria-pressed="${akt}"></button>`;
         }).join("")}${farbig ? `<span class="farbe-trenn" aria-hidden="true"></span><button class="farbe rad-knopf" data-radauf aria-expanded="${radAuf}" aria-label="Eigene Farbe wählen" title="Eigene Farbe"><span><ha-icon data-i="mdi:${radAuf ? "chevron-up" : "palette-outline"}"></ha-icon></span></button>` : ""}</div>`;
         if (farbig && radAuf) {
@@ -128,7 +135,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
           extra += `<div class="rad-feld"><div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div></div>`;
         }
       }
-      if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
+      if (st.state === "on" && bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
     }
     if (d === "climate" && a.hvac_modes?.length) {
       const eco = st.state !== "off" && Number(a.temperature) === 17;
@@ -162,8 +169,28 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
     s.kopfBinden();
+    // Säule gleitet vom alten zum neuen Wert (Ein/Aus, Dimmen von außen)
+    const fuellEl = s.inhalt.querySelector(".saeule .fuell");
+    const pctJetzt = reg ? (Geraet.istAn(st) ? klemmen(reg.pct, 0, 100) : 0) : null;
+    if (fuellEl && letztePct != null && letztePct !== pctJetzt) {
+      fuellEl.style.transition = "none";
+      fuellEl.style.transform = `scaleY(${letztePct / 100})`;
+      fuellEl.getBoundingClientRect();
+      fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+      fuellEl.style.transform = `scaleY(${pctJetzt / 100})`;
+    }
+    letztePct = pctJetzt;
     const $ = (q) => s.inhalt.querySelector(q), $$ = (q) => [...s.inhalt.querySelectorAll(q)];
-    $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => Geraet.schalten(h, st)));
+    $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => {
+      // sofort sichtbar: Säule läuft nach unten bzw. nach oben, HA bestätigt danach
+      if (fuellEl && reg) {
+        const ziel = an ? 0 : klemmen(reg.pct || 100, 1, 100);
+        fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+        fuellEl.style.transform = `scaleY(${ziel / 100})`;
+        letztePct = ziel;
+      }
+      Geraet.schalten(h, st);
+    }));
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
     verlaufKlappBinden(s.inhalt, vZustand, vLaden, zeichnen);
     $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...lichtFarbeDaten(st, LICHT_FARBEN[b.dataset.farbe]) })));
@@ -208,6 +235,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     $$("[data-m]").forEach((b) => b.addEventListener("click", () => h.callService("media_player", b.dataset.m, { entity_id: entityId })));
     $$("[data-v]").forEach((b) => b.addEventListener("click", () => h.callService("vacuum", b.dataset.v, { entity_id: entityId })));
     s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    s.inhalt.querySelectorAll(".gross-sym ha-state-icon").forEach((el) => { el.hass = h; el.stateObj = st; if (cfg.icon) el.icon = cfg.icon; });
     const saeule = $(".saeule");
     if (saeule && reg) {
       let p = reg.pct;
@@ -216,7 +244,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
         p = klemmen(((r.bottom - e.clientY) / r.height) * 100, 0, 100);
         saeule.firstElementChild.style.transform = `scaleY(${p / 100})`;
         saeule.setAttribute("aria-valuenow", Math.round(p)); saeule.setAttribute("aria-valuetext", reg.text(p));
-        s.inhalt.querySelector(".unter").textContent = [raum, reg.text(p)].filter(Boolean).join(" · ");
+        s.kopfPlatz.querySelector(".unter").textContent = [raum, reg.text(p)].filter(Boolean).join(" · ");
       };
       saeule.addEventListener("pointerdown", (e) => { ziehen = true; saeule.setPointerCapture(e.pointerId); setze(e); });
       saeule.addEventListener("pointermove", (e) => { if (ziehen) setze(e); });
@@ -354,7 +382,7 @@ class GlasKachelCard extends GlasKarte {
       const eigene = { tap: c.tap_action, icon: c.icon_tap_action, hold: c.hold_action, double: c.double_tap_action }[art];
       if (eigene && eigene.action) { aktion(this, { entity: c.entity, tap_action: eigene }, "tap"); return; }
       if (art === "tap" && v.schalten && !v.anzeige) { if (navigator.vibrate) navigator.vibrate(8); Geraet.schalten(this._hass, s); return; }
-      if (art === "tap" && v.anzeige) { mehrInfo(this, c.entity); return; }
+      if (art === "tap" && v.anzeige) { steuerungOeffnen(this, c.entity, c); return; } // eigene große Ansicht mit Verlauf
       steuerungOeffnen(this, c.entity, c); // Symbol / Halten: große Steuerung
     };
     el.addEventListener("contextmenu", (e) => e.preventDefault());

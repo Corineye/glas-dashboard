@@ -19,6 +19,7 @@ function listeZugriff(ort) {
       const e = Glas.einst;
       if (!e) return [];
       if (ort.art === "raum") { const r = (e.raeume || []).find((x) => x.hash === ort.hash); return r ? r.geraete || raumGeraeteVorschlag(h, r.bereich) : []; }
+      if (ort.art === "abschnitte") return startseiteVon(e, ort.person).abschnitte || [];
       return startseiteVon(e, ort.person).favoriten || [];
     },
     raum() { return ort.art === "raum" ? (Glas.einst?.raeume || []).find((x) => x.hash === ort.hash) : null; },
@@ -32,8 +33,9 @@ function listeZugriff(ort) {
       } else {
         e.startseiten = e.startseiten || {};
         const id = startId(e);
-        const s = (e.startseiten[id] = { ...startseiteStandard(), ...(e.startseiten[id] || {}) });
-        s.favoriten = fn(s.favoriten || [], e);
+        const s = (e.startseiten[id] = { ...startseiteVon(e, ort.person), ...(id !== "alle" ? { eigen: true } : {}) });
+        if (ort.art === "abschnitte") s.abschnitte = fn(s.abschnitte || [], e);
+        else s.favoriten = fn(s.favoriten || [], e);
       }
       return Glas.einstSpeichern(h, e).catch((err) => console.error("Glas: speichern", err));
     },
@@ -42,21 +44,24 @@ function listeZugriff(ort) {
 }
 
 const BEARB_CSS = `
-.bearb > [data-i]{position:relative}
-.bearb > [data-i] > :not(.deckel){pointer-events:none}
+.bearb [data-i]{position:relative}
+.bearb [data-i]:not([data-griff]) > :not(.deckel){pointer-events:none}
+.bearb [data-griff] > .deckel{bottom:auto;height:52px;box-shadow:none}
 .deckel{position:absolute;inset:0;z-index:2;border-radius:var(--g-r);background:transparent;cursor:grab;touch-action:pan-y;
   box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--g-akzent) 50%,transparent)}
 .deckel .marke{position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--g-akzent-voll);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.2)}
 .deckel .marke ha-icon{--mdc-icon-size:14px}
-.bearb > .aus > :not(.deckel){opacity:.4}
-.bearb > .aus .deckel .marke{background:#636366}
-.bearb > .zieht{z-index:5}
-.bearb > .zieht > :first-child{transform:scale(1.04);border-radius:var(--g-r);box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}
-.bearb > .zieht .deckel{cursor:grabbing}
-.bearb > .gehalten > :first-child{transform:scale(1.03);transition:transform .18s cubic-bezier(.23,1,.32,1)}
+.bearb .aus > :not(.deckel){opacity:.4}
+.bearb .aus > .deckel .marke{background:#636366}
+.bearb .zieht{z-index:5}
+.bearb .zieht > :first-child{transform:scale(1.04);border-radius:var(--g-r);box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}
+.bearb .zieht > .deckel{cursor:grabbing}
+.bearb .gehalten > :first-child{transform:scale(1.03);transition:transform .18s cubic-bezier(.23,1,.32,1)}
 .neu-kachel{display:flex;align-items:center;justify-content:center;gap:var(--g-a2);width:100%;min-height:var(--g-kachel-h);border-radius:var(--g-r);
   border:1.5px dashed var(--g-text2);color:var(--g-text);font-size:var(--g-s-name);font-weight:600}
+.platzhalter{display:flex;align-items:center;gap:var(--g-a3);min-height:72px;padding:var(--g-a3) var(--g-a4);border-radius:var(--g-r);color:var(--g-text)}
+.platzhalter .leise{display:block}
 .bearb-hinweis{grid-column:span 12;display:flex;align-items:center;gap:var(--g-a2);padding:var(--g-a2) var(--g-a3);border-radius:var(--g-r-klein);
   font-size:var(--g-s-klein);color:var(--g-text2)}
 `;
@@ -77,16 +82,12 @@ function flip(kinder, aendern) {
 }
 
 // Kacheln eines Rasters bearbeitbar machen (Kinder mit data-i = Index in der Liste)
-function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = true } = {}) {
+function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = true, menue: eigenesMenue = null } = {}) {
   raster.classList.add("bearb");
-  const kinder = () => [...raster.children].filter((z) => z.dataset.i != null);
+  // eigene Kacheln: auch in Abschnitt-Kästen (Räume), aber nicht die eines inneren Rasters (Favoriten in der Startseite)
+  const kinder = () => [...raster.querySelectorAll("[data-i]")].filter((z) => z.parentElement.closest(".bearb") === raster);
   const reihenfolgeSpeichern = () => {
-    const neu = kinder().map((z) => {
-      // Gruppe = letzte Überschrift davor (nur in Räumen)
-      let v = z.previousElementSibling;
-      while (v && !v.dataset.gruppe) v = v.previousElementSibling;
-      return { i: Number(z.dataset.i), gruppe: v?.dataset.gruppe };
-    });
+    const neu = kinder().map((z) => ({ i: Number(z.dataset.i), gruppe: z.parentElement.closest("[data-gruppe]")?.dataset.gruppe || undefined }));
     zugriff.schreiben(Glas.hass, (liste) => {
       const l = neu.map(({ i, gruppe }) => (liste[i] ? { ...liste[i], ...(gruppe && liste[i].entity ? { gruppe } : {}) } : null)).filter(Boolean);
       return [...l, ...liste.filter((_, i) => !neu.some((x) => x.i === i))];
@@ -100,7 +101,7 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
     d.querySelector("ha-icon").icon = z.classList.contains("aus") ? "mdi:eye-off" : "mdi:pencil";
     z.appendChild(d);
     let g = null, halteT = null;
-    const menue = () => kachelMenue(quelle, zugriff, Number(z.dataset.i));
+    const menue = () => (eigenesMenue ? eigenesMenue(Number(z.dataset.i)) : kachelMenue(quelle, zugriff, Number(z.dataset.i)));
     const ende = (ok) => {
       clearTimeout(halteT);
       const x = g; g = null;
@@ -136,7 +137,7 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
       if (ziel && ziel !== g.ziel) {
         const r = ziel.getBoundingClientRect(), vor = e.clientX < r.left + r.width / 2;
         const ref = vor ? ziel : ziel.nextElementSibling;
-        if (ref !== z && z.nextElementSibling !== ref) { flip([...raster.children], () => raster.insertBefore(z, ref)); g.bewegt = true; }
+        if (ref !== z && (z.nextElementSibling !== ref || z.parentNode !== ziel.parentNode)) { flip(kinder(), () => ziel.parentNode.insertBefore(z, ref)); g.bewegt = true; }
       }
       g.ziel = ziel || null;
       // Am Rand automatisch scrollen
@@ -159,7 +160,7 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
       e.preventDefault();
       const l = kinder(), pos = l.indexOf(z), nach = l[pos + schritt];
       if (!nach) return;
-      raster.insertBefore(z, schritt < 0 ? nach : nach.nextElementSibling);
+      nach.parentNode.insertBefore(z, schritt < 0 ? nach : nach.nextElementSibling);
       d.focus();
       reihenfolgeSpeichern();
     });
@@ -309,10 +310,19 @@ async function kachelMenue(quelle, zugriff, i) {
     }
     if (raum) {
       const andere = (Glas.einst.raeume || []).filter((r) => r.hash !== raum.hash);
+      const eigene = Object.keys(raum.gruppen_namen || {}).filter((k) => !GRUPPEN.some(([g]) => g === k));
       haForm($("[data-f=platz]"), { gruppe: x.gruppe || (x.entity ? gruppeVon(h, x.entity) : undefined), raum: "" }, [
-        ...(x.entity ? [{ name: "gruppe", selector: { select: { mode: "dropdown", options: GRUPPEN.map(([value, label]) => ({ value, label })) } } }] : []),
+        ...(x.entity ? [{ name: "gruppe", selector: { select: { mode: "dropdown", options: [...GRUPPEN.map(([g]) => g), ...eigene].map((g) => ({ value: g, label: gruppenName(raum, g) })) } } },
+          { name: "neu_gruppe", selector: { text: {} } }] : []),
         ...(andere.length ? [{ name: "raum", selector: { select: { mode: "dropdown", options: [{ value: "", label: "–" }, ...andere.map((r) => ({ value: r.hash, label: r.name }))] } } }] : []),
-      ], { gruppe: "Abschnitt im Raum", raum: "In anderen Raum verschieben" }, (v) => {
+      ], { gruppe: "Abschnitt im Raum", neu_gruppe: "Oder neuer Abschnitt (Name eintippen)", raum: "In anderen Raum verschieben" }, (v) => {
+        if (v.neu_gruppe && v.neu_gruppe.trim()) {
+          clearTimeout(speicherT);
+          const name = v.neu_gruppe.trim(), key = `eigen-${slug(name)}`;
+          eintrag.gruppe = key;
+          zugriff.schreiben(Glas.hass, (l, e) => { const r = e.raeume.find((y) => y.hash === raum.hash); r.gruppen_namen = { ...(r.gruppen_namen || {}), [key]: name }; l[i] = kopieJ(eintrag); return l; });
+          return;
+        }
         if (v.raum) {
           clearTimeout(speicherT);
           zugriff.schreiben(Glas.hass, (l, e) => {
@@ -371,5 +381,130 @@ async function neuMenue(quelle, zugriff) {
     fertig(zugriff.ort.art === "raum" ? { ...geraetVorschlag(h, v.entity), an: true } : { entity: v.entity, groesse: "breit" });
   });
   s.inhalt.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => fertig({ karte: b.dataset.karte, groesse: "breit", an: true })));
+  s.oeffnen();
+}
+
+// Name eines Abschnitts im Raum: eigener Name, sonst Standardname
+function gruppenName(raum, g) {
+  return raum?.gruppen_namen?.[g] || (GRUPPEN.find(([id]) => id === g) || [, g && g.startsWith("eigen-") ? g.slice(6) : "Sonstiges"])[1];
+}
+
+// ---------------------------------------------------------------------------
+// Startseiten-Abschnitt bearbeiten: zeigen, Breite, alle Einstellungen der Karte
+// ---------------------------------------------------------------------------
+const ABSCHNITT_EDITOR = { wetter: "glas-wetter-card-editor", planer: "glas-planer-card-editor", sicherheit: "glas-sicherheit-card-editor",
+  drucker: "glas-drucker-card-editor", robi: "glas-robi-card-editor", gaeste: "glas-gaeste-card-editor", hinweise: "glas-hinweise-card-editor" };
+function bereichSpeichern(id, cfg) {
+  const e = kopieJ(Glas.einst);
+  e.bereiche = { ...(e.bereiche || {}), [id]: cfg };
+  return Glas.einstSpeichern(Glas.hass, e).catch((err) => console.error("Glas: speichern", err));
+}
+async function abschnittMenue(quelle, zugriff, i, festId = null) {
+  await haFormLaden();
+  const liste = festId ? [] : zugriff.lesen(Glas.hass);
+  const a = festId ? { id: festId } : kopieJ(liste[i] || {});
+  const info = ABSCHNITTE.find(([id]) => id === a.id) || [a.id, a.id === "hinweise" ? "Warnungen" : a.id, "mdi:card-outline"];
+  const s = new GlasSchicht({ quelle, hoch: true, titel: `${info[1]} bearbeiten` });
+  s.dunkel(istDunkel(Glas.hass));
+  const zeigenAn = festId ? (Glas.einst.bereiche?.[festId]?.an !== false) : a.an !== false;
+  s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(info[1], "Abschnitt der Startseite")}
+    <div class="m-gruppe glas"><button class="haken" role="switch" data-zeigen aria-checked="${zeigenAn}">Auf der Startseite zeigen<span class="sw" aria-hidden="true"></span></button></div>
+    ${festId ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Breite</div>
+      <div class="segment" role="group" aria-label="Breite">${[["halb", "Halb"], ["ganz", "Ganz"]].map(([b, n]) => `<button data-b="${b}" aria-pressed="${(a.breite || "ganz") === b}">${n}</button>`).join("")}</div></div>`}
+    ${ABSCHNITT_EDITOR[a.id] ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:tune-variant"></ha-icon>Einstellungen</div><div data-ed></div></div>`
+      : a.id === "favoriten" ? `<div class="m-gruppe glas"><div class="m-hinweis">Die Favoriten bearbeitest du direkt: Kachel antippen oder verschieben, unten „Hinzufügen“.</div></div>` : ""}`;
+  s.kopfBinden();
+  const abschnittSetzen = (teil) => zugriff.schreiben(Glas.hass, (l) => { l[i] = { ...l[i], ...teil }; return l; });
+  s.inhalt.querySelector("[data-zeigen]").addEventListener("click", (ev) => {
+    const b = ev.currentTarget, an = b.getAttribute("aria-checked") !== "true";
+    b.setAttribute("aria-checked", an);
+    if (festId) bereichSpeichern(festId, { ...(Glas.einst.bereiche?.[festId] || {}), an }); else abschnittSetzen({ an });
+  });
+  s.inhalt.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => {
+    s.inhalt.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b));
+    abschnittSetzen({ breite: b.dataset.b });
+  }));
+  const box = s.inhalt.querySelector("[data-ed]");
+  if (box) {
+    const tag = ABSCHNITT_EDITOR[a.id];
+    await customElements.whenDefined(tag);
+    const ed = document.createElement(tag);
+    ed.hass = Glas.hass;
+    ed.setConfig({ type: `custom:${tag.replace("-editor", "")}`, ...((Glas.einst.bereiche || {})[a.id] || {}) });
+    let t = null;
+    ed.addEventListener("config-changed", (ev) => {
+      ev.stopPropagation();
+      const { type, ...rest } = ev.detail.config;
+      clearTimeout(t); t = setTimeout(() => bereichSpeichern(a.id, rest), 400);
+    });
+    box.appendChild(ed);
+  }
+  s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+  s.oeffnen();
+}
+
+// ---------------------------------------------------------------------------
+// Raum bearbeiten: Name, Sensoren im Kopf, Chips, Abschnitte umbenennen, Anordnung
+// ---------------------------------------------------------------------------
+async function raumMenue(quelle, hash) {
+  await haFormLaden();
+  const raum0 = (Glas.einst?.raeume || []).find((r) => r.hash === hash);
+  if (!raum0) return;
+  const s = new GlasSchicht({ quelle, hoch: true, titel: `${raum0.name} einstellen` });
+  s.dunkel(istDunkel(Glas.hass));
+  let r = kopieJ(raum0), t = null;
+  const speichern = () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const e = kopieJ(Glas.einst), k = e.raeume.findIndex((x) => x.hash === hash);
+      if (k < 0) return;
+      e.raeume[k] = { ...e.raeume[k], ...r, geraete: e.raeume[k].geraete };
+      Glas.einstSpeichern(Glas.hass, e).catch(() => {});
+    }, 400);
+  };
+  const h = Glas.hass;
+  const genutzt = [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity).map((g) => g.gruppe || gruppeVon(h, g.entity)))];
+  s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Chips</div><div data-f="chips"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:view-grid-outline"></ha-icon>Anordnung</div>
+      <div class="segment" role="group" aria-label="Anordnung">${[[1, "Untereinander"], [2, "Nebeneinander"]].map(([n, l]) => `<button data-sp="${n}" aria-pressed="${(r.spalten || 1) === n}">${l}<small>${n === 1 ? "eine Spalte" : "Abschnitte versetzt"}</small></button>`).join("")}</div>
+      <div class="m-hinweis">Nebeneinander gilt auf breiten Bildschirmen (PC, Tablet quer). Am Handy bleibt es eine Spalte.</div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:format-title"></ha-icon>Abschnitte benennen</div><div data-f="namen"></div></div>`;
+  s.kopfBinden();
+  const $ = (q) => s.inhalt.querySelector(q);
+  const nimm = (v, f) => { f.forEach((k) => { if (v[k] === "" || v[k] === undefined || (Array.isArray(v[k]) && !v[k].length)) delete r[k]; else r[k] = v[k]; }); speichern(); };
+  haForm($("[data-f=raum]"), { name: r.name, icon: r.icon, bereich: r.bereich }, [
+    { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] },
+    { name: "bereich", selector: { area: {} } },
+  ], { name: "Name", icon: "Symbol", bereich: "HA-Bereich" }, nimm);
+  haForm($("[data-f=mess]"), { temperatur: r.temperatur, feuchte: r.feuchte }, [
+    { name: "temperatur", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
+    { name: "feuchte", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } },
+  ], { temperatur: "Temperatursensor (leer = automatisch)", feuchte: "Luftfeuchtesensor (leer = automatisch)" }, nimm);
+  haForm($("[data-f=chips]"), { fenster_auto: r.fenster_auto !== false, fenster: r.fenster, bewegung: r.bewegung, chips: r.chips, verlauf_chip: r.verlauf_chip !== false, alles_aus: r.alles_aus !== false }, [
+    { name: "fenster_auto", selector: { boolean: {} } },
+    { name: "fenster", selector: { entity: { multiple: true, filter: { domain: "binary_sensor", device_class: ["window", "door", "opening", "garage_door"] } } } },
+    { name: "bewegung", selector: { entity: { multiple: true, filter: { domain: "binary_sensor", device_class: ["motion", "occupancy", "presence"] } } } },
+    { name: "chips", selector: { entity: { multiple: true } } },
+    { type: "grid", name: "", schema: [{ name: "verlauf_chip", selector: { boolean: {} } }, { name: "alles_aus", selector: { boolean: {} } }] },
+  ], { fenster_auto: "Fenster/Türen des Bereichs automatisch", fenster: "Weitere Fenster-/Türsensoren", bewegung: "Bewegungsmelder", chips: "Weitere Chips (beliebige Entitäten)",
+    verlauf_chip: "Chip „Verlauf“", alles_aus: "Knopf „Alles aus“" }, (v, f) => {
+    nimm(v, f);
+    ["fenster_auto", "verlauf_chip", "alles_aus"].forEach((k) => { if (r[k] === true) delete r[k]; });
+  });
+  const namenData = Object.fromEntries(genutzt.map((g) => [`gn_${g}`, r.gruppen_namen?.[g] || ""]));
+  haForm($("[data-f=namen]"), namenData, genutzt.map((g) => ({ name: `gn_${g}`, selector: { text: {} } })),
+    Object.fromEntries(genutzt.map((g) => [`gn_${g}`, `${(GRUPPEN.find(([id]) => id === g) || [, g.replace(/^eigen-/, "")])[1]} heißt …`])), (v) => {
+      const gn = { ...(r.gruppen_namen || {}) };
+      genutzt.forEach((g) => { const w = (v[`gn_${g}`] || "").trim(); if (w) gn[g] = w; else if (!g.startsWith("eigen-")) delete gn[g]; });
+      r.gruppen_namen = gn; speichern();
+    });
+  s.inhalt.querySelectorAll("[data-sp]").forEach((b) => b.addEventListener("click", () => {
+    s.inhalt.querySelectorAll("[data-sp]").forEach((o) => o.setAttribute("aria-pressed", o === b));
+    r.spalten = Number(b.dataset.sp); if (r.spalten === 1) delete r.spalten; speichern();
+  }));
+  s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
   s.oeffnen();
 }

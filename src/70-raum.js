@@ -110,11 +110,13 @@ class GlasRaumleisteEditor extends GlasEditor {
 // ---------------------------------------------------------------------------
 const RAUM_CSS = `
 .kopf-bereich{display:contents}
+.raster{display:flex;flex-direction:column;gap:var(--g-a3)}
+.abschn-raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);align-items:start}
+.abschn-raster > *{min-width:0}
+@media (min-width:760px){.raster.zwei{display:block;columns:2;column-gap:var(--g-a5)}.raster.zwei > .abschn{break-inside:avoid;margin-bottom:var(--g-a3)}}
 .aktiv-rund{background:var(--g-akzent-voll)!important;color:#fff!important}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;margin-top:calc(-1 * var(--g-a2));padding:0 var(--g-a1)}
 .chips ha-state-icon{--mdc-icon-size:16px}
-.raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2) var(--g-a2);align-items:start}
-.raster > *{min-width:0}
 .platz{display:flex;align-items:center;gap:var(--g-a3);width:100%;padding:var(--g-a4);border-radius:var(--g-r);border:1.5px dashed var(--g-text2);color:var(--g-text);text-align:left}
 `;
 
@@ -198,19 +200,22 @@ class GlasRaumCard extends GlasKarte {
     const k = s.inhalt.querySelector(".kopf-bereich");
     const bearbKnopf = istAdmin(h) && Glas.einst && (Glas.einst.raeume || []).some((r) => r.hash === c.hash)
       ? (Glas.bearbeiten ? `<button class="rund aktiv-rund" data-bearb aria-label="Bearbeiten beenden"><ha-icon data-i="mdi:check"></ha-icon></button>` : `<button class="rund glas" data-bearb aria-label="Raum bearbeiten"><ha-icon data-i="mdi:pencil-outline"></ha-icon></button>`) : "";
-    const knoepfe = bearbKnopf + (c.alles_aus && !Glas.bearbeiten ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "");
+    const zahnrad = Glas.bearbeiten && bearbKnopf ? `<button class="rund glas" data-raumeinst aria-label="Raum einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>` : "";
+    const knoepfe = zahnrad + bearbKnopf + (c.alles_aus && !Glas.bearbeiten ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "");
     const chips = this.chips();
     const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
-    }).join("")}${c.bereich ? `<button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button>` : ""}</div>`
-      : c.bereich ? `<div class="chips"><button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button></div>` : ""}`;
+    }).join("")}${c.bereich && c.verlauf_chip !== false ? `<button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button>` : ""}</div>`
+      : c.bereich && c.verlauf_chip !== false ? `<div class="chips"><button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button></div>` : ""}`;
     if (this._kopfHtml === kopfNeu && k.firstChild) return;
     this._kopfHtml = kopfNeu;
     k.innerHTML = kopfNeu;
     s.kopfBinden();
-    k.querySelector("[data-bearb]")?.addEventListener("click", () => Glas.bearbeitenSetzen(!Glas.bearbeiten));
-    k.querySelector("[data-aus]")?.addEventListener("click", () => {
+    const kp = s.kopfPlatz;
+    kp.querySelector("[data-raumeinst]")?.addEventListener("click", () => raumMenue(this, c.hash));
+    kp.querySelector("[data-bearb]")?.addEventListener("click", () => Glas.bearbeitenSetzen(!Glas.bearbeiten));
+    kp.querySelector("[data-aus]")?.addEventListener("click", () => {
       const ziele = this.ausZiele();
       if (ziele.length) h.callService("homeassistant", "turn_off", { entity_id: ziele });
     });
@@ -219,7 +224,7 @@ class GlasRaumCard extends GlasKarte {
       if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else raumVerlaufOeffnen(this, this._config.bereich, this._config.name, b.dataset.chip);
     }));
     k.querySelector("[data-verlauf]")?.addEventListener("click", () => raumVerlaufOeffnen(this, this._config.bereich, this._config.name));
-    const unter = k.querySelector(".unter");
+    const unter = kp.querySelector(".unter");
     if (unter && c.bereich) {
       unter.setAttribute("role", "button"); unter.tabIndex = 0; unter.style.cursor = "pointer";
       unter.setAttribute("aria-label", `${unter.textContent}, Verlauf öffnen`);
@@ -259,25 +264,39 @@ class GlasRaumCard extends GlasKarte {
       cfgs = this._config.cards || [];
       if (this._kartenCfg !== cfgs) {
         this._kartenCfg = cfgs;
-        this._karten = cfgs.map((cfg) => { const el = hilfe.createCardElement(cfg); el.hass = this._hass; return el; });
+        this._karten = cfgs.map((cfg) => { const el = hilfe.createCardElement(sauber(cfg)); el.hass = this._hass; return el; });
       }
     }
+    // Abschnitte (Überschrift + Kacheln) als eigene Kästen: untereinander oder versetzt nebeneinander
+    const spalten = (raum ? raum.spalten : this._config.spalten) === 2;
     raster.replaceChildren();
     raster.classList.remove("bearb");
+    raster.classList.toggle("zwei", spalten);
+    s.blatt.classList.toggle("breit", spalten);
+    let box = null;
+    const neueBox = (gruppe) => {
+      box = document.createElement("section");
+      box.className = "abschn";
+      if (gruppe !== undefined) box.dataset.gruppe = gruppe;
+      box.innerHTML = `<div class="abschn-raster"></div>`;
+      raster.appendChild(box);
+      return box;
+    };
     this._karten.forEach((el, n) => {
+      const cfg = cfgs[n] || {};
       const z = document.createElement("div");
       const g = el.getGridOptions?.() || el.getLayoutOptions?.() || {};
       const sp = g.columns === "full" ? 12 : Number(g.columns || g.grid_columns * 3 || 12);
       z.style.gridColumn = `span ${klemmen(sp || 12, 1, 12)}`;
-      const cfg = cfgs[n] || {};
+      if (cfg.type === "heading") neueBox(cfg._gruppe);
+      else if (!box) neueBox(undefined);
       if (raum && cfg._i != null) {
         z.dataset.i = cfg._i;
         z.dataset.name = cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
         if (cfg._aus) z.classList.add("aus");
       }
-      if (raum && cfg._gruppe) z.dataset.gruppe = cfg._gruppe;
       z.appendChild(el);
-      raster.appendChild(z);
+      box.firstElementChild.appendChild(z);
       el.addEventListener("ll-rebuild", () => { this._kartenCfg = null; });
     });
     if (raum) bearbeitRaster(raster, listeZugriff({ art: "raum", hash: raum.hash }), this, { scroller: s.inhalt });
@@ -377,7 +396,7 @@ function fensterOeffnen(quelle, bereich, raumName) {
       ${alle.length ? "" : `<div class="leise">Keine Fenster- oder Türsensoren gefunden.</div>`}`;
     s.kopfBinden();
     s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.e]; });
-    s.inhalt.querySelectorAll(".f-zeile").forEach((b) => b.addEventListener("click", () => mehrInfo(quelle, b.dataset.e)));
+    s.inhalt.querySelectorAll(".f-zeile").forEach((b) => b.addEventListener("click", () => steuerungOeffnen(quelle, b.dataset.e, {})));
   };
   const neu = () => zeichnen();
   Glas.hassHoerer.add(neu);

@@ -61,7 +61,6 @@ class GlasKopfCard extends GlasKarte {
         return `<button class="person" data-p="${esc(p.id)}" aria-pressed="${ich?.id === p.id}" aria-label="${esc(p.name || "Tablet")}${da ? ", zu Hause" : ""}">
           ${p.tablet ? `<ha-icon data-i="mdi:tablet"></ha-icon>` : esc(p.kurz)}${da ? `<span class="haus" aria-hidden="true"><ha-icon data-i="mdi:home"></ha-icon></span>` : ""}</button>`;
       }).join("")}</div>` : ""}</div></div>
-      ${Glas.bearbeiten ? `<div class="bearb-zeile glas" role="status"><ha-icon data-i="mdi:gesture-tap-hold"></ha-icon><span>Bearbeiten: Kachel antippen für alle Einstellungen, ziehen (Handy: kurz halten) zum Verschieben. Räume unten öffnen und genauso bearbeiten.</span></div>` : ""}
       ${chips.length ? `<div class="chips">${chips.map(({ ch, i, st }) => {
         const farbe = farbeAus(ch.farbe, st ? Geraet.farbe(st) : "#8e8e93");
         const text = [ch.name || st?.attributes.friendly_name || ch.entity, ch.zustand_zeigen === false || !st ? "" : Geraet.zustand(h, st, Geraet.regler(st))].filter(Boolean).join(" ");

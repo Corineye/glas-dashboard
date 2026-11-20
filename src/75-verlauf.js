@@ -167,7 +167,7 @@ function raumVerlaufOeffnen(quelle, bereich, raumName, fokus) {
         : gruppen.map(([n, l]) => `<div class="v-gruppe-titel">${esc(n)}</div><div class="v-gruppe">${l.map((e) => verlaufKarteHtml(h, e, v, e === fokus)).join("")}</div>`).join("")}`;
     s.kopfBinden();
     s.inhalt.querySelectorAll("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { stunden = Number(b.dataset.zeitraum); laden(); }));
-    s.inhalt.querySelectorAll("button[data-ve]").forEach((b) => b.addEventListener("click", () => mehrInfo(quelle, b.dataset.ve)));
+    s.inhalt.querySelectorAll("button[data-ve]").forEach((b) => b.addEventListener("click", () => steuerungOeffnen(quelle, b.dataset.ve, {})));
     if (fokus && v && !s._gescrollt) { s._gescrollt = true; s.inhalt.querySelector(".fokus")?.scrollIntoView({ block: "center" }); }
   };
   const laden = async () => {
