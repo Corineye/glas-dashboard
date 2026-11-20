@@ -11,6 +11,7 @@ const KARTEN = [
   ["glas-drucker-card", GlasDruckerCard, GlasDruckerEditor, "Glas · Drucker & Werkstatt", "3D-Drucker: Fortschritt, Kamera, Steuerung, Warteschlange und knappes Filament aus der Filament-Werkstatt."],
   ["glas-robi-card", GlasRobiCard, GlasRobiEditor, "Glas · Robi", "Saugroboter: Akku, alles oder einzelne Räume saugen, Saugstärke, Station."],
   ["glas-gaeste-card", GlasGaesteCard, GlasGaesteEditor, "Glas · Gäste", "WLAN-QR-Code zum Scannen, optional ein zweiter Code."],
+  ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
 ];
 window.customCards = window.customCards || [];
@@ -18,5 +19,8 @@ for (const [tag, Karte, Editor, name, beschreibung] of KARTEN) {
   if (!customElements.get(tag)) customElements.define(tag, Karte);
   if (!customElements.get(`${tag}-editor`)) customElements.define(`${tag}-editor`, Editor);
   if (!window.customCards.some((k) => k.type === tag)) window.customCards.push({ type: tag, name, description: beschreibung, preview: true, documentationURL: "https://github.com/Corineye/glas-dashboard" });
+}
+for (const [tag, K] of [["glas-personen-editor", GlasPersonenEditor], ["glas-chips-editor", GlasChipsEditor], ["glas-einstellungen", GlasEinstellungen], ["ll-strategy-dashboard-glas", GlasStrategie]]) {
+  if (!customElements.get(tag)) customElements.define(tag, K);
 }
 console.info(`%c GLAS-DASHBOARD %c ${VERSION} `, "color:#fff;background:#0a84ff;font-weight:700;border-radius:4px 0 0 4px;padding:2px 6px", "color:#0a84ff;background:#e8f1ff;border-radius:0 4px 4px 0;padding:2px 6px");

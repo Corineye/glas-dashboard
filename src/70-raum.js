@@ -79,7 +79,7 @@ class GlasRaumleisteCard extends GlasKarte {
     }
     const r = this._portal.shadowRoot;
     r.innerHTML = `<style>${TOKENS.replace(":host{", ".w{").replace(":host([dunkel]){", ".w.dunkel{")}${LEISTE_CSS}</style>
-      <div class="w ${this._hass.themes?.darkMode ? "dunkel" : ""}">${this.inhalt(true)}</div>`;
+      <div class="w ${istDunkel(this._hass) ? "dunkel" : ""}">${this.inhalt(true)}</div>`;
     this.verdrahten(r);
   }
   verdrahten(r) {
@@ -186,7 +186,7 @@ class GlasRaumCard extends GlasKarte {
   kopfZeichnen() {
     const s = this._schicht, h = this._hass, c = this._config;
     if (!s) return;
-    s.dunkel(h.themes?.darkMode);
+    s.dunkel(istDunkel(h));
     const k = s.inhalt.querySelector(".kopf-bereich");
     const knoepfe = c.alles_aus ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "";
     const chips = this.chips();

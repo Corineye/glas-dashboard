@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.2.1";
+const VERSION = "0.3.0";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -24,6 +24,7 @@ const TOKENS = `
   --g-rot-text:#c4261d;
   /* kräftigere Töne für weiße Schrift (Kontrast mind. 4,5:1) */
   --g-gruen-voll:#1f7a35; --g-rot-voll:#d70015; --g-akzent-voll:#0067d6;
+  --g-trenn:rgba(60,60,67,.14);
   --g-blur:blur(20px) saturate(160%);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;
   -webkit-font-smoothing:antialiased;
@@ -37,6 +38,7 @@ const TOKENS = `
   --g-schatten:none;
   --g-aktiv:#f2f2f7; --g-aktiv-text:#1c1c1e;
   --g-rot-text:#ff8a80;
+  --g-trenn:rgba(255,255,255,.09);
 }
 *{box-sizing:border-box}
 button{font:inherit;color:inherit;border:0;margin:0;padding:0;background:none;cursor:pointer;touch-action:manipulation;
@@ -171,7 +173,7 @@ class GlasKarte extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._sperre = false; // während Ziehen kein Neuzeichnen
-    this._hoerer = () => { if (this._config && this._hass) this.render(); };
+    this._hoerer = () => { if (this._hass) this.toggleAttribute("dunkel", istDunkel(this._hass)); if (this._config && this._hass) this.render(); };
   }
   connectedCallback() { Glas.hoerer.add(this._hoerer); if (this._config && this._hass) this.render(); }
   disconnectedCallback() { Glas.hoerer.delete(this._hoerer); }
@@ -186,9 +188,9 @@ class GlasKarte extends HTMLElement {
     const alt = this._hass;
     this._hass = h;
     Glas.hassSetzen(h);
-    this.toggleAttribute("dunkel", !!h.themes?.darkMode);
+    this.toggleAttribute("dunkel", istDunkel(h));
     if (!this._config || this._sperre) return;
-    if (!alt || alt.themes?.darkMode !== h.themes?.darkMode || this.entitaeten().some((e) => alt.states[e] !== h.states[e])) this.render();
+    if (!alt || istDunkel(alt) !== istDunkel(h) || this.entitaeten().some((e) => alt.states[e] !== h.states[e])) this.render();
   }
   get hass() { return this._hass; }
   entitaeten() { return []; }
@@ -342,6 +344,115 @@ const AKTIONEN_LABELS = {
   tap_action: "Tippen auf die Kachel", icon_tap_action: "Tippen auf das Symbol",
   hold_action: "Gedrückt halten", double_tap_action: "Doppelt tippen",
 };
+// ---------------------------------------------------------------------------
+// Zentrale Einstellungen (Integration „Glas-Dashboard“, gespeichert auf dem Pi)
+// Personen · Räume mit Geräten · Startseite pro Person · Bereiche · Aussehen
+// ---------------------------------------------------------------------------
+const ABSCHNITTE = [
+  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "halb"], ["planer", "Planer heute", "mdi:calendar-check", "halb"],
+  ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "halb"],
+  ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
+  ["gaeste", "Gäste", "mdi:qrcode", "halb"],
+];
+const GRUPPEN = [
+  ["licht", "Licht"], ["klima", "Klima"], ["rollos", "Rollos"], ["schalter", "Steckdosen & Schalter"],
+  ["medien", "Medien"], ["fenster", "Fenster & Türen"], ["sensoren", "Sensoren"], ["sonstiges", "Sonstiges"],
+];
+const gruppeVon = (hass, eid) => {
+  const d = domainVon(eid), dc = hass.states[eid]?.attributes.device_class;
+  if (d === "light") return "licht";
+  if (["climate", "fan", "humidifier", "water_heater"].includes(d) || (d === "sensor" && ["temperature", "humidity"].includes(dc))) return "klima";
+  if (d === "cover") return "rollos";
+  if (["switch", "input_boolean"].includes(d)) return "schalter";
+  if (d === "media_player") return "medien";
+  if (d === "binary_sensor" && ["window", "door", "garage_door", "opening"].includes(dc)) return "fenster";
+  if (["sensor", "binary_sensor"].includes(d)) return "sensoren";
+  return "sonstiges";
+};
+// Was ein Raum anfangs zeigt: alles Steuerbare + Temperatur/Feuchte, aber kein Kleinkram
+const RAUM_DOMAINS = ["light", "switch", "input_boolean", "fan", "cover", "climate", "media_player", "vacuum", "lock", "humidifier", "scene", "script", "button", "sensor", "binary_sensor", "camera", "select", "input_select", "number"];
+function geraetVorschlag(hass, eid) {
+  const d = domainVon(eid), dc = hass.states[eid]?.attributes.device_class;
+  const wichtig = ["light", "switch", "fan", "cover", "climate", "media_player", "lock", "humidifier", "input_boolean"].includes(d)
+    || (d === "sensor" && ["temperature", "humidity"].includes(dc)) || (d === "binary_sensor" && ["window", "door"].includes(dc));
+  return { entity: eid, an: wichtig, gruppe: gruppeVon(hass, eid),
+    groesse: d === "climate" ? "ganz" : d === "sensor" ? "klein" : "breit", zweite_zeile: "zustand" };
+}
+function raumGeraeteVorschlag(hass, bereich) {
+  if (!bereich) return [];
+  const reihen = GRUPPEN.map(([g]) => g);
+  return entitaetenImBereich(hass, bereich, RAUM_DOMAINS).map((e) => geraetVorschlag(hass, e))
+    .sort((a, b) => reihen.indexOf(a.gruppe) - reihen.indexOf(b.gruppe));
+}
+function einstStandard() {
+  return { version: 1, personen: [], gruss_modus: "name", raeume: [], startseiten: { alle: startseiteStandard() }, bereiche: {},
+    aussehen: { modus: "auto", hintergrund: "aurora" } };
+}
+function startseiteStandard() {
+  return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: true, breite })), favoriten: [], chips: [] };
+}
+// Startseite der gerade gewählten Person (eigene, sonst „Für alle“)
+function startseiteVon(einst, person) {
+  const s = einst?.startseiten || {};
+  const eigen = person && s[person.id];
+  const basis = eigen && eigen.eigen !== false ? eigen : s.alle || startseiteStandard();
+  const bekannt = new Set((basis.abschnitte || []).map((a) => a.id));
+  // neue Abschnitte aus späteren Versionen hinten anhängen
+  return { ...startseiteStandard(), ...basis, abschnitte: [...(basis.abschnitte || []), ...startseiteStandard().abschnitte.filter((a) => !bekannt.has(a.id)).map((a) => ({ ...a, an: false }))] };
+}
+
+Glas.einst = Glas.einst || null;
+Glas.einstFehler = null;
+Glas.einstLaden = function (hass) {
+  if (this._einstVersprechen || !hass?.connection) return this._einstVersprechen;
+  this._einstVersprechen = hass.callWS({ type: "glas_dashboard/lesen" }).then((r) => {
+    this.einst = { ...einstStandard(), ...(r.daten || {}) };
+    this.einstFehler = null;
+    hass.connection.subscribeMessage((m) => { this.einst = { ...einstStandard(), ...(m.daten || {}) }; this.melden(); }, { type: "glas_dashboard/abonnieren" }).catch(() => {});
+    this.melden();
+    return this.einst;
+  }).catch((e) => {
+    this.einstFehler = e?.code === "unknown_command" ? "fehlt" : (e?.message || "Fehler");
+    this._einstVersprechen = null;
+    this.melden();
+    return null;
+  });
+  return this._einstVersprechen;
+};
+Glas.einstSpeichern = function (hass, daten) {
+  this.einst = daten;
+  this.melden();
+  return hass.callWS({ type: "glas_dashboard/speichern", daten });
+};
+// Hell/Dunkel: folgt HA bzw. dem Handy, außer in den Einstellungen fest gewählt
+function istDunkel(h) {
+  const m = Glas.einst?.aussehen?.modus;
+  if (m === "hell") return false;
+  if (m === "dunkel") return true;
+  return !!h?.themes?.darkMode;
+}
+
+// ---------------------------------------------------------------------------
+// Hintergründe: weiche Farbflächen hinter dem Glas (ruhig, ohne Bewegung)
+// ---------------------------------------------------------------------------
+const HINTERGRUENDE = {
+  aurora: { name: "Aurora", hell: ["#eef1f8", "#bcd6ff", "#e2d3ff", "#ffdcc4", "#c9efe2"], dunkel: ["#0b0d14", "#1b3566", "#36225a", "#4a2a1c", "#0f3b37"] },
+  morgen: { name: "Morgenrot", hell: ["#fbf1ec", "#ffd3c2", "#ffe6b3", "#f6c9de", "#e4dcff"], dunkel: ["#120c0e", "#4a1f1b", "#4a3510", "#45193a", "#26204a"] },
+  see: { name: "See", hell: ["#ecf4f6", "#b9e3ef", "#cfe7ff", "#d5f2e6", "#e6e0fa"], dunkel: ["#081114", "#0f3a48", "#132f57", "#0f3d2f", "#262150"] },
+  wald: { name: "Wald", hell: ["#eff4ee", "#cfe8c8", "#e4efc0", "#c7e6dc", "#f0e3cc"], dunkel: ["#0b100c", "#1d3a1f", "#36391a", "#123832", "#3a2e18"] },
+  ruhig: { name: "Ruhig", hell: ["#f1f1f4", "#e3e5ec", "#ecebf0", "#e8e6e3", "#e5e9ea"], dunkel: ["#111114", "#1f2129", "#23222a", "#24221f", "#1e2326"] },
+};
+// „Nach Tageszeit“: morgens warm, tagsüber Aurora, abends See, nachts ruhig
+const tageszeitHg = () => { const s = new Date().getHours(); return s < 6 ? "ruhig" : s < 10 ? "morgen" : s < 17 ? "aurora" : s < 21 ? "see" : "ruhig"; };
+function hintergrundCss(id, dunkel) {
+  const wahl = id === "tageszeit" ? tageszeitHg() : id;
+  const h = HINTERGRUENDE[wahl];
+  if (!h) return "var(--primary-background-color)";
+  const [b, c1, c2, c3, c4] = h[dunkel ? "dunkel" : "hell"];
+  const a = dunkel ? "cc" : "ff";
+  return `radial-gradient(70% 55% at 8% 0%, ${c1}${a} 0%, transparent 70%),radial-gradient(55% 50% at 100% 12%, ${c2}${a} 0%, transparent 70%),`
+    + `radial-gradient(65% 55% at 85% 100%, ${c3}${a} 0%, transparent 72%),radial-gradient(60% 50% at 0% 92%, ${c4}${a} 0%, transparent 70%),${b}`;
+}
 // QR-Code-Erzeugung: qrcode-generator 1.4.4 von Kazuhiko Arase, MIT-Lizenz (https://github.com/kazuhikoarase/qrcode-generator)
 //---------------------------------------------------------------------
 //
@@ -2933,7 +3044,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     const h = Glas.hass, st = h?.states[entityId];
     if (!st) return;
     letzter = st;
-    s.dunkel(h.themes?.darkMode);
+    s.dunkel(istDunkel(h));
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
     const bereich = bereichVon(h, entityId);
     const raum = (bereich && h.areas?.[bereich]?.name) || "";
@@ -3592,7 +3703,7 @@ class GlasPlanerCard extends GlasKarte {
     const p = this.person();
     const st = { text: "", wann: "heute", fuer: p?.tablet ? "gemeinsam" : p?.benutzer || "gemeinsam" };
     const s = new GlasSchicht({ quelle: this, titel: "Neue Aufgabe" });
-    s.dunkel(this._hass.themes?.darkMode);
+    s.dunkel(istDunkel(this._hass));
     const fuerOpt = [...Glas.personen.filter((x) => !x.tablet && x.benutzer).map((x) => [x.benutzer, x.name]), ["gemeinsam", "Gemeinsam"]];
     const zeichnen = () => {
       s.inhalt.innerHTML = `<style>${PLANER_CSS.replace(":host{display:block}", "")}</style>${s.kopfHtml("Neue Aufgabe", "")}
@@ -3830,7 +3941,7 @@ class GlasRaumleisteCard extends GlasKarte {
     }
     const r = this._portal.shadowRoot;
     r.innerHTML = `<style>${TOKENS.replace(":host{", ".w{").replace(":host([dunkel]){", ".w.dunkel{")}${LEISTE_CSS}</style>
-      <div class="w ${this._hass.themes?.darkMode ? "dunkel" : ""}">${this.inhalt(true)}</div>`;
+      <div class="w ${istDunkel(this._hass) ? "dunkel" : ""}">${this.inhalt(true)}</div>`;
     this.verdrahten(r);
   }
   verdrahten(r) {
@@ -3937,7 +4048,7 @@ class GlasRaumCard extends GlasKarte {
   kopfZeichnen() {
     const s = this._schicht, h = this._hass, c = this._config;
     if (!s) return;
-    s.dunkel(h.themes?.darkMode);
+    s.dunkel(istDunkel(h));
     const k = s.inhalt.querySelector(".kopf-bereich");
     const knoepfe = c.alles_aus ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "";
     const chips = this.chips();
@@ -4096,7 +4207,7 @@ class GlasBereichKarte extends GlasKarte {
   }
   blattZeichnen() {
     const s = this._blatt; if (!s) return;
-    s.dunkel(this._hass.themes?.darkMode);
+    s.dunkel(istDunkel(this._hass));
     const html = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
     if (s._letztesHtml === html) return; // nichts geändert: Blatt stehen lassen
     s._letztesHtml = html;
@@ -4491,6 +4602,626 @@ class GlasGaesteEditor extends GlasEditor {
   hilfen() { return { passwort: "Steht im Klartext in der Dashboard-Konfiguration. Sicherer: ein input_text-Helfer." }; }
 }
 // ---------------------------------------------------------------------------
+// glas-zuhause-card: das ganze Dashboard aus den zentralen Einstellungen.
+// Kopf, Startseite der gewählten Person, Raumleiste und Raum-Blätter, mit Hintergrund.
+// ---------------------------------------------------------------------------
+const ZUHAUSE_CSS = `
+:host{display:block;position:relative;min-height:100vh;min-height:100dvh}
+.hg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.seite{position:relative;z-index:1;container-type:inline-size;max-width:1320px;margin:0 auto;
+  padding:calc(var(--g-a5) + env(safe-area-inset-top)) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
+.raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a3);margin-top:var(--g-a5);align-items:start}
+.raster > *{grid-column:span 12;min-width:0}
+@container (min-width:720px){.raster > .halb{grid-column:span 6}}
+.abschnitt-titel{grid-column:span 12;margin:var(--g-a3) var(--g-a1) calc(-1 * var(--g-a1))}
+.fav{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2)}
+.fav > *{min-width:0}
+.leer{max-width:520px;margin:12vh auto 0;padding:var(--g-a5);border-radius:var(--g-r);text-align:center;color:var(--g-text)}
+.leer h2{margin:0 0 var(--g-a2);font-size:var(--g-s-h2)}
+.leer p{margin:0 0 var(--g-a4);color:var(--g-text2);font-size:var(--g-s-name);line-height:1.45}
+.leer a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--g-a5);border-radius:var(--g-r-pille);background:var(--g-akzent-voll);color:#fff;font-weight:600;text-decoration:none}
+.unsichtbar{display:none}
+`;
+const SPANNE = { klein: 3, breit: 6, gross: 6, ganz: 12 };
+
+class GlasZuhauseCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._kinder = new Map(); // Schlüssel → Element (wird wiederverwendet, damit nichts flackert)
+    this._hoerer = () => this.aufbauen();
+  }
+  setConfig(c) { this._config = c || {}; this.aufbauen(); }
+  getCardSize() { return 12; }
+  getGridOptions() { return { columns: 12, rows: "auto" }; }
+  connectedCallback() {
+    Glas.hoerer.add(this._hoerer);
+    this._takt = setInterval(() => this.hintergrund(), 10 * 60e3);
+    this.aufbauen();
+  }
+  disconnectedCallback() { Glas.hoerer.delete(this._hoerer); clearInterval(this._takt); }
+  set hass(h) {
+    const erst = !this._hass;
+    this._hass = h;
+    Glas.hassSetzen(h);
+    if (erst) { Glas.einstLaden(h); this.aufbauen(); }
+    this.hintergrund();
+    this._kinder.forEach((el) => { el.hass = h; });
+  }
+  get hass() { return this._hass; }
+  kind(schluessel, tag, cfg) {
+    const k = `${schluessel}|${JSON.stringify(cfg)}`;
+    let el = this._kinder.get(k);
+    if (!el) {
+      el = document.createElement(tag);
+      try { el.setConfig(cfg); } catch (e) { el = document.createElement("div"); el.className = "leise"; el.textContent = e.message; }
+      if (this._hass) el.hass = this._hass;
+    }
+    this._neu.set(k, el);
+    return el;
+  }
+  hintergrund() {
+    const hg = this.shadowRoot.querySelector(".hg");
+    if (!hg || !this._hass) return;
+    const d = istDunkel(this._hass);
+    this.toggleAttribute("dunkel", d);
+    const css = hintergrundCss(Glas.einst?.aussehen?.hintergrund || "aurora", d);
+    if (hg._css !== css) { hg._css = css; hg.style.background = css; }
+  }
+  aufbauen() {
+    if (!this._hass || !this.isConnected) return;
+    const e = Glas.einst;
+    if (!this.shadowRoot.firstChild) this.shadowRoot.innerHTML = `<style>${TOKENS}${ZUHAUSE_CSS}</style><div class="hg"></div><div class="seite"></div><div class="ebene"></div>`;
+    this.hintergrund();
+    const seite = this.shadowRoot.querySelector(".seite"), ebene = this.shadowRoot.querySelector(".ebene");
+    if (!e) {
+      const fehlt = Glas.einstFehler === "fehlt";
+      seite.innerHTML = Glas.einstFehler || !Glas._einstVersprechen ? `<div class="leer glas"><h2>${fehlt ? "Integration fehlt" : "Einstellungen nicht erreichbar"}</h2>
+        <p>${fehlt ? "Füge unter Einstellungen › Geräte & Dienste die Integration „Glas-Dashboard“ hinzu." : esc(Glas.einstFehler || "")}</p></div>` : "";
+      return;
+    }
+    if (this._baut) { this._nochmal = true; return; }
+    // Personen gleich hier setzen (wie die Kopf-Karte), damit die richtige Startseite kommt
+    Glas.personenSetzen((e.personen || []).map((p, i) => ({ ...p, id: p.benutzer || p.name || `p${i}`, kurz: p.kurz || (p.tablet ? "" : (p.name || "?")[0].toUpperCase()) })));
+    const person = Glas.aktuellePerson(this._hass);
+    const schluessel = JSON.stringify([e, person?.id]);
+    if (schluessel === this._schluessel) return;
+    this._schluessel = schluessel;
+    this._baut = true;
+    try { this.bauen(e, person, seite, ebene); } finally { this._baut = false; }
+    if (this._nochmal) { this._nochmal = false; queueMicrotask(() => this.aufbauen()); }
+  }
+  bauen(e, person, seite, ebene) {
+    this._neu = new Map();
+    if (!e.raeume?.length && !e.personen?.length && !(e.startseiten?.alle?.favoriten || []).length) {
+      seite.innerHTML = `<div class="leer glas"><h2>Willkommen</h2><p>Richte zuerst Personen, Räume und deine Startseite ein. Danach baut sich dieses Dashboard von selbst auf.</p>
+        <a href="/glas-einstellungen">Einstellungen öffnen</a></div>`;
+      ebene.replaceChildren();
+      this._kinder = this._neu;
+      return;
+    }
+    const s = startseiteVon(e, person);
+    const teile = [];
+    teile.push(this.kind("kopf", "glas-kopf-card", { gruss_modus: e.gruss_modus || "name", gruss_text: e.gruss_text, untertitel: e.untertitel, personen: e.personen || [], chips: s.chips || [] }));
+    const raster = document.createElement("div");
+    raster.className = "raster";
+    const b = e.bereiche || {};
+    for (const a of s.abschnitte) {
+      if (!a.an) continue;
+      let el = null;
+      if (a.id === "wetter" && b.wetter?.entity) el = this.kind("wetter", "glas-wetter-card", b.wetter);
+      else if (a.id === "planer" && b.planer?.an !== false) el = this.kind("planer", "glas-planer-card", b.planer || {});
+      else if (a.id === "sicherheit" && b.sicherheit && (b.sicherheit.alarm || b.sicherheit.fenster_auto !== false)) el = this.kind("sicherheit", "glas-sicherheit-card", { fenster_auto: true, ...(b.sicherheit || {}) });
+      else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
+      else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
+      else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
+      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false)) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
+        wrap.style.display = "contents";
+        const fav = wrap.querySelector(".fav");
+        s.favoriten.filter((f) => f.an !== false && f.entity).forEach((f, i) => {
+          const k = this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
+          const z = document.createElement("div");
+          z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
+          z.appendChild(k);
+          fav.appendChild(z);
+        });
+        fav.style.gridColumn = "span 12";
+        raster.append(...wrap.childNodes);
+        continue;
+      }
+      if (!el) continue;
+      el.classList.toggle("halb", a.breite === "halb");
+      raster.appendChild(el);
+    }
+    teile.push(raster);
+    seite.replaceChildren(...teile);
+    // Räume: Leiste + Blätter (leben unsichtbar, öffnen über #raum)
+    const raeume = (e.raeume || []).filter((r) => r.hash);
+    const unten = [];
+    if (raeume.length) {
+      unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
+      raeume.forEach((r) => unten.push(this.kind(`raum-${r.hash}`, "glas-raum-card", raumCfg(this._hass, r))));
+    }
+    ebene.replaceChildren(...unten);
+    this._kinder = this._neu;
+  }
+}
+// Gerät aus den Einstellungen → Kachel-Konfiguration
+function kachelCfg(g) {
+  const { an, gruppe, ...rest } = g;
+  return { groesse: "breit", zweite_zeile: "zustand", ...rest };
+}
+function raumCfg(hass, r) {
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && g.entity);
+  const cards = [];
+  let gruppe = null;
+  for (const g of geraete) {
+    const gr = g.gruppe || gruppeVon(hass, g.entity);
+    if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle" }); }
+    cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g) });
+  }
+  return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
+    fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: r.chips, cards };
+}
+
+class GlasZuhauseEditor extends GlasEditor {
+  render() {
+    if (!this._hass) return;
+    this._gezeichnet = true;
+    this.innerHTML = `<p style="line-height:1.45">Diese Karte baut alles aus den zentralen Einstellungen auf. Personen, Räume, Startseite und Aussehen stellst du in der Seitenleiste unter <a href="/glas-einstellungen">Glas</a> ein.</p>`;
+  }
+}
+// ---------------------------------------------------------------------------
+// Einstellungsseite „Glas“ (Seitenleiste): alles an einer Stelle, gilt auf allen Geräten
+// ---------------------------------------------------------------------------
+const EINST_CSS = `
+:host{display:block;position:relative;min-height:100vh;min-height:100dvh;color:var(--g-text)}
+.hg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.seite{position:relative;z-index:1;max-width:780px;margin:0 auto;padding:calc(12px + env(safe-area-inset-top)) var(--g-a4) 120px}
+.oben{display:flex;align-items:center;gap:var(--g-a2);min-height:56px}
+.oben h1{flex:1;margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
+.status{font-size:var(--g-s-klein);color:var(--g-text2);transition:opacity .3s ease}
+.menue{display:none}
+:host([schmal]) .menue{display:flex}
+.reiter{display:flex;gap:2px;padding:3px;border-radius:var(--g-r-pille);margin:var(--g-a2) 0 var(--g-a5);overflow-x:auto;scrollbar-width:none}
+.reiter::-webkit-scrollbar{display:none}
+.reiter button{flex:1 0 auto;min-height:36px;padding:0 var(--g-a4);border-radius:var(--g-r-pille);font-size:var(--g-s-klein);font-weight:600;color:var(--g-text);white-space:nowrap}
+.reiter button[aria-selected="true"]{background:var(--g-aktiv);color:var(--g-aktiv-text)}
+h2{margin:var(--g-a5) var(--g-a3) var(--g-a2);font-size:var(--g-s-klein);font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--g-text2)}
+h2:first-child{margin-top:0}
+.gruppe{border-radius:var(--g-r-klein);overflow:hidden;background:var(--g-blatt);border:1px solid var(--g-glas-rand)}
+.gruppe.form{padding:var(--g-a2) var(--g-a4) var(--g-a4)}
+.fuss{margin:var(--g-a2) var(--g-a3) 0;font-size:var(--g-s-klein);color:var(--g-text2);line-height:1.4}
+.zeile{position:relative;display:flex;align-items:center;gap:var(--g-a3);min-height:52px;padding:var(--g-a2) var(--g-a3) var(--g-a2) var(--g-a2);background:var(--g-blatt);
+  transition:transform .2s cubic-bezier(.23,1,.32,1)}
+.zeile + .zeile, .kopfzeile + .zeile{box-shadow:inset 0 1px 0 var(--g-trenn)}
+.zeile.zieht{z-index:3;transition:none;box-shadow:0 10px 30px rgba(0,0,0,.22);border-radius:var(--g-r-klein)}
+.zeile.aus .name{opacity:.45}
+.zeile button.weiter{position:absolute;inset:0;z-index:0}
+.zeile > *:not(.weiter){position:relative;z-index:1}
+.griff{flex:none;width:32px;height:40px;display:flex;align-items:center;justify-content:center;color:var(--g-text2);cursor:grab;touch-action:none}
+.griff:active{cursor:grabbing}
+.sym{flex:none;width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-text)}
+.name{flex:1;min-width:0}
+.name b{display:block;font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.name span{display:block;font-size:var(--g-s-klein);color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pfeil{flex:none;color:var(--g-text2)}
+.kopfzeile{padding:var(--g-a2) var(--g-a4) 4px;font-size:var(--g-s-mini);font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--g-text2);background:var(--g-blatt)}
+.segment{flex:none;display:flex;padding:2px;border-radius:9px;background:var(--g-fuell)}
+.segment button{min-width:34px;height:30px;padding:0 8px;border-radius:7px;font-size:var(--g-s-klein);font-weight:600;color:var(--g-text)}
+.segment button[aria-pressed="true"]{background:var(--g-an);color:#1c1c1e;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.auswahl{flex:none;height:34px;padding:0 var(--g-a2);border-radius:9px;border:0;background:var(--g-fuell);color:var(--g-text);font:inherit;font-size:var(--g-s-klein)}
+.schalter{flex:none;position:relative;width:51px;height:31px;border-radius:16px;background:var(--g-fuell);transition:background-color .2s ease}
+.schalter::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:transform .2s cubic-bezier(.23,1,.32,1)}
+.schalter[aria-checked="true"]{background:var(--g-gruen-voll)}
+.schalter[aria-checked="true"]::after{transform:translateX(20px)}
+.klein-knopf{flex:none;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--g-text2)}
+.extra{padding:0 var(--g-a4) var(--g-a4) 52px;background:var(--g-blatt)}
+.aktionen{display:flex;flex-wrap:wrap;gap:var(--g-a2);margin-top:var(--g-a3)}
+.knopf{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 var(--g-a4);border-radius:var(--g-r-pille);font-size:var(--g-s-name);font-weight:600;background:var(--g-fuell);color:var(--g-text)}
+.knopf.haupt{background:var(--g-akzent-voll);color:#fff}
+.knopf.rot{color:var(--g-rot-text)}
+.zurueck{display:inline-flex;align-items:center;min-height:44px;margin-left:-8px;font-size:var(--g-s-text);color:var(--g-akzent)}
+.personen-wahl{display:flex;flex-wrap:wrap;gap:var(--g-a2);margin-bottom:var(--g-a3)}
+.hgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:var(--g-a3);padding:var(--g-a3)}
+.hg-wahl{display:flex;flex-direction:column;gap:6px;align-items:stretch;font-size:var(--g-s-klein);font-weight:600;color:var(--g-text)}
+.hg-wahl .muster{height:84px;border-radius:var(--g-r-klein);border:1px solid var(--g-glas-rand);display:flex;align-items:center;justify-content:center}
+.hg-wahl .muster span{width:56%;height:38%;border-radius:10px;background:var(--g-glas);border:1px solid var(--g-glas-rand);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur)}
+.hg-wahl[aria-pressed="true"] .muster{outline:3px solid var(--g-akzent);outline-offset:2px}
+.hinzu{padding:var(--g-a2) var(--g-a4) var(--g-a3);background:var(--g-blatt);box-shadow:inset 0 1px 0 var(--g-trenn)}
+.leise-zeile{padding:var(--g-a4);font-size:var(--g-s-klein);color:var(--g-text2);background:var(--g-blatt)}
+@media (max-width:560px){
+  .zeile.geraet{flex-wrap:wrap}
+  .zeile.geraet .name{flex-basis:calc(100% - 140px)}
+  .zeile.geraet .optionen{flex-basis:100%;min-width:0;padding-left:40px;display:flex;gap:var(--g-a2);align-items:center}
+  .zeile.geraet .optionen .auswahl{flex:1;min-width:0}
+}
+.optionen{display:flex;gap:var(--g-a2);align-items:center}
+`;
+const GROESSEN = [["klein", "S", "Klein (1×1)"], ["breit", "M", "Breit (2×1)"], ["gross", "L", "Groß (2×2)"], ["ganz", "▭", "Ganze Breite"]];
+const ANZEIGEN = [["zustand", "Zustand"], ["zustand_zuletzt", "Zustand + Zeit"], ["zuletzt", "Zuletzt geändert"], ["aus", "Nur Name"]];
+const slug = (s) => String(s || "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "raum";
+const kopie = (o) => JSON.parse(JSON.stringify(o));
+
+// Teile der vorhandenen Karten-Editoren wiederverwenden
+class GlasPersonenEditor extends GlasKopfEditor { listen() { return super.listen().filter((l) => l.key === "personen"); } }
+class GlasChipsEditor extends GlasKopfEditor { schema() { return []; } listen() { return super.listen().filter((l) => l.key === "chips"); } }
+
+// Zeilen per Griff verschieben: folgt dem Finger 1:1, die anderen weichen aus
+function ziehSortieren(liste, fertig) {
+  liste.querySelectorAll(".griff").forEach((griff) => {
+    griff.addEventListener("pointerdown", (ev) => {
+      const zeile = griff.closest(".zeile");
+      const zeilen = [...liste.querySelectorAll(":scope > .zeile[data-i]")];
+      const von = zeilen.indexOf(zeile);
+      if (von < 0) return;
+      ev.preventDefault();
+      griff.setPointerCapture(ev.pointerId);
+      const start = ev.clientY, boxen = zeilen.map((z) => z.getBoundingClientRect()), hoehe = boxen[von].height;
+      let nach = von;
+      zeile.classList.add("zieht");
+      const bewegen = (e) => {
+        const dy = e.clientY - start;
+        zeile.style.transform = `translateY(${dy}px)`;
+        const mitte = boxen[von].top + hoehe / 2 + dy;
+        nach = von;
+        boxen.forEach((b, i) => { if (i < von && mitte < b.top + b.height / 2) nach = Math.min(nach, i); if (i > von && mitte > b.top + b.height / 2) nach = Math.max(nach, i); });
+        zeilen.forEach((z, i) => {
+          if (i === von) return;
+          const weg = von < nach && i > von && i <= nach ? -hoehe : von > nach && i < von && i >= nach ? hoehe : 0;
+          z.style.transform = weg ? `translateY(${weg}px)` : "";
+        });
+      };
+      const los = () => {
+        griff.removeEventListener("pointermove", bewegen);
+        zeilen.forEach((z) => { z.style.transform = ""; z.classList.remove("zieht"); });
+        if (nach !== von) fertig(von, nach);
+      };
+      griff.addEventListener("pointermove", bewegen);
+      griff.addEventListener("pointerup", los, { once: true });
+      griff.addEventListener("pointercancel", los, { once: true });
+    });
+    // Tastatur: Griff fokussieren, Pfeil hoch/runter
+    griff.addEventListener("keydown", (e) => {
+      const i = Number(griff.closest(".zeile").dataset.i), n = liste.querySelectorAll(":scope > .zeile[data-i]").length;
+      if (e.key === "ArrowUp" && i > 0) { e.preventDefault(); fertig(i, i - 1); }
+      if (e.key === "ArrowDown" && i < n - 1) { e.preventDefault(); fertig(i, i + 1); }
+    });
+  });
+}
+const verschieben = (arr, von, nach) => { const a = [...arr]; const [x] = a.splice(von, 1); a.splice(nach, 0, x); return a; };
+
+class GlasEinstellungen extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._tab = "raeume";
+    this._raum = null; // geöffneter Raum (Index)
+    this._fuer = "alle";
+    this._offen = new Set(); // aufgeklappte Geräte-Zeilen
+  }
+  set narrow(n) { this.toggleAttribute("schmal", !!n); }
+  set panel(_) { /* */ }
+  set route(_) { /* */ }
+  set hass(h) {
+    const erst = !this._hass;
+    this._hass = h;
+    Glas.hassSetzen(h);
+    if (erst) this.start();
+    else {
+      this.shadowRoot.querySelectorAll("ha-form, .editor").forEach((f) => { f.hass = h; });
+      this.shadowRoot.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = h; });
+      this.hintergrund();
+    }
+  }
+  get hass() { return this._hass; }
+  async start() {
+    this.shadowRoot.innerHTML = `<style>${TOKENS}${EINST_CSS}</style><div class="hg"></div><div class="seite"><div class="leise">Lädt …</div></div>`;
+    this.hintergrund();
+    // HA lädt Formular-Bausteine erst bei Bedarf: einmal einen Karten-Editor anfordern
+    try {
+      const hf = await window.loadCardHelpers();
+      for (const cfg of [{ type: "entities", entities: [] }, { type: "tile", entity: "sun.sun" }]) {
+        const k = await hf.createCardElement(cfg);
+        await k.constructor.getConfigElement?.();
+      }
+    } catch (_) { /* geht auch ohne */ }
+    const e = await Glas.einstLaden(this._hass);
+    if (!e) {
+      this.$(".seite").innerHTML = `<div class="gruppe leise-zeile">${Glas.einstFehler === "fehlt" ? "Die Integration „Glas-Dashboard“ ist nicht eingerichtet: Einstellungen › Geräte &amp; Dienste › Integration hinzufügen." : esc(Glas.einstFehler)}</div>`;
+      return;
+    }
+    this._d = kopie(e);
+    this._d.bereiche = this._d.bereiche || {};
+    this._d.startseiten = this._d.startseiten || { alle: startseiteStandard() };
+    this.zeichnen();
+  }
+  $(s) { return this.shadowRoot.querySelector(s); }
+  $$(s) { return [...this.shadowRoot.querySelectorAll(s)]; }
+  hintergrund() {
+    const d = istDunkel(this._hass);
+    this.toggleAttribute("dunkel", d);
+    const hg = this.$(".hg");
+    if (hg) hg.style.background = hintergrundCss(this._d?.aussehen?.hintergrund || Glas.einst?.aussehen?.hintergrund || "aurora", d);
+  }
+  speichern() {
+    clearTimeout(this._speicherT);
+    const st = this.$(".status");
+    if (st) st.textContent = "…";
+    this._speicherT = setTimeout(async () => {
+      try { await Glas.einstSpeichern(this._hass, kopie(this._d)); if (this.$(".status")) this.$(".status").textContent = "Gespeichert"; }
+      catch (e) { if (this.$(".status")) this.$(".status").textContent = `Nicht gespeichert: ${e.message || e}`; }
+    }, 450);
+  }
+  form(box, data, schema, labels, aendern, hilfen = {}) {
+    const f = document.createElement("ha-form");
+    f.hass = this._hass; f.data = data; f.schema = schema;
+    f.computeLabel = (s) => labels[s.name] ?? s.name;
+    f.computeHelper = (s) => hilfen[s.name];
+    f.addEventListener("value-changed", (e) => { e.stopPropagation(); const v = { ...e.detail.value }; Object.keys(v).forEach((k) => { if (v[k] === "" || v[k] === undefined) delete v[k]; }); f.data = v; aendern(v, f); });
+    box.appendChild(f);
+    return f;
+  }
+  editor(box, tag, cfg, aendern) {
+    const ed = document.createElement(tag);
+    ed.classList.add("editor");
+    ed.hass = this._hass;
+    ed.setConfig({ type: `custom:${tag.replace("-editor", "")}`, ...cfg });
+    ed.addEventListener("config-changed", (e) => { e.stopPropagation(); const { type, ...rest } = e.detail.config; aendern(rest); });
+    box.appendChild(ed);
+    return ed;
+  }
+  zeichnen() {
+    const tabs = [["raeume", "Räume"], ["start", "Startseite"], ["personen", "Personen"], ["bereiche", "Bereiche"], ["aussehen", "Aussehen"]];
+    const scroll = window.scrollY;
+    this.$(".seite").innerHTML = `<div class="oben"><button class="klein-knopf menue" aria-label="Seitenleiste"><ha-icon data-i="mdi:menu"></ha-icon></button>
+      <h1>Glas</h1><span class="status" aria-live="polite"></span></div>
+      <div class="reiter glas" role="tablist">${tabs.map(([id, n]) => `<button role="tab" data-tab="${id}" aria-selected="${this._tab === id}">${n}</button>`).join("")}</div>
+      <div class="inhalt"></div>`;
+    this.$(".menue").addEventListener("click", () => fire(this, "hass-toggle-menu"));
+    this.$$("[data-tab]").forEach((b) => b.addEventListener("click", () => { this._tab = b.dataset.tab; this._raum = null; this.zeichnen(); window.scrollTo(0, 0); }));
+    const box = this.$(".inhalt");
+    ({ raeume: () => (this._raum === null ? this.raeumeListe(box) : this.raumDetail(box)), start: () => this.startseite(box), personen: () => this.personen(box),
+      bereiche: () => this.bereiche(box), aussehen: () => this.aussehen(box) })[this._tab]();
+    this.$$("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    this.$$("ha-state-icon[data-e]").forEach((el) => { el.hass = this._hass; el.stateObj = this._hass.states[el.dataset.e]; });
+    window.scrollTo(0, scroll);
+  }
+  html(box, s) { box.insertAdjacentHTML("beforeend", s); return box.lastElementChild; }
+
+  // ---------------- Räume ----------------
+  raeumeListe(box) {
+    const r = this._d.raeume || [];
+    this.html(box, `<h2>Räume</h2>`);
+    const g = this.html(box, `<div class="gruppe"></div>`);
+    if (!r.length) g.innerHTML = `<div class="leise-zeile">Noch keine Räume. Übernimm sie aus Home Assistant oder füge einzeln hinzu.</div>`;
+    r.forEach((raum, i) => {
+      const n = (raum.geraete || []).filter((x) => x.an !== false).length;
+      this.html(g, `<div class="zeile" data-i="${i}"><button class="weiter" data-raum="${i}" aria-label="${esc(raum.name)} bearbeiten"></button>
+        <span class="griff" tabindex="0" role="button" aria-label="${esc(raum.name)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+        <span class="sym"><ha-icon data-i="${esc(raum.icon || "mdi:door")}"></ha-icon></span>
+        <span class="name"><b>${esc(raum.name)}</b><span>${n} ${n === 1 ? "Gerät" : "Geräte"}${raum.bereich ? ` · Bereich ${esc(this._hass.areas?.[raum.bereich]?.name || raum.bereich)}` : ""}</span></span>
+        <ha-icon class="pfeil" data-i="mdi:chevron-right"></ha-icon></div>`);
+    });
+    ziehSortieren(g, (von, nach) => { this._d.raeume = verschieben(this._d.raeume, von, nach); this.speichern(); this.zeichnen(); });
+    g.querySelectorAll("[data-raum]").forEach((b) => b.addEventListener("click", () => { this._raum = Number(b.dataset.raum); this.zeichnen(); window.scrollTo(0, 0); }));
+    const hinzu = this.html(g, `<div class="hinzu"></div>`);
+    this.form(hinzu, {}, [{ name: "bereich", selector: { area: {} } }], { bereich: "Raum aus HA-Bereich hinzufügen" }, (v) => {
+      if (v.bereich) { this.raumNeu(v.bereich); this.speichern(); this._raum = this._d.raeume.length - 1; this.zeichnen(); }
+    });
+    const frei = Object.values(this._hass.areas || {}).filter((a) => !r.some((x) => x.bereich === a.area_id));
+    const akt = this.html(box, `<div class="aktionen">${frei.length ? `<button class="knopf" data-alle>Alle ${frei.length} HA-Bereiche übernehmen</button>` : ""}
+      <button class="knopf" data-leer>Raum ohne Bereich</button></div>`);
+    akt.querySelector("[data-alle]")?.addEventListener("click", () => { frei.forEach((a) => this.raumNeu(a.area_id)); this.speichern(); this.zeichnen(); });
+    akt.querySelector("[data-leer]").addEventListener("click", () => {
+      this._d.raeume = [...r, { name: "Neuer Raum", hash: slug(`raum-${r.length + 1}`), icon: "mdi:door", geraete: [] }];
+      this.speichern(); this._raum = this._d.raeume.length - 1; this.zeichnen();
+    });
+    this.html(box, `<div class="fuss">Die Geräte jedes Raums werden aus dem HA-Bereich vorgeschlagen. Im Raum kannst du sie an- und abwählen, verschieben und die Größe einstellen.</div>`);
+  }
+  raumNeu(bereich) {
+    const a = this._hass.areas?.[bereich] || {};
+    let hash = slug(a.name || bereich);
+    while ((this._d.raeume || []).some((r) => r.hash === hash)) hash += "-2";
+    this._d.raeume = [...(this._d.raeume || []), { name: a.name || bereich, icon: a.icon || "mdi:door", bereich, hash, geraete: raumGeraeteVorschlag(this._hass, bereich) }];
+  }
+  raumDetail(box) {
+    const i = this._raum, raum = this._d.raeume[i];
+    if (!raum) { this._raum = null; this.raeumeListe(box); return; }
+    if (!raum.geraete) raum.geraete = raumGeraeteVorschlag(this._hass, raum.bereich);
+    const z = this.html(box, `<button class="zurueck"><ha-icon data-i="mdi:chevron-left"></ha-icon>Räume</button>`);
+    z.addEventListener("click", () => { this._raum = null; this.zeichnen(); });
+    this.html(box, `<h2>${esc(raum.name)}</h2>`);
+    const g = this.html(box, `<div class="gruppe form"></div>`);
+    const { geraete, ...rest } = raum;
+    this.form(g, { fenster_auto: true, alles_aus: true, ...rest }, [
+      { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] },
+      { name: "bereich", selector: { area: {} } },
+      { type: "grid", name: "", schema: [
+        { name: "temperatur", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
+        { name: "feuchte", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] },
+      { name: "fenster_auto", selector: { boolean: {} } },
+      { name: "alles_aus", selector: { boolean: {} } },
+    ], { name: "Name", icon: "Symbol", bereich: "HA-Bereich", temperatur: "Temperatur im Kopf", feuchte: "Luftfeuchte im Kopf", fenster_auto: "Fenster und Türen oben als Chips", alles_aus: "Knopf „Alles aus“" }, (v) => {
+      const neuBereich = v.bereich && v.bereich !== raum.bereich;
+      Object.assign(raum, v);
+      ["temperatur", "feuchte", "bereich"].forEach((k) => { if (!(k in v)) delete raum[k]; });
+      if (neuBereich && !raum.geraete.length) raum.geraete = raumGeraeteVorschlag(this._hass, v.bereich);
+      this.speichern();
+      if (neuBereich) this.zeichnen();
+    });
+    this.html(box, `<h2>Geräte im Raum</h2>`);
+    this.geraeteListe(box, raum.geraete, (neu) => { raum.geraete = neu; }, { gruppen: true, bereich: raum.bereich });
+    const akt = this.html(box, `<div class="aktionen"><button class="knopf rot" data-weg>Raum entfernen</button></div>`);
+    akt.querySelector("[data-weg]").addEventListener("click", () => {
+      if (this._weg !== i) { this._weg = i; akt.querySelector("[data-weg]").textContent = "Wirklich entfernen?"; return; }
+      this._weg = null; this._d.raeume.splice(i, 1); this._raum = null; this.speichern(); this.zeichnen();
+    });
+  }
+
+  // Geräte-Liste (Räume und Favoriten): an/aus, verschieben, Größe, Anzeige, alles Weitere aufklappbar
+  geraeteListe(box, liste, setzen, { gruppen = false, bereich = null } = {}) {
+    const g = this.html(box, `<div class="gruppe"></div>`);
+    const h = this._hass;
+    if (!liste.length) g.innerHTML = `<div class="leise-zeile">Noch keine Geräte.</div>`;
+    let letzte = null;
+    liste.forEach((x, i) => {
+      const st = h.states[x.entity];
+      const gr = x.gruppe || gruppeVon(h, x.entity);
+      if (gruppen && gr !== letzte) { letzte = gr; this.html(g, `<div class="kopfzeile">${esc((GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1])}</div>`); }
+      const an = x.an !== false, offen = this._offen.has(`${x.entity}|${i}`);
+      const z = this.html(g, `<div class="zeile geraet ${an ? "" : "aus"}" data-i="${i}">
+        <span class="griff" tabindex="0" role="button" aria-label="${esc(x.name || st?.attributes.friendly_name || x.entity)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+        <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
+        <span class="name"><b>${esc(x.name || st?.attributes.friendly_name || x.entity)}</b><span>${st ? esc(Geraet.zustand(h, st, Geraet.regler(st))) : "nicht gefunden"}</span></span>
+        <span class="optionen"><span class="segment" role="group" aria-label="Größe">${GROESSEN.map(([id, k, t]) => `<button data-g="${id}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse || "breit") === id}">${k}</button>`).join("")}</span>
+        <select class="auswahl" aria-label="Anzeige">${ANZEIGEN.map(([id, t]) => `<option value="${id}" ${(x.zweite_zeile || "zustand") === id ? "selected" : ""}>${t}</option>`).join("")}</select>
+        <button class="klein-knopf" data-mehr aria-expanded="${offen}" aria-label="Mehr Einstellungen"><ha-icon data-i="mdi:${offen ? "chevron-up" : "dots-horizontal"}"></ha-icon></button></span></div>`);
+      const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); liste = l; this.speichern(); };
+      z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
+      z.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === b)); neu({ groesse: b.dataset.g }); }));
+      z.querySelector("select").addEventListener("change", (e) => neu({ zweite_zeile: e.target.value }));
+      z.querySelector("[data-mehr]").addEventListener("click", () => { const k = `${x.entity}|${i}`; this._offen.has(k) ? this._offen.delete(k) : this._offen.add(k); this.zeichnen(); });
+      if (offen) {
+        const ex = this.html(g, `<div class="extra"></div>`);
+        if (gruppen) this.form(ex, { gruppe: gr }, [{ name: "gruppe", selector: { select: { mode: "dropdown", options: GRUPPEN.map(([value, label]) => ({ value, label })) } } }], { gruppe: "Gruppe" }, (v) => { neu({ gruppe: v.gruppe }); this.zeichnen(); });
+        this.editor(ex, "glas-kachel-card-editor", kachelCfg(x), (cfg) => { const l = [...liste]; l[i] = { an: x.an, gruppe: x.gruppe, ...cfg }; setzen(l); liste = l; this.speichern(); });
+        const w = this.html(ex, `<div class="aktionen"><button class="knopf rot">Aus der Liste entfernen</button></div>`);
+        w.querySelector("button").addEventListener("click", () => { const l = [...liste]; l.splice(i, 1); setzen(l); this.speichern(); this.zeichnen(); });
+      }
+    });
+    ziehSortieren(g, (von, nach) => {
+      const l = verschieben(liste, von, nach);
+      // In eine andere Gruppe gezogen: Gerät übernimmt die Gruppe seines neuen Nachbarn
+      if (gruppen) { const n = l[nach - 1] || l[nach + 1]; if (n) l[nach] = { ...l[nach], gruppe: n.gruppe || gruppeVon(h, n.entity) }; }
+      setzen(l); this.speichern(); this.zeichnen();
+    });
+    const hinzu = this.html(g, `<div class="hinzu"></div>`);
+    this.form(hinzu, {}, [{ name: "entity", selector: { entity: {} } }], { entity: "Gerät hinzufügen" }, (v) => {
+      if (!v.entity) return;
+      setzen([...liste, geraetVorschlag(h, v.entity)].map((y, k, a) => (k === a.length - 1 ? { ...y, an: true } : y)));
+      this.speichern(); this.zeichnen();
+    });
+    if (bereich) {
+      const fehlen = raumGeraeteVorschlag(h, bereich).filter((v) => !liste.some((x) => x.entity === v.entity));
+      if (fehlen.length) {
+        const a = this.html(box, `<div class="aktionen"><button class="knopf">${fehlen.length} neue Geräte im Bereich übernehmen</button></div>`);
+        a.querySelector("button").addEventListener("click", () => { setzen([...liste, ...fehlen]); this.speichern(); this.zeichnen(); });
+      }
+    }
+  }
+
+  // ---------------- Startseite ----------------
+  startseite(box) {
+    const leute = (this._d.personen || []).map((p, i) => ({ id: p.benutzer || p.name || `p${i}`, name: p.tablet ? "Tablet" : p.name || "Person" }));
+    if (!leute.some((p) => p.id === this._fuer)) this._fuer = "alle";
+    const wahl = this.html(box, `<div class="personen-wahl">${[{ id: "alle", name: "Für alle" }, ...leute].map((p) => `<button class="pille ${this._fuer === p.id ? "aktiv" : "glas"}" data-fuer="${esc(p.id)}" aria-pressed="${this._fuer === p.id}">${esc(p.name)}</button>`).join("")}</div>`);
+    wahl.querySelectorAll("[data-fuer]").forEach((b) => b.addEventListener("click", () => { this._fuer = b.dataset.fuer; this.zeichnen(); }));
+    const S = this._d.startseiten;
+    if (this._fuer !== "alle") {
+      const eigen = !!S[this._fuer] && S[this._fuer].eigen !== false;
+      const g = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Eigene Startseite</b><span>${eigen ? "Diese Person hat eine eigene Startseite" : "Nutzt gerade „Für alle“"}</span></span>
+        <button class="schalter" role="switch" aria-checked="${eigen}" aria-label="Eigene Startseite"></button></div></div>`);
+      g.querySelector(".schalter").addEventListener("click", () => {
+        if (eigen) S[this._fuer] = { ...S[this._fuer], eigen: false };
+        else S[this._fuer] = { ...kopie(startseiteVon(this._d, null)), ...(S[this._fuer]?.abschnitte ? S[this._fuer] : {}), eigen: true };
+        this.speichern(); this.zeichnen();
+      });
+      if (!eigen) return;
+    }
+    const s = (S[this._fuer] = startseiteVon(this._d, this._fuer === "alle" ? null : { id: this._fuer }));
+    if (this._fuer !== "alle") s.eigen = true;
+    this.html(box, `<h2>Abschnitte</h2>`);
+    const g = this.html(box, `<div class="gruppe"></div>`);
+    s.abschnitte.forEach((a, i) => {
+      const [, name, icon] = ABSCHNITTE.find(([id]) => id === a.id) || [a.id, a.id, "mdi:square-outline"];
+      const z = this.html(g, `<div class="zeile ${a.an ? "" : "aus"}" data-i="${i}">
+        <span class="griff" tabindex="0" role="button" aria-label="${esc(name)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+        <button class="schalter" role="switch" aria-checked="${!!a.an}" aria-label="${esc(name)} zeigen"></button>
+        <span class="sym"><ha-icon data-i="${icon}"></ha-icon></span><span class="name"><b>${esc(name)}</b></span>
+        <span class="segment" role="group" aria-label="Breite"><button data-b="halb" aria-pressed="${a.breite === "halb"}" title="Halbe Breite (am PC)">½</button><button data-b="ganz" aria-pressed="${a.breite !== "halb"}" title="Ganze Breite">Ganz</button></span></div>`);
+      z.querySelector(".schalter").addEventListener("click", (e) => { a.an = !a.an; e.currentTarget.setAttribute("aria-checked", a.an); z.classList.toggle("aus", !a.an); this.speichern(); });
+      z.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => { a.breite = b.dataset.b; z.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b)); this.speichern(); }));
+    });
+    ziehSortieren(g, (von, nach) => { s.abschnitte = verschieben(s.abschnitte, von, nach); this.speichern(); this.zeichnen(); });
+    this.html(box, `<div class="fuss">Abschnitte ohne Einstellung (z. B. kein Saugroboter gewählt) bleiben automatisch weg. „½“ stellt am PC zwei nebeneinander.</div>`);
+    this.html(box, `<h2>Favoriten</h2>`);
+    this.geraeteListe(box, s.favoriten || [], (neu) => { s.favoriten = neu; });
+    this.html(box, `<h2>Schnellzugriff</h2>`);
+    const c = this.html(box, `<div class="gruppe form"></div>`);
+    this.editor(c, "glas-chips-editor", { chips: s.chips || [] }, (cfg) => { s.chips = cfg.chips || []; this.speichern(); });
+  }
+
+  // ---------------- Personen ----------------
+  personen(box) {
+    this.html(box, `<h2>Personen und Begrüßung</h2>`);
+    const g = this.html(box, `<div class="gruppe form"></div>`);
+    this.editor(g, "glas-personen-editor", { gruss_modus: this._d.gruss_modus || "name", gruss_text: this._d.gruss_text, untertitel: this._d.untertitel, personen: this._d.personen || [] }, (cfg) => {
+      Object.assign(this._d, { gruss_modus: cfg.gruss_modus, gruss_text: cfg.gruss_text, untertitel: cfg.untertitel, personen: cfg.personen || [] });
+      this.speichern();
+    });
+    this.html(box, `<div class="fuss">Jede Person kann unter „Startseite“ eine eigene Startseite bekommen. Welche Person ein Gerät zeigt, merkt sich jedes Gerät selbst (das Tablet bleibt Tablet).</div>`);
+  }
+
+  // ---------------- Bereiche ----------------
+  bereiche(box) {
+    const B = this._d.bereiche;
+    [["wetter", "Wetter", "glas-wetter-card-editor"], ["planer", "Planer heute", "glas-planer-card-editor"], ["sicherheit", "Sicherheit", "glas-sicherheit-card-editor"],
+      ["drucker", "Drucker & Werkstatt", "glas-drucker-card-editor"], ["robi", "Robi", "glas-robi-card-editor"], ["gaeste", "Gäste", "glas-gaeste-card-editor"]].forEach(([id, titel, tag]) => {
+      this.html(box, `<h2>${titel}</h2>`);
+      const g = this.html(box, `<div class="gruppe form"></div>`);
+      this.editor(g, tag, B[id] || {}, (cfg) => { B[id] = cfg; this.speichern(); });
+    });
+  }
+
+  // ---------------- Aussehen ----------------
+  aussehen(box) {
+    const A = (this._d.aussehen = { modus: "auto", hintergrund: "aurora", ...(this._d.aussehen || {}) });
+    this.html(box, `<h2>Hell oder dunkel</h2>`);
+    const m = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Darstellung</b><span>Automatisch folgt dem Handy bzw. HA</span></span>
+      <span class="segment" role="group" aria-label="Darstellung">${[["auto", "Auto"], ["hell", "Hell"], ["dunkel", "Dunkel"]].map(([id, t]) => `<button data-m="${id}" aria-pressed="${A.modus === id}">${t}</button>`).join("")}</span></div></div>`);
+    m.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => { A.modus = b.dataset.m; Glas.einst = { ...(Glas.einst || {}), aussehen: { ...A } }; this.speichern(); this.hintergrund(); this.zeichnen(); }));
+    this.html(box, `<h2>Hintergrund</h2>`);
+    const d = istDunkel(this._hass);
+    const hg = this.html(box, `<div class="gruppe"><div class="hgs">${[...Object.entries(HINTERGRUENDE).map(([id, x]) => [id, x.name]), ["tageszeit", "Nach Tageszeit"], ["aus", "Wie Home Assistant"]]
+      .map(([id, n]) => `<button class="hg-wahl" data-hg="${id}" aria-pressed="${A.hintergrund === id}"><span class="muster" style="background:${hintergrundCss(id, d)}"><span></span></span>${esc(n)}</button>`).join("")}</div></div>`);
+    hg.querySelectorAll("[data-hg]").forEach((b) => b.addEventListener("click", () => { A.hintergrund = b.dataset.hg; this.speichern(); this.hintergrund(); this.zeichnen(); }));
+    this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber Aurora, abends See, nachts ruhig.</div>`);
+    this.dashboardBlock(box);
+  }
+  async dashboardBlock(box) {
+    this.html(box, `<h2>Dashboard</h2>`);
+    const g = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Dashboard „Zuhause“</b><span class="info">Prüfe …</span></span><span class="knopf-platz"></span></div></div>`);
+    this.html(box, `<div class="fuss">Baut sich komplett aus diesen Einstellungen auf. Du kannst die Glas-Karten aber auch weiterhin einzeln in jedes andere Dashboard legen.</div>`);
+    const info = g.querySelector(".info"), platz = g.querySelector(".knopf-platz");
+    let liste = [];
+    try { liste = await this._hass.callWS({ type: "lovelace/dashboards/list" }); } catch (_) { info.textContent = "Nur Admins können Dashboards anlegen."; return; }
+    const da = liste.find((x) => x.url_path === "glas-zuhause");
+    if (da) { info.textContent = "Ist angelegt und in der Seitenleiste"; platz.innerHTML = `<a class="knopf haupt" href="/glas-zuhause" style="text-decoration:none">Öffnen</a>`; return; }
+    info.textContent = "Noch nicht angelegt";
+    platz.innerHTML = `<button class="knopf haupt">Anlegen</button>`;
+    platz.querySelector("button").addEventListener("click", async () => {
+      try {
+        await this._hass.callWS({ type: "lovelace/dashboards/create", url_path: "glas-zuhause", title: "Zuhause", icon: "mdi:home-outline", show_in_sidebar: true, require_admin: false, mode: "storage" });
+        await this._hass.callWS({ type: "lovelace/config/save", url_path: "glas-zuhause", config: { strategy: { type: "custom:glas" } } });
+        info.textContent = "Angelegt – steht jetzt in der Seitenleiste";
+        platz.innerHTML = `<a class="knopf haupt" href="/glas-zuhause" style="text-decoration:none">Öffnen</a>`;
+      } catch (e) { info.textContent = `Ging nicht: ${e.message || e}`; }
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard-Strategie „custom:glas“: eine Seite, die sich aus den Einstellungen aufbaut
+// ---------------------------------------------------------------------------
+class GlasStrategie extends HTMLElement {
+  static async generate() {
+    return { title: "Zuhause", views: [{ title: "Zuhause", path: "zuhause", icon: "mdi:home-outline", type: "panel", cards: [{ type: "custom:glas-zuhause-card" }] }] };
+  }
+}
+// ---------------------------------------------------------------------------
 // Registrieren: Karten erscheinen in „Karte hinzufügen“ mit Vorschau
 // ---------------------------------------------------------------------------
 const KARTEN = [
@@ -4503,6 +5234,7 @@ const KARTEN = [
   ["glas-drucker-card", GlasDruckerCard, GlasDruckerEditor, "Glas · Drucker & Werkstatt", "3D-Drucker: Fortschritt, Kamera, Steuerung, Warteschlange und knappes Filament aus der Filament-Werkstatt."],
   ["glas-robi-card", GlasRobiCard, GlasRobiEditor, "Glas · Robi", "Saugroboter: Akku, alles oder einzelne Räume saugen, Saugstärke, Station."],
   ["glas-gaeste-card", GlasGaesteCard, GlasGaesteEditor, "Glas · Gäste", "WLAN-QR-Code zum Scannen, optional ein zweiter Code."],
+  ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
 ];
 window.customCards = window.customCards || [];
@@ -4510,6 +5242,9 @@ for (const [tag, Karte, Editor, name, beschreibung] of KARTEN) {
   if (!customElements.get(tag)) customElements.define(tag, Karte);
   if (!customElements.get(`${tag}-editor`)) customElements.define(`${tag}-editor`, Editor);
   if (!window.customCards.some((k) => k.type === tag)) window.customCards.push({ type: tag, name, description: beschreibung, preview: true, documentationURL: "https://github.com/Corineye/glas-dashboard" });
+}
+for (const [tag, K] of [["glas-personen-editor", GlasPersonenEditor], ["glas-chips-editor", GlasChipsEditor], ["glas-einstellungen", GlasEinstellungen], ["ll-strategy-dashboard-glas", GlasStrategie]]) {
+  if (!customElements.get(tag)) customElements.define(tag, K);
 }
 console.info(`%c GLAS-DASHBOARD %c ${VERSION} `, "color:#fff;background:#0a84ff;font-weight:700;border-radius:4px 0 0 4px;padding:2px 6px", "color:#0a84ff;background:#e8f1ff;border-radius:0 4px 4px 0;padding:2px 6px");
 })();

@@ -65,7 +65,7 @@ class GlasBereichKarte extends GlasKarte {
   }
   blattZeichnen() {
     const s = this._blatt; if (!s) return;
-    s.dunkel(this._hass.themes?.darkMode);
+    s.dunkel(istDunkel(this._hass));
     const html = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
     if (s._letztesHtml === html) return; // nichts geändert: Blatt stehen lassen
     s._letztesHtml = html;

@@ -41,7 +41,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     const h = Glas.hass, st = h?.states[entityId];
     if (!st) return;
     letzter = st;
-    s.dunkel(h.themes?.darkMode);
+    s.dunkel(istDunkel(h));
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
     const bereich = bereichVon(h, entityId);
     const raum = (bereich && h.areas?.[bereich]?.name) || "";

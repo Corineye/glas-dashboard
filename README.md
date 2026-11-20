@@ -4,10 +4,29 @@ Karten im ruhigen Glas-Look für Home Assistant: hell und dunkel automatisch, ei
 
 ## Installation (HACS)
 
-1. HACS › ⋮ › **Benutzerdefinierte Repositories** › `https://github.com/Corineye/glas-dashboard`, Typ **Dashboard**.
-2. „Glas-Dashboard“ herunterladen, Seite neu laden (Strg+F5 bzw. App neu öffnen).
-3. Optional das Thema `themes/glas.yaml` nach `/config/themes/` kopieren (Anleitung steht oben in der Datei) und „Glas“ wählen. Es setzt den Verlauf im Hintergrund und rundet auch normale HA-Karten passend.
-4. Dashboard › Bearbeiten › **Karte hinzufügen** › nach „Glas“ suchen. Ein komplettes Beispiel steht in `beispiel-dashboard.yaml`.
+1. HACS › ⋮ › **Benutzerdefinierte Repositories** › `https://github.com/Corineye/glas-dashboard`, Typ **Integration**.
+2. „Glas-Dashboard“ herunterladen, Home Assistant **neu starten**.
+3. Einstellungen › Geräte & Dienste › **Integration hinzufügen** › „Glas-Dashboard“.
+4. In der Seitenleiste erscheint **Glas**. Dort Räume, Startseite, Personen, Bereiche und Aussehen einstellen.
+5. Unter Glas › Aussehen › Dashboard auf **Anlegen** tippen: Das Dashboard „Zuhause“ baut sich aus den Einstellungen selbst auf.
+
+Die Karten werden automatisch geladen (keine Ressource, kein Thema nötig). Einzelne Glas-Karten lassen sich weiterhin in jedes Dashboard legen.
+
+### Umstieg von 0.2 (Typ Dashboard)
+
+HACS › Glas-Dashboard › ⋮ › **Entfernen**, dann unter Einstellungen › Dashboards › ⋮ › Ressourcen den Eintrag `glas-dashboard.js` löschen. Danach wie oben als **Integration** hinzufügen.
+
+## Einstellungsseite „Glas“
+
+| Reiter | Was |
+|---|---|
+| **Räume** | Räume aus HA-Bereichen übernehmen. Geräte werden vorgeschlagen; an-/abwählen, am Griff verschieben, Größe S/M/L/ganz, Anzeige (Zustand, Zeit, nur Name), ⋯ für alles Weitere (Name, Symbol, Farbe, Aktionen) |
+| **Startseite** | Für alle oder pro Person: Abschnitte an/aus, Reihenfolge, halbe/ganze Breite, Favoriten, Schnellzugriff |
+| **Personen** | Wer wählbar ist (C · L · Tablet), Begrüßung |
+| **Bereiche** | Wetter, Planer, Sicherheit, Drucker & Werkstatt, Robi, Gäste |
+| **Aussehen** | Hell/Dunkel/Automatisch, Hintergrund (Aurora, Morgenrot, See, Wald, Ruhig, nach Tageszeit), Dashboard anlegen |
+
+Alles wird auf dem Home-Assistant-Server gespeichert und gilt auf allen Geräten.
 
 ## Die Karten
 

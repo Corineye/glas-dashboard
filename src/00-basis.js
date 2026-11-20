@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.2.1";
+const VERSION = "0.3.0";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -22,6 +22,7 @@ const TOKENS = `
   --g-rot-text:#c4261d;
   /* kräftigere Töne für weiße Schrift (Kontrast mind. 4,5:1) */
   --g-gruen-voll:#1f7a35; --g-rot-voll:#d70015; --g-akzent-voll:#0067d6;
+  --g-trenn:rgba(60,60,67,.14);
   --g-blur:blur(20px) saturate(160%);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;
   -webkit-font-smoothing:antialiased;
@@ -35,6 +36,7 @@ const TOKENS = `
   --g-schatten:none;
   --g-aktiv:#f2f2f7; --g-aktiv-text:#1c1c1e;
   --g-rot-text:#ff8a80;
+  --g-trenn:rgba(255,255,255,.09);
 }
 *{box-sizing:border-box}
 button{font:inherit;color:inherit;border:0;margin:0;padding:0;background:none;cursor:pointer;touch-action:manipulation;
@@ -169,7 +171,7 @@ class GlasKarte extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._sperre = false; // während Ziehen kein Neuzeichnen
-    this._hoerer = () => { if (this._config && this._hass) this.render(); };
+    this._hoerer = () => { if (this._hass) this.toggleAttribute("dunkel", istDunkel(this._hass)); if (this._config && this._hass) this.render(); };
   }
   connectedCallback() { Glas.hoerer.add(this._hoerer); if (this._config && this._hass) this.render(); }
   disconnectedCallback() { Glas.hoerer.delete(this._hoerer); }
@@ -184,9 +186,9 @@ class GlasKarte extends HTMLElement {
     const alt = this._hass;
     this._hass = h;
     Glas.hassSetzen(h);
-    this.toggleAttribute("dunkel", !!h.themes?.darkMode);
+    this.toggleAttribute("dunkel", istDunkel(h));
     if (!this._config || this._sperre) return;
-    if (!alt || alt.themes?.darkMode !== h.themes?.darkMode || this.entitaeten().some((e) => alt.states[e] !== h.states[e])) this.render();
+    if (!alt || istDunkel(alt) !== istDunkel(h) || this.entitaeten().some((e) => alt.states[e] !== h.states[e])) this.render();
   }
   get hass() { return this._hass; }
   entitaeten() { return []; }

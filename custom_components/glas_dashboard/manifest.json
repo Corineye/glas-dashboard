@@ -1,0 +1,14 @@
+{
+  "domain": "glas_dashboard",
+  "name": "Glas-Dashboard",
+  "codeowners": ["@Corineye"],
+  "config_flow": true,
+  "dependencies": ["http", "frontend", "panel_custom", "websocket_api", "lovelace"],
+  "documentation": "https://github.com/Corineye/glas-dashboard",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Corineye/glas-dashboard/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.3.0"
+}

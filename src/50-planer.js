@@ -220,7 +220,7 @@ class GlasPlanerCard extends GlasKarte {
     const p = this.person();
     const st = { text: "", wann: "heute", fuer: p?.tablet ? "gemeinsam" : p?.benutzer || "gemeinsam" };
     const s = new GlasSchicht({ quelle: this, titel: "Neue Aufgabe" });
-    s.dunkel(this._hass.themes?.darkMode);
+    s.dunkel(istDunkel(this._hass));
     const fuerOpt = [...Glas.personen.filter((x) => !x.tablet && x.benutzer).map((x) => [x.benutzer, x.name]), ["gemeinsam", "Gemeinsam"]];
     const zeichnen = () => {
       s.inhalt.innerHTML = `<style>${PLANER_CSS.replace(":host{display:block}", "")}</style>${s.kopfHtml("Neue Aufgabe", "")}
