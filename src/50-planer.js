@@ -1,0 +1,265 @@
+// ---------------------------------------------------------------------------
+// glas-planer-card: Heute aus dem Planer – für die Person, die gerade schaut
+// C zeigt Corins Planer, L Lindas (Aufgaben, Schicht, Termine aus ihren Kalendern)
+// ---------------------------------------------------------------------------
+const PLANER_CSS = `
+:host{display:block}
+.karte{display:flex;flex-direction:column;gap:var(--g-a3)}
+.oben{display:flex;align-items:center;justify-content:space-between;gap:var(--g-a3)}
+.datum{margin:0;font-size:var(--g-s-h2);font-weight:800;letter-spacing:-.3px;color:var(--g-akzent)}
+.schicht{align-self:flex-start;display:inline-flex;align-items:center;gap:var(--g-a2);min-height:32px;padding:4px 12px 4px 4px;border-radius:var(--g-r-pille);
+  font-size:var(--g-s-name);color:var(--g-text);background:color-mix(in srgb,var(--sc) 16%,transparent);border:1.5px solid color-mix(in srgb,var(--sc) 45%,transparent)}
+.schicht b{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--g-s-klein);color:#fff;background:var(--sc)}
+.zeile{display:flex;align-items:center;gap:var(--g-a3);min-height:56px;padding:var(--g-a2) var(--g-a2) var(--g-a2) var(--g-a3);border-radius:var(--g-r-klein);
+  background:var(--g-zeile);box-shadow:inset 4px 0 0 var(--bf,#8e8e93);transition:opacity .25s ease}
+:host{--g-zeile:rgba(255,255,255,.85)} :host([dunkel]){--g-zeile:rgba(255,255,255,.08)}
+.zeile.fertig{opacity:.55}
+.zeile.vorbei{opacity:.6;background:var(--g-fuell)}
+.kreis{flex:none;width:28px;height:28px;border-radius:50%;border:2.5px solid var(--g-text2);display:flex;align-items:center;justify-content:center;transition:background-color .2s ease}
+.kreis.rot{border-color:var(--g-rot)}
+.kreis[aria-pressed="true"]{background:var(--g-akzent);border-color:var(--g-akzent);color:#fff}
+.kreis ha-icon{--mdc-icon-size:16px}
+.mitte{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--g-a1)}
+.titel{font-size:var(--g-s-text);color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.termin .titel{font-weight:600}
+.fertig .titel{text-decoration:line-through}
+.chips{display:flex;gap:var(--g-a1);flex-wrap:wrap}
+.mini{display:inline-flex;align-items:center;gap:var(--g-a1);padding:2px 8px;border-radius:var(--g-r-pille);font-size:var(--g-s-klein);color:var(--g-text2);background:var(--g-fuell)}
+.mini.rot{color:var(--g-rot-text);background:rgba(255,59,48,.14)}
+.zeit{flex:none;width:92px;font-size:var(--g-s-klein);color:var(--g-text2);font-variant-numeric:tabular-nums}
+.morgen{flex:none;min-height:36px;padding:0 var(--g-a3);border-radius:var(--g-r-pille);font-size:var(--g-s-klein);font-weight:600;color:var(--g-text);background:var(--g-fuell)}
+.jetzt{display:flex;align-items:center;gap:var(--g-a2)}
+.jetzt i{display:block;height:2px;background:var(--g-rot)}
+.jetzt span{font-size:var(--g-s-klein);font-weight:700;color:var(--g-rot-text)}
+.unten{display:flex;justify-content:space-between;align-items:center;gap:var(--g-a2);flex-wrap:wrap}
+.klapp{min-height:44px;padding:0 var(--g-a1);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.leer{padding:var(--g-a2) var(--g-a1)}
+.feld{width:100%;min-height:48px;padding:10px 14px;border-radius:var(--g-r-klein);font:inherit;font-size:var(--g-s-text);color:var(--g-text);
+  background:var(--g-fuell);border:1px solid var(--g-glas-rand);outline-color:var(--g-akzent)}
+.gruppe{display:flex;flex-direction:column;gap:var(--g-a2)}
+.haupt{min-height:52px;border-radius:var(--g-r-klein);font-size:var(--g-s-text);font-weight:600;color:#fff;background:var(--g-akzent-voll)}
+.haupt:disabled{opacity:.45}
+`;
+const MONATE = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."];
+
+class GlasPlanerCard extends GlasKarte {
+  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6 }; }
+  static getConfigElement() { return document.createElement("glas-planer-card-editor"); }
+  static getStubConfig() { return {}; }
+  getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
+  getCardSize() { return 4; }
+  css() { return PLANER_CSS; }
+  connectedCallback() {
+    super.connectedCallback();
+    this._takt = setInterval(() => { this._termineZeit = 0; this.laden(); }, 5 * 60 * 1000);
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this._takt);
+    this._abo?.then((f) => f()).catch(() => {});
+    this._abo = null;
+  }
+  set hass(h) {
+    const erst = !this._hass;
+    super.hass = h;
+    if (erst || !this._abo) this.laden();
+  }
+  get hass() { return this._hass; }
+  async laden() {
+    const h = this._hass;
+    if (!h || this._laedt) return;
+    this._laedt = true;
+    try {
+      this._daten = await h.callWS({ type: "planer/lesen" });
+      this._fehler = null;
+      if (!this._abo) {
+        this._abo = h.connection.subscribeMessage(() => { clearTimeout(this._neuT); this._neuT = setTimeout(() => this.neuLesen(), 400); }, { type: "planer/abonnieren" });
+        this._abo.catch(() => { this._abo = null; });
+      }
+    } catch (e) { this._fehler = e?.code === "unknown_command" ? "Die Planer-Integration ist nicht installiert." : (e?.message || "Planer nicht erreichbar"); }
+    this._laedt = false;
+    await this.termineLaden();
+    this.render();
+  }
+  async neuLesen() { try { this._daten = await this._hass.callWS({ type: "planer/lesen" }); this.render(); } catch (_) { /* */ } }
+  person() { return Glas.aktuellePerson(this._hass); }
+  kalenderFuer(p) {
+    const d = this._daten || {}, h = this._hass;
+    if (!p) return [];
+    if (p.tablet) {
+      const alle = new Set();
+      Glas.personen.filter((x) => !x.tablet).forEach((x) => this.kalenderFuer(x).forEach((k) => alle.add(k)));
+      return [...alle];
+    }
+    if (p.kalender?.length) return p.kalender;
+    const pid = p.benutzer;
+    const e = d.einstellungen?.[pid];
+    if (e) {
+      return Object.keys(h.states).filter((x) => x.startsWith("calendar.") && (e.kalender_sehen == null || e.kalender_sehen.includes(x)) && !(e.kalender_aus || []).includes(x));
+    }
+    return (d.kalender || []).filter((k) => k.angezeigt).map((k) => k.id);
+  }
+  async termineLaden() {
+    const p = this.person();
+    const ids = this.kalenderFuer(p);
+    const schluessel = heuteIso() + ids.join(",");
+    if (schluessel === this._termineSchl && Date.now() - (this._termineZeit || 0) < 5 * 60 * 1000) return;
+    this._termineSchl = schluessel; this._termineZeit = Date.now();
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const ende = new Date(start); ende.setDate(ende.getDate() + 1);
+    const q = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(ende.toISOString())}`;
+    const listen = await Promise.all(ids.map((id) => this._hass.callApi("GET", `calendars/${id}${q}`).then((l) => l.map((t) => ({ ...t, kalender: id }))).catch(() => [])));
+    const gesehen = new Set();
+    this._termine = listen.flat()
+      .filter((t) => !String(t.description || "").includes("planer-schicht"))
+      .filter((t) => { const k = `${t.summary}|${t.start.dateTime || t.start.date}`; if (gesehen.has(k)) return false; gesehen.add(k); return true; })
+      .map((t) => ({ titel: t.summary, ganztag: !t.start.dateTime, start: new Date(t.start.dateTime || t.start.date + "T00:00"), ende: new Date(t.end.dateTime || t.end.date + "T00:00"),
+        kalender: t.kalender, ort: t.location || "" }))
+      .sort((a, b) => (b.ganztag - a.ganztag) || (a.start - b.start));
+  }
+  render() {
+    const p = this.person();
+    if (p && this._personVorher !== p.id) { this._personVorher = p.id; this._termineZeit = 0; this.termineLaden().then(() => super.render()); }
+    super.render();
+  }
+  aufgaben(p) {
+    const d = this._daten;
+    if (!d || !p) return [];
+    const heute = heuteIso();
+    const wer = p.tablet ? ["gemeinsam"] : [p.benutzer, "gemeinsam"];
+    return (d.aufgaben || [])
+      .filter((a) => a.status === "offen" || this._erledigt?.has(a.id))
+      .filter((a) => wer.includes(a.person))
+      .filter((a) => (a.datum ? a.datum <= heute : this._config.ohne_datum))
+      .sort((a, b) => (a.datum || "9") .localeCompare(b.datum || "9") || (a.uhrzeit || "99").localeCompare(b.uhrzeit || "99"));
+  }
+  html() {
+    const c = this._config;
+    const jetzt = new Date();
+    const titel = c.titel || `Heute, ${jetzt.getDate()}. ${MONATE[jetzt.getMonth()]}`;
+    if (this._fehler) return `<div class="karte glas"><div class="oben"><h2 class="datum">${esc(titel)}</h2></div><div class="leise leer">${esc(this._fehler)}</div></div>`;
+    if (!this._daten) return `<div class="karte glas"><div class="oben"><h2 class="datum">${esc(titel)}</h2></div><div class="leise leer">Lade Planer …</div></div>`;
+    const p = this.person();
+    const d = this._daten, heute = heuteIso();
+    const farben = d.farben || {};
+    const auf = this.aufgaben(p);
+    const offen = auf.filter((a) => a.status === "offen");
+    const termine = this._termine || [];
+    // Schicht der Person heute
+    let schicht = "";
+    const plan = p && !p.tablet ? d.schichten?.[p.benutzer] : null;
+    const art = plan && plan.arten?.find((x) => x.id === plan.tage?.[heute]);
+    if (art) schicht = `<div class="schicht" style="--sc:${art.farbe}"><b aria-hidden="true">${esc(art.kurz)}</b><span>${esc(art.name)}${art.von ? ` ${art.von}–${art.bis}` : ""}</span></div>`;
+    const tageSeit = (iso) => Math.round((new Date(heute) - new Date(iso)) / 86400000);
+    const aufgabeHtml = (a) => {
+      const fertig = a.status !== "offen";
+      const seit = a.datum && a.datum < heute ? tageSeit(a.datum) : 0;
+      const bf = farben[a.bereich] || (a.bereich ? "#8e8e93" : "var(--g-akzent)");
+      return `<div class="zeile ${fertig ? "fertig" : ""}" style="--bf:${bf}">
+        <button class="kreis ${seit ? "rot" : ""}" data-fertig="${esc(a.id)}" aria-pressed="${fertig}" aria-label="${esc(a.titel)} abhaken">${fertig ? `<ha-icon data-i="mdi:check-bold"></ha-icon>` : ""}</button>
+        <div class="mitte"><span class="titel">${esc(a.titel)}</span><span class="chips">
+          ${seit && !fertig ? `<span class="mini rot">${seit === 1 ? "seit gestern" : `seit ${seit} Tagen`}</span>` : ""}
+          ${a.uhrzeit ? `<span class="mini">${esc(a.uhrzeit)} Uhr</span>` : ""}
+          ${a.bereich ? `<span class="mini"><span class="punkt" style="background:${bf}"></span>${esc(a.bereich)}</span>` : ""}
+          ${a.person === "gemeinsam" && !p?.tablet ? `<span class="mini">Gemeinsam</span>` : ""}</span></div>
+        ${fertig ? "" : `<button class="morgen k" data-morgen="${esc(a.id)}">Morgen</button>`}</div>`;
+    };
+    const terminHtml = (t) => {
+      const vorbei = !t.ganztag && t.ende < jetzt;
+      const zeit = t.ganztag ? "Ganztägig" : `${uhr(t.start)}–${uhr(t.ende)}`;
+      return `<div class="zeile termin ${vorbei ? "vorbei" : ""}" style="--bf:var(--g-orange)"><span class="zeit">${zeit}</span>
+        <div class="mitte"><span class="titel">${esc(t.titel)}</span>${t.ort ? `<span class="leise">${esc(t.ort)}</span>` : ""}</div></div>`;
+    };
+    let koerper = "";
+    if (this._auf) {
+      const liste = auf.slice(0, c.max_aufgaben === 0 ? 999 : Math.max(c.max_aufgaben, offen.length)).map(aufgabeHtml);
+      const zeitlinie = [];
+      let jetztGesetzt = false;
+      termine.forEach((t) => {
+        if (!jetztGesetzt && !t.ganztag && t.start > jetzt) { zeitlinie.push(`<div class="jetzt"><i style="width:14px"></i><span>Jetzt ${uhr(jetzt)}</span><i style="flex:1"></i></div>`); jetztGesetzt = true; }
+        zeitlinie.push(terminHtml(t));
+      });
+      koerper = liste.join("") + zeitlinie.join("") || `<div class="leise leer">Heute steht nichts an.</div>`;
+    } else {
+      const naechster = termine.find((t) => !t.ganztag && t.ende > jetzt);
+      if (naechster) {
+        const min = Math.round((naechster.start - jetzt) / 60000);
+        const bis = min > 0 ? (min >= 60 ? ` · in ${Math.floor(min / 60)} Std. ${min % 60} Min.` : ` · in ${min} Min.`) : " · läuft gerade";
+        koerper = terminHtml(naechster).replace(/<\/div><\/div>$/, `<span class="leise">${bis.slice(3)}</span></div></div>`);
+      } else if (offen.length) koerper = aufgabeHtml(offen[0]);
+      else koerper = `<div class="leise leer">Heute steht nichts mehr an.</div>`;
+    }
+    const anz = offen.length + termine.filter((t) => t.ganztag || t.ende > jetzt).length;
+    return `<div class="karte glas">
+      <div class="oben"><h2 class="datum">${esc(titel)}</h2><button class="rund" data-neu aria-label="Aufgabe hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div>
+      ${schicht}${koerper}
+      <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger ⌃" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"} ⌄`}</button>
+      <button class="link" data-oeffnen>Planer öffnen ›</button></div></div>`;
+  }
+  binden() {
+    this.iconsSetzen();
+    const h = this._hass;
+    this.$("[data-klapp]")?.addEventListener("click", () => { this._auf = !this._auf; this.render(); });
+    this.$("[data-oeffnen]")?.addEventListener("click", () => navigieren(this._config.planer_pfad || "/planer"));
+    this.$("[data-neu]")?.addEventListener("click", () => this.neu());
+    this.$$("[data-fertig]").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.fertig, a = this._daten.aufgaben.find((x) => x.id === id);
+      const erledigt = a.status === "offen";
+      this._erledigt = this._erledigt || new Set();
+      erledigt ? this._erledigt.add(id) : this._erledigt.delete(id);
+      a.status = erledigt ? "erledigt" : "offen"; // sofort zeigen, Planer bestätigt per Abo
+      this.render();
+      try { await h.callWS({ type: "planer/erledigen", aufgabe_id: id, erledigt }); } catch (e) { this.neuLesen(); }
+    }));
+    this.$$("[data-morgen]").forEach((b) => b.addEventListener("click", async () => {
+      try { await h.callWS({ type: "planer/speichern", aufgabe: { id: b.dataset.morgen, datum: heuteIso(1) } }); } catch (_) { /* */ }
+      this.neuLesen();
+    }));
+  }
+  neu() {
+    const p = this.person();
+    const st = { text: "", wann: "heute", fuer: p?.tablet ? "gemeinsam" : p?.benutzer || "gemeinsam" };
+    const s = new GlasSchicht({ quelle: this, titel: "Neue Aufgabe" });
+    s.dunkel(this._hass.themes?.darkMode);
+    const fuerOpt = [...Glas.personen.filter((x) => !x.tablet && x.benutzer).map((x) => [x.benutzer, x.name]), ["gemeinsam", "Gemeinsam"]];
+    const zeichnen = () => {
+      s.inhalt.innerHTML = `<style>${PLANER_CSS.replace(":host{display:block}", "")}</style>${s.kopfHtml("Neue Aufgabe", "")}
+        <label class="gruppe"><span class="leise">Was ist zu tun?</span><input class="feld" placeholder="z. B. Filament bestellen" value="${esc(st.text)}" enterkeyhint="done"></label>
+        <div class="gruppe"><span class="leise">Wann</span><div class="chips">${[["heute", "Heute"], ["morgen", "Morgen"], ["ohne", "Ohne Datum"]].map(([k, n]) =>
+          `<button class="pille fuell ${st.wann === k ? "aktiv" : ""}" data-w="${k}" aria-pressed="${st.wann === k}">${n}</button>`).join("")}</div></div>
+        <div class="gruppe"><span class="leise">Für</span><div class="chips">${fuerOpt.map(([k, n]) =>
+          `<button class="pille fuell ${st.fuer === k ? "aktiv" : ""}" data-f="${esc(k)}" aria-pressed="${st.fuer === k}">${esc(n)}</button>`).join("")}</div></div>
+        <button class="haupt" data-ok ${st.text.trim() ? "" : "disabled"}>Hinzufügen</button>`;
+      s.kopfBinden();
+      const feld = s.inhalt.querySelector("input");
+      feld.addEventListener("input", () => { st.text = feld.value; s.inhalt.querySelector("[data-ok]").disabled = !st.text.trim(); });
+      feld.addEventListener("keydown", (e) => { if (e.key === "Enter") speichern(); });
+      s.inhalt.querySelectorAll("[data-w]").forEach((b) => b.addEventListener("click", () => { st.wann = b.dataset.w; zeichnen(); }));
+      s.inhalt.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => { st.fuer = b.dataset.f; zeichnen(); }));
+      s.inhalt.querySelector("[data-ok]").addEventListener("click", () => speichern());
+      return feld;
+    };
+    const speichern = async () => {
+      if (!st.text.trim()) return;
+      const datum = st.wann === "heute" ? heuteIso() : st.wann === "morgen" ? heuteIso(1) : null;
+      try { await this._hass.callWS({ type: "planer/speichern", aufgabe: { titel: st.text.trim(), datum, person: st.fuer } }); } catch (_) { /* */ }
+      s.schliessen(); this.neuLesen();
+    };
+    zeichnen();
+    s.oeffnen();
+    setTimeout(() => s.inhalt.querySelector("input")?.focus(), 350);
+  }
+}
+
+class GlasPlanerEditor extends GlasEditor {
+  schema() {
+    return [
+      { name: "titel", selector: { text: {} } },
+      { name: "ohne_datum", selector: { boolean: {} } },
+      { name: "max_aufgaben", selector: { number: { min: 0, max: 30, mode: "box" } } },
+      { name: "planer_pfad", selector: { text: {} } },
+    ];
+  }
+  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer" }; }
+  hilfen() { return { titel: "Welche Person gezeigt wird, steuert die Personenwahl in der Kopf-Karte (C, L, Tablet)." }; }
+}

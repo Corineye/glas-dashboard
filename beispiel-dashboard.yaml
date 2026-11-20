@@ -1,0 +1,85 @@
+# Beispiel-Dashboard. In HA: Einstellungen › Dashboards › Dashboard hinzufügen › „Neues Dashboard“,
+# dann ⋮ › „Rohdaten-Konfigurationseditor“ und diesen Text einfügen.
+# Alles mit DEIN_… durch eigene Entitäten ersetzen – oder später einfach im Karten-Editor auswählen.
+title: Zuhause
+views:
+  - title: Zuhause
+    path: zuhause
+    type: sections
+    max_columns: 2
+    theme: Glas
+    sections:
+      - type: grid
+        cards:
+          - type: custom:glas-kopf-card
+            gruss_modus: name
+            personen:
+              - name: Corin
+                kurz: C
+                benutzer: DEINE_HA_BENUTZER_ID      # im Editor einfach aus der Liste wählen
+                entity: person.corin
+              - name: Linda
+                kurz: L
+                benutzer: LINDAS_HA_BENUTZER_ID
+                entity: person.linda
+              - tablet: true
+            chips:
+              - entity: switch.DEIN_P1S_STECKER
+                name: P1S
+                zeigen: an
+              - entity: light.DEINE_LICHTGRUPPE
+                name: Alle Lichter aus
+                icon: mdi:lightbulb-group-off
+                zeigen: an
+                zustand_zeigen: false
+                tap_action:
+                  action: perform-action
+                  perform_action: light.turn_off
+                  target:
+                    entity_id: all
+              - entity: input_select.DEIN_HEIZUNGSMODUS
+                name: Heizung
+          - type: custom:glas-wetter-card
+            entity: weather.forecast_home
+            ort: Hamburg
+          - type: custom:glas-planer-card
+          - type: heading
+            heading: Favoriten
+          - type: custom:glas-kachel-card
+            entity: light.DEINE_DECKENLAMPE
+          - type: custom:glas-kachel-card
+            entity: switch.DEIN_P1S_STECKER
+            name: P1S Drucker
+          - type: custom:glas-kachel-card
+            entity: sensor.luft_sensor_arbeitszimmer_temperatur
+            groesse: gross
+            zusatz:
+              - sensor.luft_sensor_arbeitszimmer_luftfeuchtigkeit
+          - type: custom:glas-raumleiste-card
+            raeume:
+              - name: Arbeitszimmer
+                icon: mdi:desk
+                hash: arbeitszimmer
+                bereich: arbeitszimmer
+              - name: Wohnzimmer
+                icon: mdi:sofa
+                hash: wohnzimmer
+                bereich: wohnzimmer
+          - type: custom:glas-raum-card
+            hash: arbeitszimmer
+            name: Arbeitszimmer
+            bereich: arbeitszimmer
+            temperatur: sensor.luft_sensor_arbeitszimmer_temperatur
+            feuchte: sensor.luft_sensor_arbeitszimmer_luftfeuchtigkeit
+            cards:
+              - type: heading
+                heading: Licht
+              - type: custom:glas-kachel-card
+                entity: light.DEINE_DECKENLAMPE
+              - type: custom:glas-kachel-card
+                entity: light.DEINE_SCHREIBTISCHLAMPE
+              - type: heading
+                heading: Klima
+              - type: custom:glas-kachel-card
+                entity: climate.DEINE_HEIZUNG
+                groesse: ganz

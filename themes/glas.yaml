@@ -1,0 +1,27 @@
+# Glas-Thema: Hintergrund-Verlauf und passende Rundungen auch für normale HA-Karten.
+# Datei nach /config/themes/glas.yaml kopieren, in configuration.yaml muss stehen:
+#   frontend:
+#     themes: !include_dir_merge_named themes
+# Dann HA neu starten und im Profil (oder im Dashboard) das Thema „Glas“ wählen.
+Glas:
+  modes:
+    light:
+      lovelace-background: "center / cover no-repeat fixed linear-gradient(160deg, #dfe9f7 0%, #eee3f1 55%, #f8eadb 100%)"
+      primary-color: "#0a84ff"
+      accent-color: "#0a84ff"
+      ha-card-border-radius: "22px"
+      ha-card-background: "rgba(255, 255, 255, 0.55)"
+      ha-card-border-color: "rgba(255, 255, 255, 0.7)"
+      ha-card-box-shadow: "none"
+      app-header-background-color: "rgba(246, 246, 250, 0.7)"
+      app-header-text-color: "#1c1c1e"
+    dark:
+      lovelace-background: "center / cover no-repeat fixed linear-gradient(160deg, #1b2742 0%, #0d111c 55%, #271c33 100%)"
+      primary-color: "#0a84ff"
+      accent-color: "#0a84ff"
+      ha-card-border-radius: "22px"
+      ha-card-background: "rgba(44, 44, 52, 0.55)"
+      ha-card-border-color: "rgba(255, 255, 255, 0.08)"
+      ha-card-box-shadow: "none"
+      app-header-background-color: "rgba(22, 22, 28, 0.7)"
+      app-header-text-color: "#f2f2f7"

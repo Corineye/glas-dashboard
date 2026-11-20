@@ -1,0 +1,6 @@
+{
+  "name": "Glas-Dashboard",
+  "filename": "glas-dashboard.js",
+  "render_readme": true,
+  "homeassistant": "2024.8.0"
+}
