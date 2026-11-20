@@ -11,6 +11,8 @@ const KARTEN = [
   ["glas-drucker-card", GlasDruckerCard, GlasDruckerEditor, "Glas · Drucker & Werkstatt", "3D-Drucker: Fortschritt, Kamera, Steuerung, Warteschlange und knappes Filament aus der Filament-Werkstatt."],
   ["glas-robi-card", GlasRobiCard, GlasRobiEditor, "Glas · Robi", "Saugroboter: Akku, alles oder einzelne Räume saugen, Saugstärke, Station."],
   ["glas-gaeste-card", GlasGaesteCard, GlasGaesteEditor, "Glas · Gäste", "WLAN-QR-Code zum Scannen, optional ein zweiter Code."],
+  ["glas-bild-card", GlasBildCard, GlasBildEditor, "Glas · Bild & QR-Code", "Ein Bild oder QR-Code (z. B. Gäste-Login): hochladen, aus einer Entität oder als QR aus einem Link."],
+  ["glas-kamera-card", GlasKameraCard, GlasKameraEditor, "Glas · Kamera", "Standbild einer Kamera, Tippen zeigt das Livebild groß."],
   ["glas-hinweise-card", GlasHinweiseCard, GlasHinweiseEditor, "Glas · Warnungen", "Fenster offen und Regen kommt / keiner zu Hause – nur sichtbar, wenn es zutrifft."],
   ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],

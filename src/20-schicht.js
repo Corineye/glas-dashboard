@@ -26,7 +26,7 @@ const SCHICHT_CSS = `
 .kopf-text{display:flex;flex-direction:column;gap:2px;min-width:0;padding-top:2px}
 .titel{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;line-height:1.15;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .unter{font-size:var(--g-s-name);font-weight:500;color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.inhalt{-webkit-mask-image:linear-gradient(transparent 0,#000 14px);mask-image:linear-gradient(transparent 0,#000 14px);padding-top:var(--g-a2)}
+.inhalt{-webkit-mask-image:linear-gradient(transparent 0,#000 12px);mask-image:linear-gradient(transparent 0,#000 12px);padding-top:var(--g-a3)}
 .kopf-knoepfe{display:flex;gap:var(--g-a2);flex:none}
 `;
 

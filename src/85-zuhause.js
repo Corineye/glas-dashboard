@@ -159,11 +159,14 @@ class GlasZuhauseCard extends HTMLElement {
         z.appendChild(inhalt);
         return z;
       };
-      if (a.id === "wetter" && b.wetter?.entity) el = this.kind("wetter", "glas-wetter-card", b.wetter);
+      // Von null: offensichtliche Entitäten selbst finden (einzige Wetter-Entität, einziger Saugroboter)
+      const erste = (d) => { const l = Object.keys(this._hass.states).filter((x) => x.startsWith(`${d}.`)); return l.length === 1 ? l[0] : null; };
+      const wetterE = b.wetter?.entity || erste("weather"), robiE = b.robi?.entity || erste("vacuum");
+      if (a.id === "wetter" && wetterE) el = this.kind("wetter", "glas-wetter-card", { ...(b.wetter || {}), entity: wetterE });
       else if (a.id === "planer" && b.planer?.an !== false) el = this.kind("planer", "glas-planer-card", b.planer || {});
       else if (a.id === "sicherheit" && b.sicherheit && (b.sicherheit.alarm || b.sicherheit.fenster_auto !== false)) el = this.kind("sicherheit", "glas-sicherheit-card", { fenster_auto: true, ...(b.sicherheit || {}) });
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
-      else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
+      else if (a.id === "robi" && robiE) el = this.kind("robi", "glas-robi-card", { ...(b.robi || {}), entity: robiE });
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
       else if (a.id === "favoriten" && (bearb || (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte))))) {
         const wrap = document.createElement("div");
@@ -173,12 +176,13 @@ class GlasZuhauseCard extends HTMLElement {
         const fav = wrap.querySelector(".fav");
         (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || listenKarte(f.karte))).forEach(({ f, i }, n) => {
           const kk = f.karte && listenKarte(f.karte);
-          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
+          const kc = kk && (({ type, ...r }) => r)(listenKarteCfg(f));
+          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], kc) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
           if (bearb) {
             z.dataset.i = i;
-            z.dataset.name = kk ? kk[1] : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
+            z.dataset.name = kk ? listenKarteName(f) : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
             if (f.an === false) z.classList.add("aus");
           }
           z.appendChild(k);
@@ -225,10 +229,23 @@ function raumCfg(hass, r, alle = false) {
   let gruppe = null;
   const extra = (g, i, gr) => (alle ? { _i: i, _aus: g.an === false, ...(gr ? { _gruppe: gr } : {}), ...(g.karte ? { _karte: g.karte } : {}) } : {});
   for (const { g, i } of geraete) {
-    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle", _gruppe: "" }, { ...k, ...extra(g, i) }); gruppe = null; } continue; }
+    if (g.karte) {
+      const k = listenKarteCfg(g);
+      if (!k) continue;
+      const gr = g.gruppe || `karte-${g.karte}`;
+      if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
+      cards.push({ ...k, ...extra(g, i) });
+      continue;
+    }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
     if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
     cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g), ...extra(g, i) });
+  }
+  // Im Bearbeiten-Modus auch leere eigene Abschnitte zeigen, damit man Kacheln hineinziehen kann
+  if (alle) {
+    const da = new Set(cards.filter((c) => c.type === "heading").map((c) => c._gruppe));
+    Object.keys(r.gruppen_namen || {}).filter((g) => g.startsWith("eigen-") && !da.has(g))
+      .forEach((g) => cards.push({ type: "heading", heading: gruppenName(r, g), heading_style: "subtitle", _gruppe: g, _leer: true }));
   }
   return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
     fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: [...(r.fenster || []), ...(r.bewegung || []), ...(r.chips || [])],

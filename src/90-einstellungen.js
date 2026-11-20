@@ -358,12 +358,12 @@ class GlasEinstellungen extends HTMLElement {
       setzen([...liste, geraetVorschlag(h, v.entity)].map((y, k, a) => (k === a.length - 1 ? { ...y, an: true } : y)));
       this.speichern(); this.zeichnen();
     });
-    const freie = LISTEN_KARTEN.filter(([id]) => !liste.some((y) => y.karte === id));
+    const freie = LISTEN_KARTEN.filter(([id, , , , eigen]) => eigen || !liste.some((y) => y.karte === id));
     if (freie.length) {
       const kz = this.html(g, `<div class="hinzu karten-hinzu"><span class="leise">Karte hinzufügen</span>${freie.map(([id, n, ic]) =>
         `<button class="knopf" data-karte="${id}"><ha-icon data-i="${ic}"></ha-icon>${n}</button>`).join("")}</div>`);
       kz.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => {
-        setzen([...liste, { karte: b.dataset.karte, groesse: "breit", an: true }]); this.speichern(); this.zeichnen();
+        setzen([...liste, { karte: b.dataset.karte, groesse: "breit", an: true, ...(listenKarte(b.dataset.karte)[4] ? { cfg: {} } : {}) }]); this.speichern(); this.zeichnen();
       }));
     }
     if (bereich) {
@@ -379,20 +379,21 @@ class GlasEinstellungen extends HTMLElement {
   kartenZeile(g, liste, i, setzen, merken) {
     const x = liste[i], [id, titel, icon] = listenKarte(x.karte) || [x.karte, x.karte, "mdi:card-outline"];
     const b = (this._d.bereiche || {})[id] || {};
-    const fertig = id === "drucker" ? !!(b.geraet || b.fortschritt) : !!b.entity;
+    const eigen = !!listenKarte(id)?.[4];
+    const fertig = eigen ? true : id === "drucker" ? !!(b.geraet || b.fortschritt) : !!b.entity;
     const an = x.an !== false;
     const z = this.html(g, `<div class="zeile geraet karte-zeile ${an ? "" : "aus"}" data-i="${i}">
       <span class="griff" tabindex="0" role="button" aria-label="${esc(titel)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
       <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
-      <span class="name"><b><ha-icon data-i="${icon}"></ha-icon>${esc(titel)}-Karte</b><span>${fertig ? "Einstellungen unter Bereiche" : "Noch nicht eingerichtet: Bereiche öffnen"}</span></span>
+      <span class="name"><b><ha-icon data-i="${icon}"></ha-icon>${esc(eigen ? listenKarteName(x) : `${titel}-Karte`)}</b><span>${eigen ? "Einstellen im Dashboard: Stift, dann Karte antippen" : fertig ? "Einstellungen unter Bereiche" : "Noch nicht eingerichtet: Bereiche öffnen"}</span></span>
       <span class="optionen"><span class="segment" role="group" aria-label="Größe">${[["breit", "M", "Halbe Breite"], ["ganz", "▭", "Ganze Breite"]].map(([gid, k, t]) =>
         `<button data-g="${gid}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse === "ganz" ? "ganz" : "breit") === gid}">${k}</button>`).join("")}</span>
-        <button class="klein-knopf" data-bereich aria-label="${esc(titel)} einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>
+        ${eigen ? "" : `<button class="klein-knopf" data-bereich aria-label="${esc(titel)} einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>`}
         <button class="klein-knopf" data-weg aria-label="Entfernen"><ha-icon data-i="mdi:close"></ha-icon></button></span></div>`);
     const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); merken(l); liste = l; this.speichern(); };
     z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
     z.querySelectorAll("[data-g]").forEach((bt) => bt.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === bt)); neu({ groesse: bt.dataset.g }); }));
-    z.querySelector("[data-bereich]").addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
+    z.querySelector("[data-bereich]")?.addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
     z.querySelector("[data-weg]").addEventListener("click", () => { const l = [...liste]; l.splice(i, 1); setzen(l); this.speichern(); this.zeichnen(); });
   }
 
@@ -482,6 +483,16 @@ class GlasEinstellungen extends HTMLElement {
       Object.assign(this._d, { gruss_modus: cfg.gruss_modus, gruss_text: cfg.gruss_text, untertitel: cfg.untertitel, personen: cfg.personen || [] });
       this.speichern();
     });
+    // Von null: Personen aus Home Assistant vorschlagen (person.* mit verknüpftem Benutzer)
+    const haPers = Object.keys(this._hass.states).filter((e) => e.startsWith("person.")).map((e) => this._hass.states[e]);
+    if (!(this._d.personen || []).length && haPers.length) {
+      const a = this.html(box, `<div class="aktionen"><button class="knopf" data-ha-pers>${haPers.length === 1 ? "Person" : `${haPers.length} Personen`} aus Home Assistant übernehmen</button></div>`);
+      a.querySelector("button").addEventListener("click", () => {
+        this._d.personen = [...haPers.map((p) => { const n = p.attributes.friendly_name || p.entity_id.slice(7);
+          return { name: n, kurz: n.slice(0, 1).toUpperCase(), entity: p.entity_id, ...(p.attributes.user_id ? { benutzer: p.attributes.user_id } : {}) }; }), { tablet: true }];
+        this.speichern(); this.zeichnen();
+      });
+    }
     this.html(box, `<div class="fuss">Jede Person kann unter „Startseite“ eine eigene Startseite bekommen. Welche Person ein Gerät zeigt, merkt sich jedes Gerät selbst (das Tablet bleibt Tablet).</div>`);
   }
 

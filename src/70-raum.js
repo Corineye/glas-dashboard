@@ -115,7 +115,7 @@ const RAUM_CSS = `
 .abschn-raster > *{min-width:0}
 @media (min-width:760px){.raster.zwei{display:block;columns:2;column-gap:var(--g-a5)}.raster.zwei > .abschn{break-inside:avoid;margin-bottom:var(--g-a3)}}
 .aktiv-rund{background:var(--g-akzent-voll)!important;color:#fff!important}
-.chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;margin-top:calc(-1 * var(--g-a2));padding:0 var(--g-a1)}
+.chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;padding:0 var(--g-a1)}
 .chips ha-state-icon{--mdc-icon-size:16px}
 .platz{display:flex;align-items:center;gap:var(--g-a3);width:100%;padding:var(--g-a4);border-radius:var(--g-r);border:1.5px dashed var(--g-text2);color:var(--g-text);text-align:left}
 `;
@@ -292,7 +292,7 @@ class GlasRaumCard extends GlasKarte {
       else if (!box) neueBox(undefined);
       if (raum && cfg._i != null) {
         z.dataset.i = cfg._i;
-        z.dataset.name = cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
+        z.dataset.name = cfg.titel || cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
         if (cfg._aus) z.classList.add("aus");
       }
       z.appendChild(el);

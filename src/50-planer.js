@@ -234,7 +234,7 @@ class GlasPlanerCard extends GlasKarte {
       <div class="oben"><h2 class="datum">${esc(titel)}</h2><button class="rund" data-neu aria-label="Aufgabe hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div>
       ${schicht}${koerper}
       <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"}`}<ha-icon data-i="mdi:chevron-down"></ha-icon></button>
-      <button class="link" data-oeffnen>Planer öffnen ›</button></div></section>`;
+      <button class="link" data-oeffnen>Planer öffnen<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button></div></section>`;
     const seiten = [["planer", "Planer", seite1], ["kalender", "Kalender", this.kalenderSeite(terminHtml)], ["monat", "Monat", this.monatSeite(terminHtml)], ["schichten", "Schichten", this.schichtSeite()]]
       .filter(([id]) => c[`seite_${id}`] !== false);
     if (seiten.length <= 1) return `<div class="karte glas">${(seiten[0] || [, , seite1])[2].replace('class="seite"', 'class="seite" style="padding:0"')}</div>`;

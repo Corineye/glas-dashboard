@@ -9,7 +9,7 @@ const STEUER_CSS = `
 .wert{font-size:44px;font-weight:300;line-height:1;color:var(--g-text);text-align:center;font-variant-numeric:tabular-nums}
 .anzeige-gross{display:flex;flex-direction:column;align-items:center;gap:var(--g-a2);padding:var(--g-a2) 0}
 .gross-sym{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-fuell-text);--mdc-icon-size:44px}
-.gross-sym.an{background:var(--sf);color:#fff}
+.gross-sym.an{background:var(--sf);color:#fff;box-shadow:0 0 28px 2px color-mix(in srgb,var(--sf) 55%,transparent)}
 .gross-sym ha-state-icon{--mdc-icon-size:44px}
 .reihe{display:flex;gap:var(--g-a2);justify-content:center;flex-wrap:wrap}
 .farben{display:flex;align-items:center;justify-content:center;gap:var(--g-a3)}
@@ -27,7 +27,11 @@ const STEUER_CSS = `
   transition:transform .25s cubic-bezier(.32,.72,0,1)}
 .schalter[aria-pressed="true"] span{transform:translateX(38px)}
 .gross-rund{width:56px;height:56px;border-radius:50%;font-size:28px;background:var(--g-fuell);color:var(--g-text);display:flex;align-items:center;justify-content:center}
-.zeile-knopf{min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.zeile-knopf{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.raum-knopf{display:grid;place-items:center}
+.raum-knopf > span{grid-area:1/1;transition:opacity .25s ease,transform .25s cubic-bezier(.23,1,.32,1)}
+.raum-knopf.an .rk-aus,.raum-knopf.aus .rk-an{opacity:0;transform:translateY(6px)}
+@media (prefers-reduced-motion:reduce){.raum-knopf > span{transition:opacity .2s ease;transform:none!important}}
 .abschnitt{display:flex;flex-direction:column;gap:var(--g-a2)}
 .abschnitt-titel{font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2);padding:0 var(--g-a1)}
 .werte{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:var(--g-a2)}
@@ -135,7 +139,13 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
           extra += `<div class="rad-feld"><div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div></div>`;
         }
       }
-      if (st.state === "on" && bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
+      if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) {
+        // ein Knopf, zwei Texte: blendet beim Ein-/Ausschalten weich über statt zu springen
+        const vorher = (Glas._raumKnopf ||= {})[entityId] ?? st.state;
+        extra += `<button class="zeile-knopf glas raum-knopf ${vorher === "on" ? "an" : "aus"}" data-raumfarbe data-soll="${st.state === "on" ? "an" : "aus"}">
+          <span class="rk-an">Diese Farbe für alle Lichter im Raum</span><span class="rk-aus">Alle Lichter im Raum ausschalten</span></button>`;
+        Glas._raumKnopf[entityId] = st.state;
+      }
     }
     if (d === "climate" && a.hvac_modes?.length) {
       const eco = st.state !== "off" && Number(a.temperature) === 17;
@@ -165,7 +175,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
     if (vIds.length) extra += verlaufKlappHtml(h, vIds, vZustand);
-    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant ›</button>`;
+    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
     s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
     s.kopfBinden();
@@ -204,8 +214,14 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       if (neuM && !an) Geraet.schalten(h, st);
       Glas.timerSetzen(h, entityId, neuM).catch(() => {});
     }));
-    $("[data-raumfarbe]")?.addEventListener("click", () => {
+    const rk = $("[data-raumfarbe]");
+    if (rk) requestAnimationFrame(() => requestAnimationFrame(() => {
+      rk.classList.toggle("an", rk.dataset.soll === "an"); rk.classList.toggle("aus", rk.dataset.soll !== "an");
+      rk.querySelector(".rk-an").setAttribute("aria-hidden", rk.dataset.soll !== "an"); rk.querySelector(".rk-aus").setAttribute("aria-hidden", rk.dataset.soll === "an");
+    }));
+    rk?.addEventListener("click", () => {
       const ziel = entitaetenImBereich(h, bereich, ["light"]);
+      if (rk.dataset.soll !== "an") { h.callService("light", "turn_off", { entity_id: ziel }); return; }
       const farbe = a.hs_color && a.color_mode !== "color_temp" ? { hs_color: a.hs_color } : a.color_temp_kelvin ? { color_temp_kelvin: a.color_temp_kelvin } : {};
       h.callService("light", "turn_on", { entity_id: ziel, ...farbe });
     });
@@ -284,8 +300,8 @@ const KACHEL_CSS = `
 .kachel.an .fuell{background:var(--g-an)}
 .kachel.an.regelbar{background:var(--g-an-gedimmt)}
 .symbol{position:relative;flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:var(--g-fuell);color:var(--g-fuell-text);transition:background-color .2s ease}
-.an .symbol{background:var(--sf);color:#fff}
+  background:var(--g-fuell);color:var(--g-fuell-text);transition:background-color .2s ease,box-shadow .35s ease}
+.an .symbol{background:var(--sf);color:#fff;box-shadow:0 0 16px 1px color-mix(in srgb,var(--sf) 60%,transparent)}
 .warn .symbol{background:var(--warn);color:#fff}
 .text{position:relative;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;flex:1;align-self:stretch;text-align:left;border-radius:var(--g-r-klein)}
 .gross .text{flex:none;width:100%;align-self:auto}

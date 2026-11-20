@@ -8,12 +8,20 @@ const ABSCHNITTE = [
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
   ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
 ];
-// Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann (eingestellt unter Bereiche)
-const LISTEN_KARTEN = [["drucker", "3D-Drucker", "mdi:printer-3d-nozzle", "glas-drucker-card"], ["robi", "Robi", "mdi:robot-vacuum", "glas-robi-card"]];
+// Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann.
+// [id, Name, Symbol, Element, eigen]: eigen = Einstellungen im Eintrag selbst (mehrfach möglich), sonst gemeinsam unter Bereiche
+const LISTEN_KARTEN = [["drucker", "3D-Drucker", "mdi:printer-3d-nozzle", "glas-drucker-card", false], ["robi", "Robi", "mdi:robot-vacuum", "glas-robi-card", false],
+  ["bild", "Bild & QR-Code", "mdi:qrcode", "glas-bild-card", true], ["kamera", "Kamera", "mdi:cctv", "glas-kamera-card", true]];
 const listenKarte = (id) => LISTEN_KARTEN.find(([k]) => k === id);
 function listenKarteCfg(x) {
   const k = listenKarte(x.karte);
-  return k ? { type: `custom:${k[3]}`, ...((Glas.einst?.bereiche || {})[x.karte] || {}) } : null;
+  if (!k) return null;
+  return { type: `custom:${k[3]}`, ...(k[4] ? x.cfg || {} : (Glas.einst?.bereiche || {})[x.karte] || {}) };
+}
+// Anzeigename eines Karten-Eintrags
+function listenKarteName(x) {
+  const k = listenKarte(x.karte);
+  return x.cfg?.titel || x.cfg?.name || (x.karte === "kamera" && x.cfg?.entity && Glas.hass?.states[x.cfg.entity]?.attributes.friendly_name) || k?.[1] || "Karte";
 }
 const GRUPPEN = [
   ["licht", "Licht"], ["klima", "Klima"], ["rollos", "Rollos"], ["schalter", "Steckdosen & Schalter"],

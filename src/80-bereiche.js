@@ -387,7 +387,7 @@ class GlasDruckerCard extends GlasBereichKarte {
         <button class="plus" data-plus aria-label="Hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div></div>
       ${knapp.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Filament wird knapp</h3></div>${knapp.map((r) =>
         `<div class="zeile"><span class="punkt" style="background:${farbe(r)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>${esc(r.material)} ${esc(r.farbe)}<span class="rechts warn">noch ${Math.round(r.rest_g)} g</span></div>`).join("")}</div>` : ""}` : ""}
-      <button class="link" data-werk>Werkstatt öffnen ›</button>`;
+      <button class="link" data-werk>Werkstatt öffnen<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
   }
   // Bild/Livebild bleibt als eigenes Element bestehen, damit der Stream beim Neuzeichnen nicht abreißt
   medienSetzen(platz) {

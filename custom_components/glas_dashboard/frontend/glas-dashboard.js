@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -54,7 +54,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--g-akzent);
 .rund{flex:none;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-text)}
 .leise{font-size:var(--g-s-klein);color:var(--g-text2)}
 .h2{margin:0;font-size:var(--g-s-h2);font-weight:700;color:var(--g-text)}
-.link{min-height:44px;padding:0 var(--g-a1);font-size:var(--g-s-name);font-weight:600;color:var(--g-akzent)}
+.link{display:inline-flex;align-items:center;gap:2px;min-height:44px;padding:0 var(--g-a1);font-size:var(--g-s-name);font-weight:600;color:var(--g-akzent)}
+.pfeil-r{--mdc-icon-size:18px;flex:none;margin-right:-4px}
 .k{transition:transform .16s cubic-bezier(.23,1,.32,1),background-color .2s ease}
 .k:active{transform:scale(.97)}
 button:not(.k):active:not(:disabled){opacity:.7}
@@ -290,9 +291,9 @@ class GlasEditor extends HTMLElement {
         const e = document.createElement("div");
         e.className = "ge-eintrag";
         e.innerHTML = `<div class="ge-eintrag-kopf"><span>${esc(l.name(item, i))}</span>
-          <button class="ge-knopf" data-a="hoch" title="Nach oben" ${i === 0 ? "disabled" : ""}>↑</button>
-          <button class="ge-knopf" data-a="runter" title="Nach unten" ${i === items.length - 1 ? "disabled" : ""}>↓</button>
-          <button class="ge-knopf" data-a="weg" title="Entfernen">✕</button></div>`;
+          <button class="ge-knopf" data-a="hoch" title="Nach oben" aria-label="Nach oben" ${i === 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+          <button class="ge-knopf" data-a="runter" title="Nach unten" aria-label="Nach unten" ${i === items.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+          <button class="ge-knopf" data-a="weg" title="Entfernen" aria-label="Entfernen"><ha-icon icon="mdi:close"></ha-icon></button></div>`;
         const f = document.createElement("ha-form");
         f.hass = this._hass; f.data = item; f.schema = l.schema(item);
         f.computeLabel = (s) => l.labels?.[s.name] ?? s.name;
@@ -354,12 +355,20 @@ const ABSCHNITTE = [
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
   ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
 ];
-// Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann (eingestellt unter Bereiche)
-const LISTEN_KARTEN = [["drucker", "3D-Drucker", "mdi:printer-3d-nozzle", "glas-drucker-card"], ["robi", "Robi", "mdi:robot-vacuum", "glas-robi-card"]];
+// Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann.
+// [id, Name, Symbol, Element, eigen]: eigen = Einstellungen im Eintrag selbst (mehrfach möglich), sonst gemeinsam unter Bereiche
+const LISTEN_KARTEN = [["drucker", "3D-Drucker", "mdi:printer-3d-nozzle", "glas-drucker-card", false], ["robi", "Robi", "mdi:robot-vacuum", "glas-robi-card", false],
+  ["bild", "Bild & QR-Code", "mdi:qrcode", "glas-bild-card", true], ["kamera", "Kamera", "mdi:cctv", "glas-kamera-card", true]];
 const listenKarte = (id) => LISTEN_KARTEN.find(([k]) => k === id);
 function listenKarteCfg(x) {
   const k = listenKarte(x.karte);
-  return k ? { type: `custom:${k[3]}`, ...((Glas.einst?.bereiche || {})[x.karte] || {}) } : null;
+  if (!k) return null;
+  return { type: `custom:${k[3]}`, ...(k[4] ? x.cfg || {} : (Glas.einst?.bereiche || {})[x.karte] || {}) };
+}
+// Anzeigename eines Karten-Eintrags
+function listenKarteName(x) {
+  const k = listenKarte(x.karte);
+  return x.cfg?.titel || x.cfg?.name || (x.karte === "kamera" && x.cfg?.entity && Glas.hass?.states[x.cfg.entity]?.attributes.friendly_name) || k?.[1] || "Karte";
 }
 const GRUPPEN = [
   ["licht", "Licht"], ["klima", "Klima"], ["rollos", "Rollos"], ["schalter", "Steckdosen & Schalter"],
@@ -2920,7 +2929,7 @@ const SCHICHT_CSS = `
 .kopf-text{display:flex;flex-direction:column;gap:2px;min-width:0;padding-top:2px}
 .titel{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;line-height:1.15;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .unter{font-size:var(--g-s-name);font-weight:500;color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.inhalt{-webkit-mask-image:linear-gradient(transparent 0,#000 14px);mask-image:linear-gradient(transparent 0,#000 14px);padding-top:var(--g-a2)}
+.inhalt{-webkit-mask-image:linear-gradient(transparent 0,#000 12px);mask-image:linear-gradient(transparent 0,#000 12px);padding-top:var(--g-a3)}
 .kopf-knoepfe{display:flex;gap:var(--g-a2);flex:none}
 `;
 
@@ -3046,7 +3055,7 @@ const STEUER_CSS = `
 .wert{font-size:44px;font-weight:300;line-height:1;color:var(--g-text);text-align:center;font-variant-numeric:tabular-nums}
 .anzeige-gross{display:flex;flex-direction:column;align-items:center;gap:var(--g-a2);padding:var(--g-a2) 0}
 .gross-sym{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-fuell-text);--mdc-icon-size:44px}
-.gross-sym.an{background:var(--sf);color:#fff}
+.gross-sym.an{background:var(--sf);color:#fff;box-shadow:0 0 28px 2px color-mix(in srgb,var(--sf) 55%,transparent)}
 .gross-sym ha-state-icon{--mdc-icon-size:44px}
 .reihe{display:flex;gap:var(--g-a2);justify-content:center;flex-wrap:wrap}
 .farben{display:flex;align-items:center;justify-content:center;gap:var(--g-a3)}
@@ -3064,7 +3073,11 @@ const STEUER_CSS = `
   transition:transform .25s cubic-bezier(.32,.72,0,1)}
 .schalter[aria-pressed="true"] span{transform:translateX(38px)}
 .gross-rund{width:56px;height:56px;border-radius:50%;font-size:28px;background:var(--g-fuell);color:var(--g-text);display:flex;align-items:center;justify-content:center}
-.zeile-knopf{min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.zeile-knopf{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.raum-knopf{display:grid;place-items:center}
+.raum-knopf > span{grid-area:1/1;transition:opacity .25s ease,transform .25s cubic-bezier(.23,1,.32,1)}
+.raum-knopf.an .rk-aus,.raum-knopf.aus .rk-an{opacity:0;transform:translateY(6px)}
+@media (prefers-reduced-motion:reduce){.raum-knopf > span{transition:opacity .2s ease;transform:none!important}}
 .abschnitt{display:flex;flex-direction:column;gap:var(--g-a2)}
 .abschnitt-titel{font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2);padding:0 var(--g-a1)}
 .werte{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:var(--g-a2)}
@@ -3172,7 +3185,13 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
           extra += `<div class="rad-feld"><div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div></div>`;
         }
       }
-      if (st.state === "on" && bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
+      if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) {
+        // ein Knopf, zwei Texte: blendet beim Ein-/Ausschalten weich über statt zu springen
+        const vorher = (Glas._raumKnopf ||= {})[entityId] ?? st.state;
+        extra += `<button class="zeile-knopf glas raum-knopf ${vorher === "on" ? "an" : "aus"}" data-raumfarbe data-soll="${st.state === "on" ? "an" : "aus"}">
+          <span class="rk-an">Diese Farbe für alle Lichter im Raum</span><span class="rk-aus">Alle Lichter im Raum ausschalten</span></button>`;
+        Glas._raumKnopf[entityId] = st.state;
+      }
     }
     if (d === "climate" && a.hvac_modes?.length) {
       const eco = st.state !== "off" && Number(a.temperature) === 17;
@@ -3202,7 +3221,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
     if (vIds.length) extra += verlaufKlappHtml(h, vIds, vZustand);
-    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant ›</button>`;
+    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
     s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
     s.kopfBinden();
@@ -3241,8 +3260,14 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       if (neuM && !an) Geraet.schalten(h, st);
       Glas.timerSetzen(h, entityId, neuM).catch(() => {});
     }));
-    $("[data-raumfarbe]")?.addEventListener("click", () => {
+    const rk = $("[data-raumfarbe]");
+    if (rk) requestAnimationFrame(() => requestAnimationFrame(() => {
+      rk.classList.toggle("an", rk.dataset.soll === "an"); rk.classList.toggle("aus", rk.dataset.soll !== "an");
+      rk.querySelector(".rk-an").setAttribute("aria-hidden", rk.dataset.soll !== "an"); rk.querySelector(".rk-aus").setAttribute("aria-hidden", rk.dataset.soll === "an");
+    }));
+    rk?.addEventListener("click", () => {
       const ziel = entitaetenImBereich(h, bereich, ["light"]);
+      if (rk.dataset.soll !== "an") { h.callService("light", "turn_off", { entity_id: ziel }); return; }
       const farbe = a.hs_color && a.color_mode !== "color_temp" ? { hs_color: a.hs_color } : a.color_temp_kelvin ? { color_temp_kelvin: a.color_temp_kelvin } : {};
       h.callService("light", "turn_on", { entity_id: ziel, ...farbe });
     });
@@ -3321,8 +3346,8 @@ const KACHEL_CSS = `
 .kachel.an .fuell{background:var(--g-an)}
 .kachel.an.regelbar{background:var(--g-an-gedimmt)}
 .symbol{position:relative;flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:var(--g-fuell);color:var(--g-fuell-text);transition:background-color .2s ease}
-.an .symbol{background:var(--sf);color:#fff}
+  background:var(--g-fuell);color:var(--g-fuell-text);transition:background-color .2s ease,box-shadow .35s ease}
+.an .symbol{background:var(--sf);color:#fff;box-shadow:0 0 16px 1px color-mix(in srgb,var(--sf) 60%,transparent)}
 .warn .symbol{background:var(--warn);color:#fff}
 .text{position:relative;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;flex:1;align-self:stretch;text-align:left;border-radius:var(--g-r-klein)}
 .gross .text{flex:none;width:100%;align-self:auto}
@@ -3910,7 +3935,7 @@ class GlasPlanerCard extends GlasKarte {
       <div class="oben"><h2 class="datum">${esc(titel)}</h2><button class="rund" data-neu aria-label="Aufgabe hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div>
       ${schicht}${koerper}
       <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"}`}<ha-icon data-i="mdi:chevron-down"></ha-icon></button>
-      <button class="link" data-oeffnen>Planer öffnen ›</button></div></section>`;
+      <button class="link" data-oeffnen>Planer öffnen<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button></div></section>`;
     const seiten = [["planer", "Planer", seite1], ["kalender", "Kalender", this.kalenderSeite(terminHtml)], ["monat", "Monat", this.monatSeite(terminHtml)], ["schichten", "Schichten", this.schichtSeite()]]
       .filter(([id]) => c[`seite_${id}`] !== false);
     if (seiten.length <= 1) return `<div class="karte glas">${(seiten[0] || [, , seite1])[2].replace('class="seite"', 'class="seite" style="padding:0"')}</div>`;
@@ -4312,7 +4337,7 @@ const RAUM_CSS = `
 .abschn-raster > *{min-width:0}
 @media (min-width:760px){.raster.zwei{display:block;columns:2;column-gap:var(--g-a5)}.raster.zwei > .abschn{break-inside:avoid;margin-bottom:var(--g-a3)}}
 .aktiv-rund{background:var(--g-akzent-voll)!important;color:#fff!important}
-.chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;margin-top:calc(-1 * var(--g-a2));padding:0 var(--g-a1)}
+.chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;padding:0 var(--g-a1)}
 .chips ha-state-icon{--mdc-icon-size:16px}
 .platz{display:flex;align-items:center;gap:var(--g-a3);width:100%;padding:var(--g-a4);border-radius:var(--g-r);border:1.5px dashed var(--g-text2);color:var(--g-text);text-align:left}
 `;
@@ -4489,7 +4514,7 @@ class GlasRaumCard extends GlasKarte {
       else if (!box) neueBox(undefined);
       if (raum && cfg._i != null) {
         z.dataset.i = cfg._i;
-        z.dataset.name = cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
+        z.dataset.name = cfg.titel || cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
         if (cfg._aus) z.classList.add("aus");
       }
       z.appendChild(el);
@@ -4661,6 +4686,8 @@ const BEARB_CSS = `
 .bearb .zieht > :first-child{transform:scale(1.04);border-radius:var(--g-r);box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}
 .bearb .zieht > .deckel{cursor:grabbing}
 .bearb .gehalten > :first-child{transform:scale(1.03);transition:transform .18s cubic-bezier(.23,1,.32,1)}
+.bearb .abschn-raster:not(:has([data-i]))::after{content:"Kacheln hierher ziehen";grid-column:span 12;min-height:64px;display:flex;align-items:center;justify-content:center;
+  border:1.5px dashed var(--g-text2);border-radius:var(--g-r);color:var(--g-text2);font-size:var(--g-s-klein)}
 .neu-kachel{display:flex;align-items:center;justify-content:center;gap:var(--g-a2);width:100%;min-height:var(--g-kachel-h);border-radius:var(--g-r);
   border:1.5px dashed var(--g-text2);color:var(--g-text);font-size:var(--g-s-name);font-weight:600}
 .platzhalter{display:flex;align-items:center;gap:var(--g-a3);min-height:72px;padding:var(--g-a3) var(--g-a4);border-radius:var(--g-r);color:var(--g-text)}
@@ -4692,7 +4719,7 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
   const reihenfolgeSpeichern = () => {
     const neu = kinder().map((z) => ({ i: Number(z.dataset.i), gruppe: z.parentElement.closest("[data-gruppe]")?.dataset.gruppe || undefined }));
     zugriff.schreiben(Glas.hass, (liste) => {
-      const l = neu.map(({ i, gruppe }) => (liste[i] ? { ...liste[i], ...(gruppe && liste[i].entity ? { gruppe } : {}) } : null)).filter(Boolean);
+      const l = neu.map(({ i, gruppe }) => (liste[i] ? { ...liste[i], ...(gruppe ? { gruppe } : {}) } : null)).filter(Boolean);
       return [...l, ...liste.filter((_, i) => !neu.some((x) => x.i === i))];
     });
   };
@@ -4741,6 +4768,11 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
         const r = ziel.getBoundingClientRect(), vor = e.clientX < r.left + r.width / 2;
         const ref = vor ? ziel : ziel.nextElementSibling;
         if (ref !== z && (z.nextElementSibling !== ref || z.parentNode !== ziel.parentNode)) { flip(kinder(), () => ziel.parentNode.insertBefore(z, ref)); g.bewegt = true; }
+      }
+      if (!ziel) {
+        // leerer Abschnitt unter dem Finger: dort hinein
+        const box = [...raster.querySelectorAll(".abschn-raster")].find((b) => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+        if (box && box !== z.parentNode && !kinder().some((k) => k !== z && k.parentNode === box)) { flip(kinder(), () => box.appendChild(z)); g.bewegt = true; }
       }
       g.ziel = ziel || null;
       // Am Rand automatisch scrollen
@@ -4818,6 +4850,17 @@ const MENUE_CSS = `
 .knoepfe{display:flex;gap:var(--g-a2);flex-wrap:wrap}
 .knoepfe button{flex:1;min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .knoepfe .rot{color:var(--g-rot-text)}
+.karten-wahl{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--g-a2)}
+.karten-wahl button{display:flex;align-items:center;gap:var(--g-a2);min-height:52px;padding:0 var(--g-a3);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text);text-align:left}
+.karten-wahl button span{display:flex;flex-direction:column}
+.karten-wahl small{font-size:var(--g-s-mini);font-weight:500;color:var(--g-text2)}
+.karten-wahl button:disabled{opacity:.5}
+.karten-wahl ha-icon{--mdc-icon-size:22px;color:var(--g-akzent)}
+.neu-zeile{display:flex;gap:var(--g-a2);margin-top:var(--g-a2)}
+.neu-zeile input{flex:1;min-width:0;min-height:44px;padding:0 var(--g-a3);border-radius:var(--g-r-klein);border:1px solid var(--g-glas-rand);background:var(--g-fuell);
+  font:inherit;font-size:16px;color:var(--g-text);outline-color:var(--g-akzent)}
+.neu-zeile button{flex:none;min-height:44px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:#fff;background:var(--g-akzent-voll)}
+.neu-zeile button:disabled{opacity:.45}
 .m-hinweis{font-size:var(--g-s-klein);color:var(--g-text2);line-height:1.4}
 `;
 const GROESSEN_M = [["klein", "S", "1×1"], ["breit", "M", "2×1"], ["gross", "L", "2×2"], ["ganz", "Ganz", "Breite"]];
@@ -4853,7 +4896,7 @@ async function kachelMenue(quelle, zugriff, i) {
     const h = Glas.hass, x = eintrag, st = x.entity && h.states[x.entity];
     s.dunkel(istDunkel(h));
     const karte = x.karte && listenKarte(x.karte);
-    const name = karte ? `${karte[1]}-Karte` : x.name || st?.attributes.friendly_name || x.entity;
+    const name = karte ? (karte[4] ? listenKarteName(x) : `${karte[1]}-Karte`) : x.name || st?.attributes.friendly_name || x.entity;
     const an = x.an !== false;
     const raum = zugriff.raum();
     const groessen = karte ? GROESSEN_M.filter(([g]) => g === "breit" || g === "ganz") : GROESSEN_M;
@@ -4864,7 +4907,8 @@ async function kachelMenue(quelle, zugriff, i) {
       ${karte ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:link-variant"></ha-icon>Gerät</div><div data-f="geraet"></div></div>`}
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Größe</div>
         <div class="segment" role="group" aria-label="Größe">${groessen.map(([g, k, t]) => `<button data-g="${g}" aria-pressed="${(x.groesse || "breit") === g || (karte && g === "breit" && x.groesse !== "ganz")}">${k}<small>${t}</small></button>`).join("")}</div></div>
-      ${karte ? `<div class="m-gruppe glas"><div class="m-hinweis">Was die ${esc(karte[1])}-Karte zeigt, stellst du in den Glas-Einstellungen unter „Bereiche“ ein.</div></div>` : `
+      ${karte ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:tune-variant"></ha-icon>Einstellungen</div>
+        ${karte[4] ? "" : `<div class="m-hinweis">Gilt für die ${esc(karte[1])}-Karte überall im Dashboard.</div>`}<div data-ked></div></div>` : `
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:eye-outline"></ha-icon>Anzeige in der Kachel</div>
         ${ANZEIGE_TEILE.map(([id, t]) => `<button class="haken" role="switch" data-a="${id}" aria-checked="${anzeige.includes(id)}">${t}<span class="sw" aria-hidden="true"></span></button>`).join("")}</div>
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:gesture-tap"></ha-icon>Verhalten</div><div data-f="verhalten"></div></div>
@@ -4873,6 +4917,24 @@ async function kachelMenue(quelle, zugriff, i) {
       <div class="knoepfe"><button class="glas" data-aus>${an ? "Ausblenden" : "Wieder zeigen"}</button><button class="glas rot" data-weg>${wegFrage ? "Wirklich entfernen?" : "Entfernen"}</button></div>`;
     s.kopfBinden();
     const $ = (q) => s.inhalt.querySelector(q);
+    if (karte) {
+      // Einstellungen der ganzen Karte direkt hier (eigene Karten im Eintrag, Drucker/Robi gemeinsam unter Bereiche)
+      const tag = `${karte[3]}-editor`, box = $("[data-ked]");
+      customElements.whenDefined(tag).then(() => {
+        if (!box.isConnected) return;
+        const ed = document.createElement(tag);
+        ed.hass = Glas.hass;
+        ed.setConfig({ type: `custom:${karte[3]}`, ...(karte[4] ? x.cfg || {} : (Glas.einst.bereiche || {})[x.karte] || {}) });
+        let t = null;
+        ed.addEventListener("config-changed", (ev) => {
+          ev.stopPropagation();
+          const { type, ...rest } = ev.detail.config;
+          if (karte[4]) { eintrag.cfg = rest; speichern(); const tt = s.kopfPlatz.querySelector(".titel"); if (tt) tt.textContent = listenKarteName(eintrag); }
+          else { clearTimeout(t); t = setTimeout(() => bereichSpeichern(x.karte, rest), 400); }
+        });
+        box.appendChild(ed);
+      });
+    }
     if (!karte) {
       haForm($("[data-f=geraet]"), { entity: x.entity, name: x.name, icon: x.icon }, [
         { name: "entity", selector: { entity: {} } },
@@ -4914,9 +4976,10 @@ async function kachelMenue(quelle, zugriff, i) {
     if (raum) {
       const andere = (Glas.einst.raeume || []).filter((r) => r.hash !== raum.hash);
       const eigene = Object.keys(raum.gruppen_namen || {}).filter((k) => !GRUPPEN.some(([g]) => g === k));
-      haForm($("[data-f=platz]"), { gruppe: x.gruppe || (x.entity ? gruppeVon(h, x.entity) : undefined), raum: "" }, [
-        ...(x.entity ? [{ name: "gruppe", selector: { select: { mode: "dropdown", options: [...GRUPPEN.map(([g]) => g), ...eigene].map((g) => ({ value: g, label: gruppenName(raum, g) })) } } },
-          { name: "neu_gruppe", selector: { text: {} } }] : []),
+      const gStandard = x.entity ? gruppeVon(h, x.entity) : `karte-${x.karte}`;
+      haForm($("[data-f=platz]"), { gruppe: x.gruppe || gStandard, raum: "" }, [
+        { name: "gruppe", selector: { select: { mode: "dropdown", options: [...new Set([...(x.karte ? [gStandard] : []), ...GRUPPEN.map(([g]) => g), ...eigene])].map((g) => ({ value: g, label: gruppenName(raum, g) })) } } },
+        { name: "neu_gruppe", selector: { text: {} } },
         ...(andere.length ? [{ name: "raum", selector: { select: { mode: "dropdown", options: [{ value: "", label: "–" }, ...andere.map((r) => ({ value: r.hash, label: r.name }))] } } }] : []),
       ], { gruppe: "Abschnitt im Raum", neu_gruppe: "Oder neuer Abschnitt (Name eintippen)", raum: "In anderen Raum verschieben" }, (v) => {
         if (v.neu_gruppe && v.neu_gruppe.trim()) {
@@ -4973,22 +5036,29 @@ async function neuMenue(quelle, zugriff) {
   const s = new GlasSchicht({ quelle, titel: "Hinzufügen" });
   const h = Glas.hass, liste = zugriff.lesen(h);
   s.dunkel(istDunkel(h));
-  const frei = LISTEN_KARTEN.filter(([id]) => !liste.some((y) => y.karte === id));
+  const da = (id) => !listenKarte(id)[4] && liste.some((y) => y.karte === id);
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml("Hinzufügen", zugriff.raum()?.name || "Favoriten")}
-    <div class="m-gruppe glas"><div class="m-titel">Gerät</div><div data-f></div></div>
-    ${frei.length ? `<div class="m-gruppe glas"><div class="m-titel">Ganze Karte</div><div class="knoepfe">${frei.map(([id, n]) => `<button class="glas" data-karte="${id}">${esc(n)}</button>`).join("")}</div></div>` : ""}`;
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:link-variant"></ha-icon>Gerät</div><div data-f></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:card-outline"></ha-icon>Ganze Karte</div><div class="karten-wahl">${LISTEN_KARTEN.map(([id, n, ic]) =>
+      `<button class="glas" data-karte="${id}" ${da(id) ? "disabled" : ""}><ha-icon data-i="${ic}"></ha-icon><span>${esc(n)}${da(id) ? `<small>Schon hier</small>` : ""}</span></button>`).join("")}</div></div>`;
   s.kopfBinden();
-  const fertig = (neu) => { zugriff.schreiben(Glas.hass, (l) => [...l, neu]); s.schliessen(); };
+  const fertig = (neu) => {
+    const n = liste.length;
+    zugriff.schreiben(Glas.hass, (l) => [...l, neu]);
+    s.schliessen();
+    if (neu.karte && listenKarte(neu.karte)[4]) setTimeout(() => kachelMenue(quelle, zugriff, n), 200); // gleich einstellen
+  };
   haForm(s.inhalt.querySelector("[data-f]"), {}, [{ name: "entity", selector: { entity: {} } }], { entity: "Entität wählen" }, (v) => {
     if (!v.entity) return;
     fertig(zugriff.ort.art === "raum" ? { ...geraetVorschlag(h, v.entity), an: true } : { entity: v.entity, groesse: "breit" });
   });
-  s.inhalt.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => fertig({ karte: b.dataset.karte, groesse: "breit", an: true })));
+  s.inhalt.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => fertig({ karte: b.dataset.karte, groesse: "breit", an: true, ...(listenKarte(b.dataset.karte)[4] ? { cfg: {} } : {}) })));
   s.oeffnen();
 }
 
 // Name eines Abschnitts im Raum: eigener Name, sonst Standardname
 function gruppenName(raum, g) {
+  if (!raum?.gruppen_namen?.[g] && g?.startsWith("karte-")) return listenKarte(g.slice(6))?.[1] || "Karte";
   return raum?.gruppen_namen?.[g] || (GRUPPEN.find(([id]) => id === g) || [, g && g.startsWith("eigen-") ? g.slice(6) : "Sonstiges"])[1];
 }
 
@@ -5063,10 +5133,11 @@ async function raumMenue(quelle, hash) {
       if (k < 0) return;
       e.raeume[k] = { ...e.raeume[k], ...r, geraete: e.raeume[k].geraete };
       Glas.einstSpeichern(Glas.hass, e).catch(() => {});
+      quelle.rasterZeichnen?.(); // z. B. neuer leerer Abschnitt sofort sichtbar
     }, 400);
   };
   const h = Glas.hass;
-  const genutzt = [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity).map((g) => g.gruppe || gruppeVon(h, g.entity)))];
+  const benutzt = () => [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity || g.karte).map((g) => g.gruppe || (g.entity ? gruppeVon(h, g.entity) : `karte-${g.karte}`)))];
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
@@ -5074,7 +5145,9 @@ async function raumMenue(quelle, hash) {
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:view-grid-outline"></ha-icon>Anordnung</div>
       <div class="segment" role="group" aria-label="Anordnung">${[[1, "Untereinander"], [2, "Nebeneinander"]].map(([n, l]) => `<button data-sp="${n}" aria-pressed="${(r.spalten || 1) === n}">${l}<small>${n === 1 ? "eine Spalte" : "Abschnitte versetzt"}</small></button>`).join("")}</div>
       <div class="m-hinweis">Nebeneinander gilt auf breiten Bildschirmen (PC, Tablet quer). Am Handy bleibt es eine Spalte.</div></div>
-    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:format-title"></ha-icon>Abschnitte benennen</div><div data-f="namen"></div></div>`;
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:format-title"></ha-icon>Abschnitte</div><div data-f="namen"></div>
+      <form class="neu-zeile" data-neu><input type="text" placeholder="Neuer Abschnitt, z. B. Sofa-Ecke" aria-label="Name des neuen Abschnitts" enterkeyhint="done"><button type="submit" disabled>Hinzufügen</button></form>
+      <div class="m-hinweis">Ein neuer Abschnitt erscheint leer im Raum. Kacheln ziehst du im Bearbeiten-Modus hinein. Leere Abschnitte ohne Namen verschwinden.</div></div>`;
   s.kopfBinden();
   const $ = (q) => s.inhalt.querySelector(q);
   const nimm = (v, f) => { f.forEach((k) => { if (v[k] === "" || v[k] === undefined || (Array.isArray(v[k]) && !v[k].length)) delete r[k]; else r[k] = v[k]; }); speichern(); };
@@ -5097,13 +5170,30 @@ async function raumMenue(quelle, hash) {
     nimm(v, f);
     ["fenster_auto", "verlauf_chip", "alles_aus"].forEach((k) => { if (r[k] === true) delete r[k]; });
   });
-  const namenData = Object.fromEntries(genutzt.map((g) => [`gn_${g}`, r.gruppen_namen?.[g] || ""]));
-  haForm($("[data-f=namen]"), namenData, genutzt.map((g) => ({ name: `gn_${g}`, selector: { text: {} } })),
-    Object.fromEntries(genutzt.map((g) => [`gn_${g}`, `${(GRUPPEN.find(([id]) => id === g) || [, g.replace(/^eigen-/, "")])[1]} heißt …`])), (v) => {
-      const gn = { ...(r.gruppen_namen || {}) };
-      genutzt.forEach((g) => { const w = (v[`gn_${g}`] || "").trim(); if (w) gn[g] = w; else if (!g.startsWith("eigen-")) delete gn[g]; });
-      r.gruppen_namen = gn; speichern();
-    });
+  const namenZeichnen = () => {
+    const genutzt = benutzt();
+    const alle = [...genutzt, ...Object.keys(r.gruppen_namen || {}).filter((g) => g.startsWith("eigen-") && !genutzt.includes(g))];
+    const box = $("[data-f=namen]");
+    box.replaceChildren();
+    haForm(box, Object.fromEntries(alle.map((g) => [`gn_${g}`, r.gruppen_namen?.[g] || ""])), alle.map((g) => ({ name: `gn_${g}`, selector: { text: {} } })),
+      Object.fromEntries(alle.map((g) => [`gn_${g}`, g.startsWith("eigen-") ? `Eigener Abschnitt${genutzt.includes(g) ? "" : " (noch leer)"}` : `${gruppenName(null, g)} heißt …`])), (v) => {
+        const gn = { ...(r.gruppen_namen || {}) };
+        alle.forEach((g) => { const w = (v[`gn_${g}`] || "").trim(); if (w) gn[g] = w; else if (!g.startsWith("eigen-") || !genutzt.includes(g)) delete gn[g]; });
+        r.gruppen_namen = gn; speichern();
+      });
+  };
+  namenZeichnen();
+  const neuForm = $("[data-neu]"), neuIn = neuForm.querySelector("input"), neuKnopf = neuForm.querySelector("button");
+  neuIn.addEventListener("input", () => { neuKnopf.disabled = !neuIn.value.trim(); });
+  neuForm.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const name = neuIn.value.trim(); if (!name) return;
+    let key = `eigen-${slug(name)}`, n = 2;
+    while (r.gruppen_namen?.[key] || benutzt().includes(key)) key = `eigen-${slug(name)}-${n++}`;
+    r.gruppen_namen = { ...(r.gruppen_namen || {}), [key]: name };
+    neuIn.value = ""; neuKnopf.disabled = true;
+    speichern(); namenZeichnen();
+  });
   s.inhalt.querySelectorAll("[data-sp]").forEach((b) => b.addEventListener("click", () => {
     s.inhalt.querySelectorAll("[data-sp]").forEach((o) => o.setAttribute("aria-pressed", o === b));
     r.spalten = Number(b.dataset.sp); if (r.spalten === 1) delete r.spalten; speichern();
@@ -5682,7 +5772,7 @@ class GlasDruckerCard extends GlasBereichKarte {
         <button class="plus" data-plus aria-label="Hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div></div>
       ${knapp.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Filament wird knapp</h3></div>${knapp.map((r) =>
         `<div class="zeile"><span class="punkt" style="background:${farbe(r)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>${esc(r.material)} ${esc(r.farbe)}<span class="rechts warn">noch ${Math.round(r.rest_g)} g</span></div>`).join("")}</div>` : ""}` : ""}
-      <button class="link" data-werk>Werkstatt öffnen ›</button>`;
+      <button class="link" data-werk>Werkstatt öffnen<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
   }
   // Bild/Livebild bleibt als eigenes Element bestehen, damit der Stream beim Neuzeichnen nicht abreißt
   medienSetzen(platz) {
@@ -5936,6 +6026,196 @@ class GlasGaesteEditor extends GlasEditor {
   hilfen() { return { passwort: "Steht im Klartext in der Dashboard-Konfiguration. Sicherer: ein input_text-Helfer." }; }
 }
 // ---------------------------------------------------------------------------
+// Bild & QR-Code · Kamera: ganze Karten, die man mehrfach in Räume und Favoriten legt.
+// Die Einstellungen stehen im Listeneintrag selbst ({ karte: "bild", cfg: {…} }).
+// ---------------------------------------------------------------------------
+const BILD_CSS = `
+.bild-karte{position:relative;display:flex;flex-direction:column;align-items:center;gap:var(--g-a2);width:100%;height:100%;padding:var(--g-a3);border-radius:var(--g-r);text-align:center}
+.bild-karte .qr-mini{width:min(148px,100%);aspect-ratio:1;padding:10px;border-radius:var(--g-r-klein);background:#fff;display:flex}
+.bild-karte .qr-mini svg,.bild-karte .qr-mini img{width:100%;height:100%;object-fit:contain}
+.bild-karte .foto{width:100%;aspect-ratio:4/3;border-radius:var(--g-r-klein);overflow:hidden;background:var(--g-fuell)}
+.bild-karte .foto img{display:block;width:100%;height:100%;object-fit:cover}
+.bild-karte .leer{display:flex;align-items:center;justify-content:center;color:var(--g-text2)}
+.bild-karte .leer ha-icon{--mdc-icon-size:40px}
+.bild-karte .texte{align-items:center;width:100%}
+.mini{flex:none;width:40px;height:40px;border-radius:10px;overflow:hidden;background:#fff;display:flex;padding:3px}
+.mini svg,.mini img{width:100%;height:100%;object-fit:contain}
+.mini.foto{padding:0;background:var(--g-fuell)} .mini.foto img{object-fit:cover}
+.kamera-karte{position:relative;display:block;width:100%;height:100%;min-height:var(--g-kachel-h);padding:0;border-radius:var(--g-r);overflow:hidden;background:#1c232d}
+.kamera-karte img{display:block;width:100%;height:100%;aspect-ratio:16/9;object-fit:cover}
+.kamera-karte .unten{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:var(--g-a2);padding:var(--g-a4) var(--g-a3) var(--g-a2);
+  background:linear-gradient(transparent,rgba(0,0,0,.55));color:#fff;font-size:var(--g-s-name);font-weight:600;text-align:left}
+.kamera-karte .unten span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kamera-karte .zeit{font-size:var(--g-s-klein);font-weight:500;opacity:.85}
+.kamera-karte .weg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.7)}
+.kamera-karte .weg ha-icon{--mdc-icon-size:36px}
+`;
+const BILD_BLATT_CSS = `
+.bild-gross{display:flex;flex-direction:column;align-items:center;gap:var(--g-a3);padding:var(--g-a2) 0 var(--g-a4)}
+.bild-gross .qr-weiss{width:min(280px,100%);aspect-ratio:1;padding:16px;border-radius:var(--g-r);background:#fff;display:flex}
+.bild-gross .qr-weiss svg,.bild-gross .qr-weiss img{width:100%;height:100%;object-fit:contain}
+.bild-gross .foto-gross{width:100%;max-height:70vh;border-radius:var(--g-r);object-fit:contain;background:var(--g-fuell)}
+.kamera-gross{display:block;width:100%;aspect-ratio:16/9;border-radius:var(--g-r);overflow:hidden;background:#1c232d}
+.mehr-ha{width:100%;margin-top:var(--g-a3)}
+.kamera-gross img{display:block;width:100%;height:100%;object-fit:contain}
+`;
+
+// Bild zu HA hochladen (Medien › Bilder). Ohne Upload-API (Demo) als Daten-URL.
+async function bildHochladen(hass, datei) {
+  if (hass?.fetchWithAuth) {
+    const fd = new FormData();
+    fd.append("file", datei);
+    const r = await hass.fetchWithAuth("/api/image/upload", { method: "POST", body: fd });
+    if (!r.ok) throw new Error(r.status === 413 ? "Das Bild ist zu groß." : `Hochladen fehlgeschlagen (${r.status}).`);
+    const j = await r.json();
+    return `/api/image/serve/${j.id}/original`;
+  }
+  return new Promise((ok, fehler) => { const l = new FileReader(); l.onload = () => ok(l.result); l.onerror = fehler; l.readAsDataURL(datei); });
+}
+
+class GlasBildCard extends GlasBereichKarte {
+  static standard() { return { quelle: "qr", ansicht: "bild" }; }
+  static getConfigElement() { return document.createElement("glas-bild-card-editor"); }
+  static getStubConfig() { return { titel: "Gäste-Login", quelle: "qr", text: "https://" }; }
+  getGridOptions() { return { columns: 6, rows: "auto", min_columns: 3 }; }
+  css() { return BEREICH_CSS + BILD_CSS; }
+  entitaeten() { return this._config.quelle === "entitaet" && this._config.entity ? [this._config.entity] : []; }
+  istQr() { const c = this._config; return c.quelle === "qr" || (c.scan ?? c.quelle === "hochladen"); }
+  url() {
+    const c = this._config;
+    if (c.quelle === "entitaet") return this._hass.states[c.entity]?.attributes.entity_picture || "";
+    if (c.quelle === "hochladen" || c.quelle === "link") return c.bild || "";
+    return "";
+  }
+  inhaltHtml() {
+    const c = this._config;
+    if (c.quelle === "qr") return c.text ? qrSvg(c.text) : "";
+    const u = this.url();
+    return u ? `<img alt="" src="${esc(u)}">` : "";
+  }
+  titel() {
+    const c = this._config;
+    return c.titel || (c.quelle === "entitaet" && this._hass.states[c.entity]?.attributes.friendly_name) || (c.quelle === "qr" ? "QR-Code" : "Bild");
+  }
+  blattTitel() { return this.titel(); }
+  html() {
+    const c = this._config, innen = this.inhaltHtml(), qr = this.istQr();
+    const leer = `<ha-icon data-i="${qr ? "mdi:qrcode" : "mdi:image-outline"}"></ha-icon>`;
+    if (c.ansicht === "zeile") {
+      return `<div class="kompakt k glas"><button class="oeffnen" aria-haspopup="dialog" aria-label="${esc(this.titel())} groß zeigen">
+        <span class="mini ${qr ? "" : "foto"}" aria-hidden="true">${innen || leer}</span>
+        <span class="texte"><span class="t1">${esc(this.titel())}</span>${c.unter ? `<span class="t2">${esc(c.unter)}</span>` : ""}</span></button></div>`;
+    }
+    return `<button class="bild-karte glas kompakt" aria-haspopup="dialog" aria-label="${esc(this.titel())} groß zeigen">
+      <span class="${qr ? "qr-mini" : "foto"} ${innen ? "" : "leer"}" aria-hidden="true">${innen || leer}</span>
+      <span class="texte"><span class="t1">${esc(this.titel())}</span>${c.unter ? `<span class="t2">${esc(c.unter)}</span>` : ""}</span></button>`;
+  }
+  binden() {
+    this.iconsSetzen();
+    (this.$(".oeffnen") || this.$(".bild-karte"))?.addEventListener("click", () => this.blattOeffnen());
+  }
+  blattHtml(s) {
+    const c = this._config, innen = this.inhaltHtml(), qr = this.istQr();
+    return `<style>${BILD_BLATT_CSS}</style>${s.kopfHtml(this.titel(), c.unter || "")}
+      <div class="bild-gross">${!innen ? `<span class="leise">Noch kein Bild eingestellt.</span>`
+        : qr ? `<div class="qr-weiss">${innen}</div><span class="leise">Mit der Handykamera scannen.</span>`
+        : `<img class="foto-gross" alt="${esc(this.titel())}" src="${esc(this.url())}">`}</div>`;
+  }
+  blattBinden() {}
+}
+
+class GlasBildEditor extends GlasEditor {
+  setConfig(c) { super.setConfig({ quelle: "qr", ansicht: "bild", ...c }); }
+  schemaSchluessel(c) { return [c.quelle]; }
+  schema() {
+    const q = this._config.quelle || "qr";
+    return [
+      { type: "grid", name: "", schema: [{ name: "titel", selector: { text: {} } }, { name: "unter", selector: { text: {} } }] },
+      { name: "quelle", selector: { select: { mode: "dropdown", options: [{ value: "qr", label: "QR-Code aus Link oder Text erzeugen" },
+        { value: "hochladen", label: "Bild hochladen (z. B. Foto vom QR-Code)" }, { value: "entitaet", label: "Bild- oder Kamera-Entität" }, { value: "link", label: "Bild-Adresse (z. B. /local/gast.png)" }] } } },
+      ...(q === "qr" ? [{ name: "text", selector: { text: { multiline: true } } }] : []),
+      ...(q === "entitaet" ? [{ name: "entity", selector: { entity: { filter: [{ domain: "image" }, { domain: "camera" }] } } }] : []),
+      ...(q === "link" ? [{ name: "bild", selector: { text: {} } }] : []),
+      { type: "grid", name: "", schema: [
+        { name: "ansicht", selector: { select: { mode: "dropdown", options: [{ value: "bild", label: "Bild in der Karte" }, { value: "zeile", label: "Klein, als Zeile" }] } } },
+        ...(q === "qr" ? [] : [{ name: "scan", selector: { boolean: {} } }])] },
+    ];
+  }
+  labels() { return { titel: "Titel", unter: "Untertitel", quelle: "Woher kommt das Bild?", text: "Link oder Text im QR-Code", entity: "Entität", bild: "Bild-Adresse",
+    ansicht: "Darstellung", scan: "Ist ein QR-Code (weißer Rand, Scan-Hinweis)" }; }
+  hilfen() { return { text: "Für das WLAN gibt es die Gäste-Karte. Hier z. B. den Link für den Home-Assistant-Gastzugang einfügen.", bild: "Dateien aus /config/www/ heißen /local/…" }; }
+  extra(box) {
+    if ((this._config.quelle || "qr") !== "hochladen") return;
+    box.innerHTML = `<div class="ge-liste"><div class="ge-kopf">Bild</div>
+      ${this._config.bild ? `<img alt="" src="${esc(this._config.bild)}" style="display:block;max-width:180px;max-height:180px;border-radius:12px;margin-bottom:8px;background:#fff">` : ""}
+      <label class="ge-neu" style="display:inline-block">${this._config.bild ? "Anderes Bild wählen" : "Bild wählen"}<input type="file" accept="image/*" hidden></label>
+      <div class="ge-hinweis" data-st>Wird in Home Assistant unter Medien › Bilder gespeichert.</div></div>`;
+    const inp = box.querySelector("input"), st = box.querySelector("[data-st]");
+    inp.addEventListener("change", async () => {
+      const d = inp.files?.[0]; if (!d) return;
+      st.textContent = "Wird hochgeladen …";
+      try { const bild = await bildHochladen(this._hass, d); this.aendern({ ...this._config, bild }); this.render(); }
+      catch (e) { st.textContent = e.message || "Hochladen fehlgeschlagen."; }
+    });
+  }
+}
+
+// Kamera: Standbild in der Karte (alle 10 s neu), Tippen = Livebild groß
+class GlasKameraCard extends GlasBereichKarte {
+  static getConfigElement() { return document.createElement("glas-kamera-card-editor"); }
+  static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("camera.")) || "" }; }
+  css() { return BEREICH_CSS + BILD_CSS; }
+  entitaeten() { return [this._config.entity].filter(Boolean); }
+  st() { return this._hass.states[this._config.entity]; }
+  titel() { return this._config.name || this.st()?.attributes.friendly_name || "Kamera"; }
+  blattTitel() { return this.titel(); }
+  blattHoch() { return false; }
+  connectedCallback() {
+    super.connectedCallback();
+    clearInterval(this._takt);
+    this._takt = setInterval(() => { const img = this.$(".kamera-karte img"); if (img && !document.hidden) img.src = this.standbild(true); }, 10000);
+  }
+  disconnectedCallback() { super.disconnectedCallback(); clearInterval(this._takt); }
+  standbild(neu = false) {
+    const p = this.st()?.attributes.entity_picture;
+    if (!p) return "";
+    return neu ? `${p}${p.includes("?") ? "&" : "?"}t=${Date.now()}` : p;
+  }
+  html() {
+    const st = this.st(), b = this.standbild();
+    const weg = !st || st.state === "unavailable";
+    return `<button class="kamera-karte" aria-haspopup="dialog" aria-label="${esc(this.titel())} live öffnen">
+      ${b && !weg ? `<img alt="" src="${esc(b)}">` : `<span class="weg"><ha-icon data-i="mdi:cctv-off"></ha-icon></span>`}
+      <span class="unten"><span>${esc(this.titel())}</span>${weg ? `<span class="zeit">Nicht erreichbar</span>` : ""}</span></button>`;
+  }
+  binden() { this.iconsSetzen(); this.$(".kamera-karte")?.addEventListener("click", () => this.blattOeffnen()); }
+  blattHtml(s) {
+    return `<style>${BILD_BLATT_CSS}</style>${s.kopfHtml(this.titel(), "Kamera")}<div class="kamera-platz"></div><button class="aktion glas mehr-ha" data-mehr>Mehr in Home Assistant<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
+  }
+  blattOeffnen() {
+    super.blattOeffnen();
+    const s = this._blatt, alt = s?.zu;
+    if (s) s.zu = () => { alt?.(); this._live?.querySelector("img").removeAttribute("src"); }; // Stream beenden
+  }
+  blattBinden(s, $) {
+    const st = this.st();
+    if (!this._live) {
+      this._live = document.createElement("div");
+      this._live.className = "kamera-gross";
+      this._live.innerHTML = `<img alt="Livebild">`;
+    }
+    const src = st?.attributes.access_token ? `/api/camera_proxy_stream/${st.entity_id}?token=${st.attributes.access_token}` : this.standbild();
+    const img = this._live.querySelector("img");
+    if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    $(".kamera-platz").appendChild(this._live);
+    $("[data-mehr]")?.addEventListener("click", () => mehrInfo(this, this._config.entity));
+  }
+}
+class GlasKameraEditor extends GlasEditor {
+  schema() { return [{ name: "entity", selector: { entity: { filter: [{ domain: "camera" }, { domain: "image" }] } } }, { name: "name", selector: { text: {} } }]; }
+  labels() { return { entity: "Kamera", name: "Name (leer = aus HA)" }; }
+}
+// ---------------------------------------------------------------------------
 // glas-zuhause-card: das ganze Dashboard aus den zentralen Einstellungen.
 // Kopf, Startseite der gewählten Person, Raumleiste und Raum-Blätter, mit Hintergrund.
 // ---------------------------------------------------------------------------
@@ -6096,11 +6376,14 @@ class GlasZuhauseCard extends HTMLElement {
         z.appendChild(inhalt);
         return z;
       };
-      if (a.id === "wetter" && b.wetter?.entity) el = this.kind("wetter", "glas-wetter-card", b.wetter);
+      // Von null: offensichtliche Entitäten selbst finden (einzige Wetter-Entität, einziger Saugroboter)
+      const erste = (d) => { const l = Object.keys(this._hass.states).filter((x) => x.startsWith(`${d}.`)); return l.length === 1 ? l[0] : null; };
+      const wetterE = b.wetter?.entity || erste("weather"), robiE = b.robi?.entity || erste("vacuum");
+      if (a.id === "wetter" && wetterE) el = this.kind("wetter", "glas-wetter-card", { ...(b.wetter || {}), entity: wetterE });
       else if (a.id === "planer" && b.planer?.an !== false) el = this.kind("planer", "glas-planer-card", b.planer || {});
       else if (a.id === "sicherheit" && b.sicherheit && (b.sicherheit.alarm || b.sicherheit.fenster_auto !== false)) el = this.kind("sicherheit", "glas-sicherheit-card", { fenster_auto: true, ...(b.sicherheit || {}) });
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
-      else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
+      else if (a.id === "robi" && robiE) el = this.kind("robi", "glas-robi-card", { ...(b.robi || {}), entity: robiE });
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
       else if (a.id === "favoriten" && (bearb || (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte))))) {
         const wrap = document.createElement("div");
@@ -6110,12 +6393,13 @@ class GlasZuhauseCard extends HTMLElement {
         const fav = wrap.querySelector(".fav");
         (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || listenKarte(f.karte))).forEach(({ f, i }, n) => {
           const kk = f.karte && listenKarte(f.karte);
-          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
+          const kc = kk && (({ type, ...r }) => r)(listenKarteCfg(f));
+          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], kc) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
           if (bearb) {
             z.dataset.i = i;
-            z.dataset.name = kk ? kk[1] : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
+            z.dataset.name = kk ? listenKarteName(f) : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
             if (f.an === false) z.classList.add("aus");
           }
           z.appendChild(k);
@@ -6162,10 +6446,23 @@ function raumCfg(hass, r, alle = false) {
   let gruppe = null;
   const extra = (g, i, gr) => (alle ? { _i: i, _aus: g.an === false, ...(gr ? { _gruppe: gr } : {}), ...(g.karte ? { _karte: g.karte } : {}) } : {});
   for (const { g, i } of geraete) {
-    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle", _gruppe: "" }, { ...k, ...extra(g, i) }); gruppe = null; } continue; }
+    if (g.karte) {
+      const k = listenKarteCfg(g);
+      if (!k) continue;
+      const gr = g.gruppe || `karte-${g.karte}`;
+      if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
+      cards.push({ ...k, ...extra(g, i) });
+      continue;
+    }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
     if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
     cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g), ...extra(g, i) });
+  }
+  // Im Bearbeiten-Modus auch leere eigene Abschnitte zeigen, damit man Kacheln hineinziehen kann
+  if (alle) {
+    const da = new Set(cards.filter((c) => c.type === "heading").map((c) => c._gruppe));
+    Object.keys(r.gruppen_namen || {}).filter((g) => g.startsWith("eigen-") && !da.has(g))
+      .forEach((g) => cards.push({ type: "heading", heading: gruppenName(r, g), heading_style: "subtitle", _gruppe: g, _leer: true }));
   }
   return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
     fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: [...(r.fenster || []), ...(r.bewegung || []), ...(r.chips || [])],
@@ -6622,12 +6919,12 @@ class GlasEinstellungen extends HTMLElement {
       setzen([...liste, geraetVorschlag(h, v.entity)].map((y, k, a) => (k === a.length - 1 ? { ...y, an: true } : y)));
       this.speichern(); this.zeichnen();
     });
-    const freie = LISTEN_KARTEN.filter(([id]) => !liste.some((y) => y.karte === id));
+    const freie = LISTEN_KARTEN.filter(([id, , , , eigen]) => eigen || !liste.some((y) => y.karte === id));
     if (freie.length) {
       const kz = this.html(g, `<div class="hinzu karten-hinzu"><span class="leise">Karte hinzufügen</span>${freie.map(([id, n, ic]) =>
         `<button class="knopf" data-karte="${id}"><ha-icon data-i="${ic}"></ha-icon>${n}</button>`).join("")}</div>`);
       kz.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => {
-        setzen([...liste, { karte: b.dataset.karte, groesse: "breit", an: true }]); this.speichern(); this.zeichnen();
+        setzen([...liste, { karte: b.dataset.karte, groesse: "breit", an: true, ...(listenKarte(b.dataset.karte)[4] ? { cfg: {} } : {}) }]); this.speichern(); this.zeichnen();
       }));
     }
     if (bereich) {
@@ -6643,20 +6940,21 @@ class GlasEinstellungen extends HTMLElement {
   kartenZeile(g, liste, i, setzen, merken) {
     const x = liste[i], [id, titel, icon] = listenKarte(x.karte) || [x.karte, x.karte, "mdi:card-outline"];
     const b = (this._d.bereiche || {})[id] || {};
-    const fertig = id === "drucker" ? !!(b.geraet || b.fortschritt) : !!b.entity;
+    const eigen = !!listenKarte(id)?.[4];
+    const fertig = eigen ? true : id === "drucker" ? !!(b.geraet || b.fortschritt) : !!b.entity;
     const an = x.an !== false;
     const z = this.html(g, `<div class="zeile geraet karte-zeile ${an ? "" : "aus"}" data-i="${i}">
       <span class="griff" tabindex="0" role="button" aria-label="${esc(titel)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
       <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
-      <span class="name"><b><ha-icon data-i="${icon}"></ha-icon>${esc(titel)}-Karte</b><span>${fertig ? "Einstellungen unter Bereiche" : "Noch nicht eingerichtet: Bereiche öffnen"}</span></span>
+      <span class="name"><b><ha-icon data-i="${icon}"></ha-icon>${esc(eigen ? listenKarteName(x) : `${titel}-Karte`)}</b><span>${eigen ? "Einstellen im Dashboard: Stift, dann Karte antippen" : fertig ? "Einstellungen unter Bereiche" : "Noch nicht eingerichtet: Bereiche öffnen"}</span></span>
       <span class="optionen"><span class="segment" role="group" aria-label="Größe">${[["breit", "M", "Halbe Breite"], ["ganz", "▭", "Ganze Breite"]].map(([gid, k, t]) =>
         `<button data-g="${gid}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse === "ganz" ? "ganz" : "breit") === gid}">${k}</button>`).join("")}</span>
-        <button class="klein-knopf" data-bereich aria-label="${esc(titel)} einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>
+        ${eigen ? "" : `<button class="klein-knopf" data-bereich aria-label="${esc(titel)} einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>`}
         <button class="klein-knopf" data-weg aria-label="Entfernen"><ha-icon data-i="mdi:close"></ha-icon></button></span></div>`);
     const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); merken(l); liste = l; this.speichern(); };
     z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
     z.querySelectorAll("[data-g]").forEach((bt) => bt.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === bt)); neu({ groesse: bt.dataset.g }); }));
-    z.querySelector("[data-bereich]").addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
+    z.querySelector("[data-bereich]")?.addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
     z.querySelector("[data-weg]").addEventListener("click", () => { const l = [...liste]; l.splice(i, 1); setzen(l); this.speichern(); this.zeichnen(); });
   }
 
@@ -6746,6 +7044,16 @@ class GlasEinstellungen extends HTMLElement {
       Object.assign(this._d, { gruss_modus: cfg.gruss_modus, gruss_text: cfg.gruss_text, untertitel: cfg.untertitel, personen: cfg.personen || [] });
       this.speichern();
     });
+    // Von null: Personen aus Home Assistant vorschlagen (person.* mit verknüpftem Benutzer)
+    const haPers = Object.keys(this._hass.states).filter((e) => e.startsWith("person.")).map((e) => this._hass.states[e]);
+    if (!(this._d.personen || []).length && haPers.length) {
+      const a = this.html(box, `<div class="aktionen"><button class="knopf" data-ha-pers>${haPers.length === 1 ? "Person" : `${haPers.length} Personen`} aus Home Assistant übernehmen</button></div>`);
+      a.querySelector("button").addEventListener("click", () => {
+        this._d.personen = [...haPers.map((p) => { const n = p.attributes.friendly_name || p.entity_id.slice(7);
+          return { name: n, kurz: n.slice(0, 1).toUpperCase(), entity: p.entity_id, ...(p.attributes.user_id ? { benutzer: p.attributes.user_id } : {}) }; }), { tablet: true }];
+        this.speichern(); this.zeichnen();
+      });
+    }
     this.html(box, `<div class="fuss">Jede Person kann unter „Startseite“ eine eigene Startseite bekommen. Welche Person ein Gerät zeigt, merkt sich jedes Gerät selbst (das Tablet bleibt Tablet).</div>`);
   }
 
@@ -6818,6 +7126,8 @@ const KARTEN = [
   ["glas-drucker-card", GlasDruckerCard, GlasDruckerEditor, "Glas · Drucker & Werkstatt", "3D-Drucker: Fortschritt, Kamera, Steuerung, Warteschlange und knappes Filament aus der Filament-Werkstatt."],
   ["glas-robi-card", GlasRobiCard, GlasRobiEditor, "Glas · Robi", "Saugroboter: Akku, alles oder einzelne Räume saugen, Saugstärke, Station."],
   ["glas-gaeste-card", GlasGaesteCard, GlasGaesteEditor, "Glas · Gäste", "WLAN-QR-Code zum Scannen, optional ein zweiter Code."],
+  ["glas-bild-card", GlasBildCard, GlasBildEditor, "Glas · Bild & QR-Code", "Ein Bild oder QR-Code (z. B. Gäste-Login): hochladen, aus einer Entität oder als QR aus einem Link."],
+  ["glas-kamera-card", GlasKameraCard, GlasKameraEditor, "Glas · Kamera", "Standbild einer Kamera, Tippen zeigt das Livebild groß."],
   ["glas-hinweise-card", GlasHinweiseCard, GlasHinweiseEditor, "Glas · Warnungen", "Fenster offen und Regen kommt / keiner zu Hause – nur sichtbar, wenn es zutrifft."],
   ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
