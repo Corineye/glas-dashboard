@@ -19,15 +19,20 @@ const SCHICHT_CSS = `
 .griff span{width:38px;height:5px;border-radius:3px;background:var(--g-text2);opacity:.45}
 .inhalt{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--g-a4) var(--g-a5);display:flex;flex-direction:column;gap:var(--g-a4);scrollbar-width:none}
 .inhalt::-webkit-scrollbar{display:none}
-.kopf{position:sticky;top:0;z-index:2;touch-action:none;margin:0 calc(-1 * var(--g-a4));padding:var(--g-a1) var(--g-a5) var(--g-a2);display:flex;align-items:center;
-  justify-content:space-between;gap:var(--g-a3);transition:background-color .2s ease,box-shadow .2s ease}
-.kopf.kompakt{background:var(--g-kopf);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:0 1px 0 var(--g-glas-rand)}
+.kopf{flex:none;position:sticky;top:0;z-index:3;height:56px;margin:0 calc(-1 * var(--g-a4)) -56px;padding:0 var(--g-a5);display:flex;align-items:center;
+  justify-content:space-between;gap:var(--g-a3);touch-action:none;pointer-events:none}
+.kopf > *{pointer-events:auto}
+/* Hintergrund des kompakten Kopfs: blendet mit dem Scrollen weich ein, unten weiche Kante statt harter Linie */
+.kopf::before{content:"";position:absolute;inset:0 0 -14px;z-index:-1;background:var(--g-blatt);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 14px),transparent);mask-image:linear-gradient(#000 calc(100% - 14px),transparent);opacity:var(--kh,0)}
+.kopf-klein{flex:1;min-width:0;font-size:var(--g-s-text);font-weight:700;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  opacity:var(--kk,0);transform:translateY(calc((1 - var(--kk,0)) * 8px));pointer-events:none}
+.kopf-gross{flex:none;position:relative;z-index:1;display:flex;flex-direction:column;gap:2px;min-height:56px;justify-content:center;padding:var(--g-a2) var(--kb,56px) 0 var(--g-a1);
+  margin:calc(-1 * var(--g-a4)) calc(-1 * var(--g-a1)) 0 0;opacity:calc(1 - var(--kg,0));transform:scale(calc(1 - var(--kg,0) * .06));transform-origin:left top;touch-action:none}
 .kopf-text{display:flex;flex-direction:column;gap:2px;min-width:0}
-.titel{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;color:var(--g-text);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis}
-.kopf.kompakt .titel{font-size:var(--g-s-h2)}
+.titel{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;line-height:1.15;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .unter{font-size:var(--g-s-name);font-weight:500;color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kopf.kompakt .unter{font-size:var(--g-s-klein)}
+@media (prefers-reduced-motion:reduce){.kopf-gross{transform:none}.kopf-klein{transform:none}}
 .kopf-knoepfe{display:flex;gap:var(--g-a2);flex:none}
 `;
 
@@ -45,7 +50,8 @@ class GlasSchicht {
     this.blatt = this.root.querySelector(".blatt");
     this.inhalt = this.root.querySelector(".inhalt");
     this.root.querySelector(".dimm").addEventListener("click", () => this.schliessen());
-    this._taste = (e) => { if (e.key === "Escape") this.schliessen(); };
+    // Escape schließt nur das oberste Blatt
+    this._taste = (e) => { if (e.key === "Escape" && GlasSchicht.stapel[GlasSchicht.stapel.length - 1] === this) { e.stopImmediatePropagation(); this.schliessen(); } };
     this.ziehen();
     this.host.addEventListener("focusout", () => setTimeout(() => {
       if (!this._weg && this.host.isConnected && !this.host.matches(":focus-within")) this.blatt.querySelector("[data-zu]")?.focus({ preventScroll: true });
@@ -64,6 +70,7 @@ class GlasSchicht {
   dunkel(an) { this.wurzel.classList.toggle("dunkel", !!an); }
   oeffnen() {
     portalWurzel().appendChild(this.host);
+    GlasSchicht.stapel.push(this);
     this._vorher = document.activeElement;
     document.addEventListener("keydown", this._taste);
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -75,6 +82,7 @@ class GlasSchicht {
   schliessen() {
     if (this._weg) return;
     this._weg = true;
+    GlasSchicht.stapel = GlasSchicht.stapel.filter((x) => x !== this);
     document.removeEventListener("keydown", this._taste);
     this.root.querySelector(".dimm").classList.remove("auf");
     this.blatt.style.transform = "";
@@ -113,21 +121,38 @@ class GlasSchicht {
       e.currentTarget.setPointerCapture(e.pointerId);
     };
     for (const el of [griff, this.inhalt]) {
-      el.addEventListener("pointerdown", (e) => { if (el === griff || e.target.closest(".kopf")) runter(e); });
+      el.addEventListener("pointerdown", (e) => { if (el === griff || e.target.closest(".kopf,.kopf-gross")) runter(e); });
       el.addEventListener("pointermove", bewegen);
       el.addEventListener("pointerup", los);
       el.addEventListener("pointercancel", los);
     }
   }
-  // Kopf mit Titel, Untertitel, Knöpfen; wird beim Scrollen kompakt (bleibt oben stehen)
+  // Kopf wie bei iOS: großer Titel scrollt mit und wird blasser, oben blendet ein kleiner Titel mit Glasleiste weich ein.
+  // Keine Größenänderung im Layout → nichts springt, alles folgt dem Scrollen 1:1.
   kopfHtml(titel, unter, knoepfe = "") {
-    return `<div class="kopf"><div class="kopf-text"><h2 class="titel">${esc(titel)}</h2>${unter ? `<div class="unter">${esc(unter)}</div>` : ""}</div>
-      <div class="kopf-knoepfe">${knoepfe}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>`;
+    return `<div class="kopf"><div class="kopf-klein" aria-hidden="true">${esc(titel)}</div>
+      <div class="kopf-knoepfe">${knoepfe}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>
+      <div class="kopf-gross"><h2 class="titel">${esc(titel)}</h2>${unter ? `<div class="unter">${esc(unter)}</div>` : ""}</div>`;
   }
   kopfBinden() {
     this.inhalt.querySelector("[data-zu]")?.addEventListener("click", () => this.schliessen());
-    const kopf = this.inhalt.querySelector(".kopf");
-    this.inhalt.onscroll = () => kopf?.classList.toggle("kompakt", this.inhalt.scrollTop > 12);
+    const kopf = this.inhalt.querySelector(".kopf"), gross = this.inhalt.querySelector(".kopf-gross");
+    if (kopf && gross) {
+      const kb = kopf.querySelector(".kopf-knoepfe");
+      gross.style.setProperty("--kb", `${(kb?.offsetWidth || 36) + 12}px`);
+      const titelH = gross.querySelector(".titel")?.offsetHeight || 32;
+      let geplant = false;
+      const setzen = () => {
+        geplant = false;
+        const y = Math.max(0, this.inhalt.scrollTop);
+        kopf.style.setProperty("--kh", klemmen(y / 24, 0, 1).toFixed(3));
+        kopf.style.setProperty("--kk", klemmen((y - titelH * 0.6) / 18, 0, 1).toFixed(3));
+        gross.style.setProperty("--kg", klemmen(y / (titelH + 16), 0, 1).toFixed(3));
+      };
+      this.inhalt.onscroll = () => { if (!geplant) { geplant = true; requestAnimationFrame(setzen); } };
+      setzen();
+    }
     this.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
   }
 }
+GlasSchicht.stapel = [];

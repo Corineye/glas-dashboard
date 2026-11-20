@@ -16,6 +16,11 @@ h1{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;colo
 .haus ha-icon{--mdc-icon-size:10px}
 .chips{display:flex;flex-wrap:wrap;gap:var(--g-a2);margin-top:var(--g-a3)}
 .chip{min-height:36px}
+.aktiv-rund{background:var(--g-akzent-voll);color:#fff}
+.rechts{display:flex;align-items:center;gap:var(--g-a2);flex:none}
+.bearb-zeile{display:flex;align-items:center;gap:var(--g-a2);margin-top:var(--g-a3);padding:var(--g-a2) var(--g-a3);border-radius:var(--g-r-klein);
+  font-size:var(--g-s-klein);line-height:1.4;color:var(--g-text)}
+.bearb-zeile ha-icon{flex:none;color:var(--g-akzent)}
 .chip ha-state-icon,.chip ha-icon{--mdc-icon-size:16px;color:var(--cf)}
 `;
 
@@ -48,12 +53,15 @@ class GlasKopfCard extends GlasKarte {
     const vorname = ich?.tablet ? "" : (ich?.name || "").split(" ")[0];
     const gruss = c.gruss_modus === "text" ? (c.gruss_text || "Zuhause") : `${c.gruss_modus === "tageszeit" ? tz : "Hallo"}${vorname ? ", " + vorname : ""}`.replace("Hallo, ", "Hallo ");
     const chips = (c.chips || []).map((ch, i) => ({ ch, i, st: h.states[ch.entity] })).filter((x) => this.chipSichtbar(x.ch, x.st));
-    return `<div class="oben"><div class="gruss"><h1>${esc(gruss)}</h1>${c.untertitel ? `<div class="leise">${esc(c.untertitel)}</div>` : ""}</div>
+    const stift = istAdmin(h) && Glas.einst && c.bearbeiten_knopf !== false
+      ? (Glas.bearbeiten ? `<button class="rund aktiv-rund" data-bearb aria-label="Bearbeiten beenden"><ha-icon data-i="mdi:check"></ha-icon></button>` : `<button class="rund glas" data-bearb aria-label="Dashboard bearbeiten"><ha-icon data-i="mdi:pencil-outline"></ha-icon></button>`) : "";
+    return `<div class="oben"><div class="gruss"><h1>${esc(gruss)}</h1>${c.untertitel ? `<div class="leise">${esc(c.untertitel)}</div>` : ""}</div><div class="rechts">${stift}
       ${ps.length > 1 ? `<div class="personen glas" role="group" aria-label="Wer schaut gerade?">${ps.map((p) => {
         const da = p.entity && h.states[p.entity]?.state === "home";
         return `<button class="person" data-p="${esc(p.id)}" aria-pressed="${ich?.id === p.id}" aria-label="${esc(p.name || "Tablet")}${da ? ", zu Hause" : ""}">
           ${p.tablet ? `<ha-icon data-i="mdi:tablet"></ha-icon>` : esc(p.kurz)}${da ? `<span class="haus" aria-hidden="true"><ha-icon data-i="mdi:home"></ha-icon></span>` : ""}</button>`;
-      }).join("")}</div>` : ""}</div>
+      }).join("")}</div>` : ""}</div></div>
+      ${Glas.bearbeiten ? `<div class="bearb-zeile glas" role="status"><ha-icon data-i="mdi:gesture-tap-hold"></ha-icon><span>Bearbeiten: Kachel antippen für alle Einstellungen, ziehen (Handy: kurz halten) zum Verschieben. Räume unten öffnen und genauso bearbeiten.</span></div>` : ""}
       ${chips.length ? `<div class="chips">${chips.map(({ ch, i, st }) => {
         const farbe = farbeAus(ch.farbe, st ? Geraet.farbe(st) : "#8e8e93");
         const text = [ch.name || st?.attributes.friendly_name || ch.entity, ch.zustand_zeigen === false || !st ? "" : Geraet.zustand(h, st, Geraet.regler(st))].filter(Boolean).join(" ");
@@ -64,6 +72,7 @@ class GlasKopfCard extends GlasKarte {
   binden() {
     this.iconsSetzen();
     this.$$("[data-p]").forEach((b) => b.addEventListener("click", () => Glas.personWaehlen(b.dataset.p)));
+    this.$("[data-bearb]")?.addEventListener("click", () => Glas.bearbeitenSetzen(!Glas.bearbeiten));
     this.$$("[data-c]").forEach((b) => b.addEventListener("click", () => {
       const ch = this._config.chips[b.dataset.c], st = this._hass.states[ch.entity];
       if (ch.tap_action?.action) return aktion(this, { entity: ch.entity, tap_action: ch.tap_action }, "tap");

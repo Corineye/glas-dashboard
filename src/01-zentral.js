@@ -3,7 +3,7 @@
 // Personen · Räume mit Geräten · Startseite pro Person · Bereiche · Aussehen
 // ---------------------------------------------------------------------------
 const ABSCHNITTE = [
-  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer heute", "mdi:calendar-check", "ganz"],
+  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer & Kalender", "mdi:calendar-check", "ganz"],
   ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "ganz"],
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
   ["gaeste", "Gäste", "mdi:qrcode", "ganz"],

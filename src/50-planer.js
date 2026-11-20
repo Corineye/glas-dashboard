@@ -34,6 +34,26 @@ const PLANER_CSS = `
 .unten{display:flex;justify-content:space-between;align-items:center;gap:var(--g-a2);flex-wrap:wrap}
 .klapp{min-height:44px;padding:0 var(--g-a1);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .leer{padding:var(--g-a2) var(--g-a1)}
+.seg{display:flex;gap:2px;padding:3px;border-radius:var(--g-r-pille);background:var(--g-fuell);align-self:flex-start}
+.seg button{min-height:32px;padding:0 var(--g-a3);border-radius:var(--g-r-pille);font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2);transition:background-color .2s ease,color .2s ease}
+.seg button[aria-selected="true"]{background:var(--g-an);color:var(--g-text-an);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.bahn{display:flex;align-items:flex-start;overflow-x:auto;overflow-y:hidden;transition:height .32s cubic-bezier(.32,.72,0,1);scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none;margin:0 calc(-1 * var(--g-a4))}
+.bahn::-webkit-scrollbar{display:none}
+.seite{flex:0 0 100%;min-width:0;scroll-snap-align:start;scroll-snap-stop:always;padding:0 var(--g-a4);display:flex;flex-direction:column;gap:var(--g-a3)}
+.punkte{display:flex;justify-content:center;gap:6px}
+.punkte i{width:6px;height:6px;border-radius:50%;background:var(--g-text2);opacity:.3;transition:opacity .2s ease}
+.punkte i.an{opacity:.9}
+.tag-titel{margin:var(--g-a1) var(--g-a1) 0;font-size:var(--g-s-klein);font-weight:700;color:var(--g-text2)}
+.tag-titel.heute{color:var(--g-akzent)}
+.woche{display:grid;grid-template-columns:auto repeat(7,minmax(0,1fr));gap:6px;align-items:center}
+.woche .kopf-t{font-size:var(--g-s-mini);font-weight:600;line-height:1.3;color:var(--g-text2);text-align:center;padding:2px 0;border-radius:8px}
+.woche .kopf-t.heute{background:var(--g-akzent-voll);color:#fff}
+.woche .wer{font-size:var(--g-s-klein);font-weight:700;color:var(--g-text);padding-right:var(--g-a1)}
+.woche .sch{height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:var(--g-s-klein);font-weight:700;
+  color:#fff;background:var(--sc);text-shadow:0 1px 2px rgba(0,0,0,.3)}
+.woche .sch.frei{background:var(--g-fuell);color:var(--g-text2);font-weight:500;text-shadow:none}
+.woche .sch.heute{box-shadow:0 0 0 2px var(--g-akzent)}
+.legende{display:flex;flex-wrap:wrap;gap:var(--g-a2)}
 .feld{width:100%;min-height:48px;padding:10px 14px;border-radius:var(--g-r-klein);font:inherit;font-size:var(--g-s-text);color:var(--g-text);
   background:var(--g-fuell);border:1px solid var(--g-glas-rand);outline-color:var(--g-akzent)}
 .gruppe{display:flex;flex-direction:column;gap:var(--g-a2)}
@@ -43,7 +63,7 @@ const PLANER_CSS = `
 const MONATE = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."];
 
 class GlasPlanerCard extends GlasKarte {
-  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6 }; }
+  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6, seite_planer: true, seite_kalender: true, seite_schichten: true }; }
   static getConfigElement() { return document.createElement("glas-planer-card-editor"); }
   static getStubConfig() { return {}; }
   getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
@@ -106,7 +126,7 @@ class GlasPlanerCard extends GlasKarte {
     if (schluessel === this._termineSchl && Date.now() - (this._termineZeit || 0) < 5 * 60 * 1000) return;
     this._termineSchl = schluessel; this._termineZeit = Date.now();
     const start = new Date(); start.setHours(0, 0, 0, 0);
-    const ende = new Date(start); ende.setDate(ende.getDate() + 1);
+    const ende = new Date(start); ende.setDate(ende.getDate() + 7); // eine Woche: Seite „Kalender“
     const q = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(ende.toISOString())}`;
     const listen = await Promise.all(ids.map((id) => this._hass.callApi("GET", `calendars/${id}${q}`).then((l) => l.map((t) => ({ ...t, kalender: id }))).catch(() => [])));
     const gesehen = new Set();
@@ -144,7 +164,9 @@ class GlasPlanerCard extends GlasKarte {
     const farben = d.farben || {};
     const auf = this.aufgaben(p);
     const offen = auf.filter((a) => a.status === "offen");
-    const termine = this._termine || [];
+    const morgen0 = new Date(jetzt); morgen0.setHours(24, 0, 0, 0);
+    const heute0 = new Date(jetzt); heute0.setHours(0, 0, 0, 0);
+    const termine = (this._termine || []).filter((t) => t.start < morgen0 && t.ende > heute0);
     // Schicht der Person heute
     let schicht = "";
     const plan = p && !p.tablet ? d.schichten?.[p.benutzer] : null;
@@ -190,15 +212,82 @@ class GlasPlanerCard extends GlasKarte {
       else koerper = `<div class="leise leer">Heute steht nichts mehr an.</div>`;
     }
     const anz = offen.length + termine.filter((t) => t.ganztag || t.ende > jetzt).length;
-    return `<div class="karte glas">
+    const seite1 = `<section class="seite" aria-label="Planer">
       <div class="oben"><h2 class="datum">${esc(titel)}</h2><button class="rund" data-neu aria-label="Aufgabe hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div>
       ${schicht}${koerper}
       <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger ⌃" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"} ⌄`}</button>
-      <button class="link" data-oeffnen>Planer öffnen ›</button></div></div>`;
+      <button class="link" data-oeffnen>Planer öffnen ›</button></div></section>`;
+    const seiten = [["planer", "Planer", seite1], ["kalender", "Kalender", this.kalenderSeite(terminHtml)], ["schichten", "Schichten", this.schichtSeite()]]
+      .filter(([id]) => c[`seite_${id}`] !== false);
+    if (seiten.length <= 1) return `<div class="karte glas">${(seiten[0] || [, , seite1])[2].replace('class="seite"', 'class="seite" style="padding:0"')}</div>`;
+    const akt = klemmen(this._seite || 0, 0, seiten.length - 1);
+    return `<div class="karte glas" style="gap:var(--g-a2)">
+      <div class="seg" role="tablist" aria-label="Ansicht">${seiten.map(([, n], i) => `<button role="tab" data-seite="${i}" aria-selected="${i === akt}">${n}</button>`).join("")}</div>
+      <div class="bahn">${seiten.map(([, , html]) => html).join("")}</div>
+      <div class="punkte" aria-hidden="true">${seiten.map((_, i) => `<i class="${i === akt ? "an" : ""}"></i>`).join("")}</div></div>`;
+  }
+  // Seite 2: die nächsten 7 Tage aus den Kalendern der Person
+  kalenderSeite(terminHtml) {
+    const alle = this._termine || [];
+    const tage = [...Array(7)].map((_, i) => {
+      const a = new Date(); a.setHours(0, 0, 0, 0); a.setDate(a.getDate() + i);
+      const b = new Date(a); b.setDate(b.getDate() + 1);
+      return { i, a, liste: alle.filter((t) => t.start < b && t.ende > a) };
+    }).filter((t) => t.liste.length);
+    const name = (t) => (t.i === 0 ? "Heute" : t.i === 1 ? "Morgen" : t.a.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "short" }));
+    return `<section class="seite" aria-label="Kalender"><div class="oben"><h2 class="datum">Nächste 7 Tage</h2></div>
+      ${tage.length ? tage.map((t) => `<div class="tag-titel ${t.i === 0 ? "heute" : ""}">${esc(name(t))}</div>${t.liste.map(terminHtml).join("")}`).join("")
+        : `<div class="leise leer">Keine Termine in den nächsten 7 Tagen.</div>`}</section>`;
+  }
+  // Seite 3: Schichten der Woche für alle Personen (Mo–So), heute markiert
+  schichtSeite() {
+    const d = this._daten || {};
+    const mo = new Date(); mo.setHours(0, 0, 0, 0); mo.setDate(mo.getDate() - ((mo.getDay() + 6) % 7));
+    const tage = [...Array(7)].map((_, i) => { const x = new Date(mo); x.setDate(x.getDate() + i); return x; });
+    const heute = heuteIso();
+    const leute = Glas.personen.filter((p) => !p.tablet && p.benutzer && d.schichten?.[p.benutzer]);
+    if (!leute.length) return `<section class="seite" aria-label="Schichten"><div class="oben"><h2 class="datum">Schichten</h2></div><div class="leise leer">Noch keine Schichten im Planer eingetragen.</div></section>`;
+    const kw = (() => { const t = new Date(tage[3]); const j = new Date(t.getFullYear(), 0, 4); return 1 + Math.round(((t - j) / 864e5 - 3 + ((j.getDay() + 6) % 7)) / 7); })();
+    const benutzt = new Map();
+    const zeilen = leute.map((p) => {
+      const plan = d.schichten[p.benutzer];
+      return `<span class="wer">${esc(p.kurz || (p.name || "?")[0])}</span>${tage.map((t) => {
+        const iso = isoTag(t), art = plan.arten?.find((x) => x.id === plan.tage?.[iso]);
+        if (art) benutzt.set(art.id + art.name, art);
+        const lab = `${p.name} ${t.toLocaleDateString("de-DE", { weekday: "long" })}: ${art ? `${art.name}${art.von ? ` ${art.von}–${art.bis}` : ""}` : "frei"}`;
+        return `<span class="sch ${art ? "" : "frei"} ${iso === heute ? "heute" : ""}" style="--sc:${art ? esc(art.farbe) : "transparent"}" role="img" aria-label="${esc(lab)}">${art ? esc(art.kurz) : "–"}</span>`;
+      }).join("")}`;
+    }).join("");
+    return `<section class="seite" aria-label="Schichten"><div class="oben"><h2 class="datum">Schichten · KW ${kw}</h2></div>
+      <div class="woche"><span></span>${tage.map((t) => `<span class="kopf-t ${isoTag(t) === heute ? "heute" : ""}">${t.toLocaleDateString("de-DE", { weekday: "short" }).replace(".", "")}<br>${t.getDate()}</span>`).join("")}${zeilen}</div>
+      ${benutzt.size ? `<div class="legende">${[...benutzt.values()].map((a) => `<span class="mini"><span class="punkt" style="background:${esc(a.farbe)}"></span>${esc(a.kurz)} ${esc(a.name)}${a.von ? ` ${a.von}–${a.bis}` : ""}</span>`).join("")}</div>` : ""}</section>`;
   }
   binden() {
     this.iconsSetzen();
     const h = this._hass;
+    const bahn = this.$(".bahn");
+    if (bahn) {
+      const breite = () => bahn.clientWidth || 1;
+      // Höhe folgt der sichtbaren Seite (kein Leerraum unter kurzen Seiten)
+      const hoehe = (i) => { const sec = bahn.children[i]; if (sec?.offsetHeight) bahn.style.height = `${sec.offsetHeight}px`; };
+      bahn.scrollLeft = (this._seite || 0) * breite();
+      this._seiteAnzeige = this._seite || 0;
+      hoehe(this._seiteAnzeige);
+      let t = null;
+      bahn.addEventListener("scroll", () => {
+        const i = Math.round(bahn.scrollLeft / breite());
+        if (i === this._seiteAnzeige) return;
+        this._seiteAnzeige = i;
+        hoehe(i);
+        this.$$("[data-seite]").forEach((b, k) => b.setAttribute("aria-selected", k === i));
+        this.$$(".punkte i").forEach((p, k) => p.classList.toggle("an", k === i));
+        clearTimeout(t); t = setTimeout(() => { this._seite = i; }, 120);
+      }, { passive: true });
+      this.$$("[data-seite]").forEach((b) => b.addEventListener("click", () => {
+        this._seite = Number(b.dataset.seite);
+        bahn.scrollTo({ left: this._seite * breite(), behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      }));
+    }
     this.$("[data-klapp]")?.addEventListener("click", () => { this._auf = !this._auf; this.render(); });
     this.$("[data-oeffnen]")?.addEventListener("click", () => navigieren(this._config.planer_pfad || "/planer"));
     this.$("[data-neu]")?.addEventListener("click", () => this.neu());
@@ -258,8 +347,9 @@ class GlasPlanerEditor extends GlasEditor {
       { name: "ohne_datum", selector: { boolean: {} } },
       { name: "max_aufgaben", selector: { number: { min: 0, max: 30, mode: "box" } } },
       { name: "planer_pfad", selector: { text: {} } },
+      { type: "grid", name: "", schema: [{ name: "seite_planer", selector: { boolean: {} } }, { name: "seite_kalender", selector: { boolean: {} } }, { name: "seite_schichten", selector: { boolean: {} } }] },
     ];
   }
-  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer" }; }
+  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer", seite_planer: "Seite Planer", seite_kalender: "Seite Kalender (7 Tage)", seite_schichten: "Seite Schichten (Woche)" }; }
   hilfen() { return { titel: "Welche Person gezeigt wird, steuert die Personenwahl in der Kopf-Karte (C, L, Tablet)." }; }
 }

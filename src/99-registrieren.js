@@ -4,13 +4,14 @@
 const KARTEN = [
   ["glas-kachel-card", GlasKachelCard, GlasKachelEditor, "Glas · Kachel", "Eine Kachel für jede Entität: Tippen schaltet, seitlich wischen dimmt, Symbol öffnet die große Steuerung."],
   ["glas-kopf-card", GlasKopfCard, GlasKopfEditor, "Glas · Kopf", "Begrüßung, Personenwahl (wer schaut) und Schnellzugriff-Chips."],
-  ["glas-planer-card", GlasPlanerCard, GlasPlanerEditor, "Glas · Planer heute", "Aufgaben, Schicht und Termine von heute aus dem Planer, für die gewählte Person."],
+  ["glas-planer-card", GlasPlanerCard, GlasPlanerEditor, "Glas · Planer & Kalender", "Wisch-Karte: Planer heute, Kalender der nächsten 7 Tage und Schichten der Woche, für die gewählte Person."],
   ["glas-wetter-card", GlasWetterCard, GlasWetterEditor, "Glas · Wetter", "Jetzt, die nächsten Stunden, aufklappbar 5 Tage, trocken oder nass."],
   ["glas-raumleiste-card", GlasRaumleisteCard, GlasRaumleisteEditor, "Glas · Raumleiste", "Schwebende Leiste unten mit allen Räumen."],
   ["glas-sicherheit-card", GlasSicherheitCard, GlasSicherheitEditor, "Glas · Sicherheit", "Alarmanlage scharf/unscharf, Fenster, Kamera, Verlauf."],
   ["glas-drucker-card", GlasDruckerCard, GlasDruckerEditor, "Glas · Drucker & Werkstatt", "3D-Drucker: Fortschritt, Kamera, Steuerung, Warteschlange und knappes Filament aus der Filament-Werkstatt."],
   ["glas-robi-card", GlasRobiCard, GlasRobiEditor, "Glas · Robi", "Saugroboter: Akku, alles oder einzelne Räume saugen, Saugstärke, Station."],
   ["glas-gaeste-card", GlasGaesteCard, GlasGaesteEditor, "Glas · Gäste", "WLAN-QR-Code zum Scannen, optional ein zweiter Code."],
+  ["glas-hinweise-card", GlasHinweiseCard, GlasHinweiseEditor, "Glas · Warnungen", "Fenster offen und Regen kommt / keiner zu Hause – nur sichtbar, wenn es zutrifft."],
   ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
 ];

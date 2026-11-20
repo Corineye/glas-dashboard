@@ -101,13 +101,15 @@ class GlasBereichKarte extends GlasKarte {
   blattOeffnen() {
     if (this._blatt) return;
     this._blatt = new GlasSchicht({ quelle: this, hoch: this.blattHoch?.() ?? false, titel: this.blattTitel(), zu: () => { this._blatt = null; } });
+    this._vz = { auf: false, stunden: 24, daten: null };
     this.blattZeichnen();
     this._blatt.oeffnen();
   }
   blattZeichnen() {
     const s = this._blatt; if (!s) return;
     s.dunkel(istDunkel(this._hass));
-    const html = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
+    const vIds = (this.blattVerlauf?.() || []).filter((e) => this._hass.states[e]);
+    const html = `<style>${BLATT_CSS}${VERLAUF_CSS}</style>${this.blattHtml(s)}${vIds.length ? verlaufKlappHtml(this._hass, vIds, this._vz) : ""}`;
     if (s._letztesHtml === html) return; // nichts geändert: Blatt stehen lassen
     s._letztesHtml = html;
     const scroll = s.inhalt.scrollTop;
@@ -117,6 +119,10 @@ class GlasBereichKarte extends GlasKarte {
     s.kopfBinden();
     s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = this._hass; el.stateObj = this._hass.states[el.dataset.e]; });
     this.blattBinden(s, (q) => s.inhalt.querySelector(q), (q) => [...s.inhalt.querySelectorAll(q)]);
+    if (vIds.length) {
+      const neu = () => { s._letztesHtml = null; this.blattZeichnen(); };
+      verlaufKlappBinden(s.inhalt, this._vz, async () => { this._vz.daten = null; neu(); this._vz.daten = await verlaufHolen(this._hass, vIds, this._vz.stunden); neu(); }, neu);
+    }
     s.inhalt.scrollTop = scroll;
     if (fokus) { const neu = s.inhalt.querySelector("input"); if (neu) { neu.value = wert; neu.focus(); } }
   }
@@ -249,6 +255,7 @@ const DRUCKER_SUCHE = {
 const DRUCK_STATUS = { running: "druckt", printing: "druckt", pause: "pausiert", paused: "pausiert", finish: "fertig", finished: "fertig", idle: "bereit", failed: "Fehler", prepare: "bereitet vor", offline: "aus" };
 
 class GlasDruckerCard extends GlasBereichKarte {
+  blattVerlauf() { return [this._config.stecker, this._config.status].filter(Boolean); }
   static standard() { return { knapp_g: 200, name: "P1S" }; }
   static getConfigElement() { return document.createElement("glas-drucker-card-editor"); }
   static getStubConfig() { return { name: "P1S" }; }
@@ -469,6 +476,7 @@ class GlasDruckerEditor extends GlasEditor {
 const ROBI_STATUS = { docked: "In der Station", cleaning: "Saugt", paused: "Pausiert", returning: "Fährt zur Station", idle: "Bereit", error: "Fehler" };
 
 class GlasRobiCard extends GlasBereichKarte {
+  blattVerlauf() { return [this._config.entity].filter(Boolean); }
   static standard() { return { raeume: [], befehl: "spot_area" }; }
   static getConfigElement() { return document.createElement("glas-robi-card-editor"); }
   static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "" }; }

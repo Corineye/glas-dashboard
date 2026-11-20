@@ -18,6 +18,7 @@ const ZUHAUSE_CSS = `
 .leer p{margin:0 0 var(--g-a4);color:var(--g-text2);font-size:var(--g-s-name);line-height:1.45}
 .leer a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--g-a5);border-radius:var(--g-r-pille);background:var(--g-akzent-voll);color:#fff;font-weight:600;text-decoration:none}
 .unsichtbar{display:none}
+glas-hinweise-card:not([leer]){margin-top:var(--g-a3)}
 `;
 const SPANNE = { klein: 3, breit: 6, gross: 6, ganz: 12 };
 
@@ -58,15 +59,20 @@ class GlasZuhauseCard extends HTMLElement {
     this._kinder.forEach((el) => { el.hass = h; });
   }
   get hass() { return this._hass; }
+  // Karten wiederverwenden (gleicher Schlüssel): geänderte Einstellungen per setConfig, damit offene Blätter offen bleiben
   kind(schluessel, tag, cfg) {
-    const k = `${schluessel}|${JSON.stringify(cfg)}`;
-    let el = this._kinder.get(k);
+    const json = JSON.stringify(cfg);
+    let el = this._kinder.get(schluessel);
+    if (el && el.localName !== tag) el = null;
     if (!el) {
       el = document.createElement(tag);
       try { el.setConfig(cfg); } catch (e) { el = document.createElement("div"); el.className = "leise"; el.textContent = e.message; }
+      el._cfgJson = json;
       if (this._hass) el.hass = this._hass;
+    } else if (el._cfgJson !== json) {
+      try { el.setConfig?.(cfg); el._cfgJson = json; } catch (e) { console.error(e); }
     }
-    this._neu.set(k, el);
+    this._neu.set(schluessel, el);
     return el;
   }
   hintergrund() {
@@ -80,7 +86,7 @@ class GlasZuhauseCard extends HTMLElement {
   aufbauen() {
     if (!this._hass || !this.isConnected) return;
     const e = Glas.einst;
-    if (!this.shadowRoot.firstChild) this.shadowRoot.innerHTML = `<style>${TOKENS}${ZUHAUSE_CSS}</style><div class="hg"></div><div class="seite"></div><div class="ebene"></div>`;
+    if (!this.shadowRoot.firstChild) this.shadowRoot.innerHTML = `<style>${TOKENS}${ZUHAUSE_CSS}${BEARB_CSS}</style><div class="hg"></div><div class="seite"></div><div class="ebene"></div>`;
     this.hintergrund();
     const seite = this.shadowRoot.querySelector(".seite"), ebene = this.shadowRoot.querySelector(".ebene");
     if (!e) {
@@ -93,7 +99,7 @@ class GlasZuhauseCard extends HTMLElement {
     // Personen gleich hier setzen (wie die Kopf-Karte), damit die richtige Startseite kommt
     Glas.personenSetzen((e.personen || []).map((p, i) => ({ ...p, id: p.benutzer || p.name || `p${i}`, kurz: p.kurz || (p.tablet ? "" : (p.name || "?")[0].toUpperCase()) })));
     const person = Glas.aktuellePerson(this._hass);
-    const schluessel = JSON.stringify([e, person?.id]);
+    const schluessel = JSON.stringify([e, person?.id, Glas.bearbeiten]);
     if (schluessel === this._schluessel) return;
     this._schluessel = schluessel;
     this._baut = true;
@@ -112,9 +118,13 @@ class GlasZuhauseCard extends HTMLElement {
     const s = startseiteVon(e, person);
     const teile = [];
     teile.push(this.kind("kopf", "glas-kopf-card", { gruss_modus: e.gruss_modus || "name", gruss_text: e.gruss_text, untertitel: e.untertitel, personen: e.personen || [], chips: s.chips || [] }));
+    const b = e.bereiche || {};
+    if (b.hinweise?.an !== false) {
+      teile.push(this.kind("hinweise", "glas-hinweise-card", { wetter: b.wetter?.entity, regen_stunden: b.hinweise?.regen_stunden || 3,
+        personen: (e.personen || []).filter((p) => !p.tablet && p.entity).map((p) => p.entity) }));
+    }
     const raster = document.createElement("div");
     raster.className = "raster";
-    const b = e.bereiche || {};
     for (const a of s.abschnitte) {
       if (!a.an) continue;
       let el = null;
@@ -124,20 +134,27 @@ class GlasZuhauseCard extends HTMLElement {
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
       else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
-      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte)))) {
+      else if (a.id === "favoriten" && (Glas.bearbeiten || (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte))))) {
+        const bearb = Glas.bearbeiten;
         const wrap = document.createElement("div");
         wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
         wrap.style.display = "contents";
         const fav = wrap.querySelector(".fav");
-        s.favoriten.filter((f) => f.an !== false && (f.entity || listenKarte(f.karte))).forEach((f, i) => {
+        (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || listenKarte(f.karte))).forEach(({ f, i }, n) => {
           const kk = f.karte && listenKarte(f.karte);
-          const k = kk ? this.kind(`fav${i}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
+          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
+          if (bearb) {
+            z.dataset.i = i;
+            z.dataset.name = kk ? kk[1] : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
+            if (f.an === false) z.classList.add("aus");
+          }
           z.appendChild(k);
           fav.appendChild(z);
         });
         fav.style.gridColumn = "span 12";
+        if (bearb) bearbeitRaster(fav, listeZugriff({ art: "fav", person }), this);
         raster.append(...wrap.childNodes);
         continue;
       }
@@ -154,7 +171,9 @@ class GlasZuhauseCard extends HTMLElement {
       unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
       raeume.forEach((r) => unten.push(this.kind(`raum-${r.hash}`, "glas-raum-card", raumCfg(this._hass, r))));
     }
-    ebene.replaceChildren(...unten);
+    // Nur umhängen, wenn sich etwas geändert hat: sonst würde ein offenes Raum-Blatt geschlossen
+    const jetzt = [...ebene.children];
+    if (jetzt.length !== unten.length || jetzt.some((el, i) => el !== unten[i])) ebene.replaceChildren(...unten);
     this._kinder = this._neu;
   }
 }
@@ -163,15 +182,17 @@ function kachelCfg(g) {
   const { an, gruppe, ...rest } = g;
   return { groesse: "breit", zweite_zeile: "zustand", ...rest };
 }
-function raumCfg(hass, r) {
-  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && (g.entity || g.karte));
+// alle = Bearbeiten-Modus: auch Ausgeblendete, mit Index (_i) und Gruppe (_gruppe) für Ziehen und Menü
+function raumCfg(hass, r, alle = false) {
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).map((g, i) => ({ g, i })).filter(({ g }) => (alle || g.an !== false) && (g.entity || g.karte));
   const cards = [];
   let gruppe = null;
-  for (const g of geraete) {
-    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle" }, k); gruppe = null; } continue; }
+  const extra = (g, i, gr) => (alle ? { _i: i, _aus: g.an === false, ...(gr ? { _gruppe: gr } : {}), ...(g.karte ? { _karte: g.karte } : {}) } : {});
+  for (const { g, i } of geraete) {
+    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle" }, { ...k, ...extra(g, i) }); gruppe = null; } continue; }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
-    if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle" }); }
-    cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g) });
+    if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle", ...(alle ? { _gruppe: gr } : {}) }); }
+    cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g), ...extra(g, i) });
   }
   return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
     fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: r.chips, cards };

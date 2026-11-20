@@ -488,7 +488,7 @@ class GlasEinstellungen extends HTMLElement {
   // ---------------- Bereiche ----------------
   bereiche(box) {
     const B = this._d.bereiche;
-    [["wetter", "Wetter", "glas-wetter-card-editor"], ["planer", "Planer heute", "glas-planer-card-editor"], ["sicherheit", "Sicherheit", "glas-sicherheit-card-editor"],
+    [["hinweise", "Warnungen", "glas-hinweise-card-editor"], ["wetter", "Wetter", "glas-wetter-card-editor"], ["planer", "Planer & Kalender", "glas-planer-card-editor"], ["sicherheit", "Sicherheit", "glas-sicherheit-card-editor"],
       ["drucker", "Drucker & Werkstatt", "glas-drucker-card-editor"], ["robi", "Robi", "glas-robi-card-editor"], ["gaeste", "Gäste", "glas-gaeste-card-editor"]].forEach(([id, titel, tag]) => {
       this.html(box, `<h2>${titel}</h2>`);
       const g = this.html(box, `<div class="gruppe form"></div>`);

@@ -18,21 +18,34 @@ const VERLAUF_CSS = `
 .v-minmax{display:flex;gap:var(--g-a3);font-size:var(--g-s-mini);color:var(--g-text2)}
 .v-leiste{position:relative;height:14px;border-radius:7px;background:var(--g-fuell);overflow:hidden}
 .v-leiste i{position:absolute;top:0;bottom:0;background:var(--vf);border-radius:3px}
+.v-klapp{display:flex;align-items:center;justify-content:space-between;gap:var(--g-a2);width:100%;min-height:52px;padding:0 var(--g-a4);border-radius:var(--g-r);
+  font-size:var(--g-s-name);font-weight:600;color:var(--g-text);text-align:left}
+.v-klapp ha-icon{transition:transform .25s cubic-bezier(.32,.72,0,1)}
+.v-klapp[aria-expanded="true"] ha-icon{transform:rotate(180deg)}
+.v-klapp .leise{margin-left:auto;font-weight:500}
+.v-inhalt{display:flex;flex-direction:column;gap:var(--g-a2);animation:aufklappen .28s cubic-bezier(.32,.72,0,1)}
+@keyframes aufklappen{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .v-leer{font-size:var(--g-s-klein);color:var(--g-text2);padding:var(--g-a2) 0}
 `;
 // Historie holen: { entity_id: [{ t: ms, s: zustand }] }
 async function verlaufHolen(h, ids, stunden) {
   const bis = Date.now(), von = bis - stunden * 36e5;
   if (!ids.length) return { von, bis, daten: {} };
-  let r = {};
-  try {
-    r = await h.callWS({ type: "history/history_during_period", start_time: new Date(von).toISOString(), end_time: new Date(bis).toISOString(),
-      entity_ids: ids, minimal_response: true, no_attributes: true, significant_changes_only: false });
-  } catch (e) { console.warn("Glas: Verlauf", e); }
+  const anfrage = (eids, mitAttr) => h.callWS({ type: "history/history_during_period", start_time: new Date(von).toISOString(), end_time: new Date(bis).toISOString(),
+    entity_ids: eids, minimal_response: !mitAttr, no_attributes: !mitAttr, significant_changes_only: false }).catch((e) => { console.warn("Glas: Verlauf", e); return {}; });
+  const normal = ids.filter((i) => !i.includes("@")), attr = [...new Set(ids.filter((i) => i.includes("@")).map((i) => i.split("@")[0]))];
+  const [r, ra] = await Promise.all([normal.length ? anfrage(normal, false) : {}, attr.length ? anfrage(attr, true) : {}]);
+  const zeit = (x) => ((x.lu ?? x.lc) != null ? (x.lu ?? x.lc) * 1000 : Date.parse(x.last_updated || x.last_changed));
   const daten = {};
   for (const id of ids) {
-    daten[id] = (r[id] || []).map((x) => ({ t: (x.lu ?? x.lc) != null ? (x.lu ?? x.lc) * 1000 : Date.parse(x.last_updated || x.last_changed), s: x.s ?? x.state }))
-      .filter((x) => !isNaN(x.t)).map((x) => ({ ...x, t: Math.max(x.t, von) }));
+    const [eid, at] = id.split("@");
+    let letzt;
+    daten[id] = ((at ? ra : r)[eid] || []).map((x) => {
+      // Attribute: im komprimierten Format „a“, sonst „attributes“; fehlende Werte gelten weiter
+      const v = at ? ((x.a || x.attributes || {})[at] ?? letzt) : (x.s ?? x.state);
+      letzt = v;
+      return { t: zeit(x), s: v };
+    }).filter((x) => !isNaN(x.t) && x.s != null).map((x) => ({ ...x, t: Math.max(x.t, von) }));
   }
   return { von, bis, daten };
 }
@@ -69,7 +82,7 @@ function kurveHtml(punkte, von, bis, st) {
     ${achseHtml(von, bis)}<div class="v-minmax"><span>Tief ${zahl(min, st)}</span><span>Hoch ${zahl(max, st)}</span></div>`;
 }
 // Zeitleiste für An/Aus, Offen/Zu
-const istAktivZustand = (s) => ["on", "open", "heat", "heating", "cool", "playing", "home", "detected", "unlocked"].includes(String(s).toLowerCase());
+const istAktivZustand = (s) => ["on", "open", "heat", "heating", "cool", "cooling", "playing", "home", "detected", "unlocked", "cleaning", "printing", "running", "armed_away", "armed_home", "armed_night", "triggered"].includes(String(s).toLowerCase());
 function leisteHtml(punkte, von, bis, st) {
   const p = [...punkte];
   if (!p.length && st) p.push({ t: von, s: st.state });
@@ -85,6 +98,31 @@ function leisteHtml(punkte, von, bis, st) {
   const std = dauer / 36e5;
   const summe = !anzahl ? "nie" : `${anzahl}× · ${std >= 1 ? `${std.toFixed(1).replace(".", ",")} Std.` : `${Math.max(1, Math.round(dauer / 6e4))} Min.`}`;
   return { html: `<div class="v-leiste" aria-hidden="true">${teile.join("")}</div>${achseHtml(von, bis)}`, summe };
+}
+// Attribut-Verlauf (z. B. Raumtemperatur des Thermostats ohne eigenen Sensor)
+function verlaufAttrHtml(h, id, v) {
+  const [eid, at] = id.split("@"), st = h.states[eid];
+  if (!st) return "";
+  if (at === "hvac_action") {
+    const l = leisteHtml(v.daten[id] || [], v.von, v.bis, { state: st.attributes.hvac_action });
+    return `<div class="v-karte glas" style="--vf:#ff9f0a"><div class="v-kopf"><b>Heizt</b><span>${esc(l.summe)}</span></div>${l.html}</div>`;
+  }
+  const einheit = h.config?.unit_system?.temperature || "°C";
+  const pseudo = { entity_id: eid, state: String(st.attributes[at] ?? ""), attributes: { unit_of_measurement: einheit } };
+  return `<div class="v-karte glas" style="--vf:#ff9f0a"><div class="v-kopf"><b>Raumtemperatur</b><span>${esc(zahl(st.attributes[at], pseudo))}</span></div>
+    ${kurveHtml(v.daten[id] || [], v.von, v.bis, pseudo)}</div>`;
+}
+// Aufklappbarer Abschnitt „Verlauf“ – in jeder großen Ansicht gleich (standardmäßig zu, lädt erst beim Aufklappen)
+function verlaufKlappHtml(h, ids, z) {
+  const inhalt = !z.auf ? "" : `<div class="v-inhalt">${zeitraumHtml(z.stunden)}${z.daten ? ids.map((e) => (e.includes("@") ? verlaufAttrHtml(h, e, z.daten) : verlaufKarteHtml(h, e, z.daten))).join("")
+    : `<div class="v-leer">Lade Verlauf …</div>`}</div>`;
+  return `<div class="abschnitt"><button class="v-klapp glas" data-vklapp aria-expanded="${z.auf}"><span>Verlauf</span><span class="leise">${z.stunden === 24 ? "24 Std." : "7 Tage"}</span>
+    <ha-icon data-i="mdi:chevron-down"></ha-icon></button>${inhalt}</div>`;
+}
+function verlaufKlappBinden(root, z, laden, zeichnen) {
+  root.querySelector("[data-vklapp]")?.addEventListener("click", () => { z.auf = !z.auf; if (z.auf && !z.daten) laden(); else zeichnen(); });
+  root.querySelectorAll("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { z.stunden = Number(b.dataset.zeitraum); laden(); }));
+  root.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
 }
 function verlaufKarteHtml(h, eid, v, fokus) {
   const st = h.states[eid];

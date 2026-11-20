@@ -109,6 +109,8 @@ class GlasRaumleisteEditor extends GlasEditor {
 // glas-raum-card: das Raum-Blatt. Enthält beliebige Karten (auch HA-Karten)
 // ---------------------------------------------------------------------------
 const RAUM_CSS = `
+.kopf-bereich{display:contents}
+.aktiv-rund{background:var(--g-akzent-voll)!important;color:#fff!important}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;margin-top:calc(-1 * var(--g-a2));padding:0 var(--g-a1)}
 .chips ha-state-icon{--mdc-icon-size:16px}
 .raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2) var(--g-a2);align-items:start}
@@ -137,7 +139,11 @@ class GlasRaumCard extends GlasKarte {
     ["location-changed", "hashchange", "popstate"].forEach((t) => window.removeEventListener(t, this._ort));
     this._schicht?.schliessen();
   }
-  setConfig(c) { super.setConfig(c); this._karten = []; this._kartenCfg = null; }
+  setConfig(c) {
+    super.setConfig(c);
+    this._karten = []; this._kartenCfg = null;
+    if (this._schicht) { this._kopfHtml = null; this.kopfZeichnen(); this.rasterZeichnen(); }
+  }
   set hass(h) {
     super.hass = h;
     this._karten.forEach((k) => { k.hass = h; });
@@ -155,6 +161,8 @@ class GlasRaumCard extends GlasKarte {
   render() {
     karteVerstecken(this, !istBearbeiten());
     super.render();
+    // Bearbeiten-Modus umgeschaltet: offenes Blatt neu aufbauen
+    if (this._schicht && this._bearbVorher !== Glas.bearbeiten) { this.kopfZeichnen(); this.rasterZeichnen(); }
     this.iconsSetzen();
     this.$(".platz")?.addEventListener("click", () => this.oeffnen());
   }
@@ -188,9 +196,10 @@ class GlasRaumCard extends GlasKarte {
     if (!s) return;
     s.dunkel(istDunkel(h));
     const k = s.inhalt.querySelector(".kopf-bereich");
-    const knoepfe = c.alles_aus ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "";
+    const bearbKnopf = istAdmin(h) && Glas.einst && (Glas.einst.raeume || []).some((r) => r.hash === c.hash)
+      ? (Glas.bearbeiten ? `<button class="rund aktiv-rund" data-bearb aria-label="Bearbeiten beenden"><ha-icon data-i="mdi:check"></ha-icon></button>` : `<button class="rund glas" data-bearb aria-label="Raum bearbeiten"><ha-icon data-i="mdi:pencil-outline"></ha-icon></button>`) : "";
+    const knoepfe = bearbKnopf + (c.alles_aus && !Glas.bearbeiten ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "");
     const chips = this.chips();
-    const kompakt = s.inhalt.querySelector(".kopf")?.classList.contains("kompakt");
     const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
@@ -199,8 +208,8 @@ class GlasRaumCard extends GlasKarte {
     if (this._kopfHtml === kopfNeu && k.firstChild) return;
     this._kopfHtml = kopfNeu;
     k.innerHTML = kopfNeu;
-    if (kompakt) k.querySelector(".kopf").classList.add("kompakt");
     s.kopfBinden();
+    k.querySelector("[data-bearb]")?.addEventListener("click", () => Glas.bearbeitenSetzen(!Glas.bearbeiten));
     k.querySelector("[data-aus]")?.addEventListener("click", () => {
       const ziele = this.ausZiele();
       if (ziele.length) h.callService("homeassistant", "turn_off", { entity_id: ziele });
@@ -225,25 +234,53 @@ class GlasRaumCard extends GlasKarte {
     const s = new GlasSchicht({ quelle: this, hoch: true, titel: this._config.name || this._config.hash,
       zu: () => { this._schicht = null; if (hashJetzt() === this._config.hash) hashSchliessen(); } });
     this._schicht = s;
-    s.inhalt.innerHTML = `<style>${RAUM_CSS}</style><div class="kopf-bereich"></div><div class="raster"></div>`;
+    s.inhalt.innerHTML = `<style>${RAUM_CSS}${BEARB_CSS}</style><div class="kopf-bereich"></div><div class="raster"></div>`;
     this.kopfZeichnen();
     s.oeffnen();
+    await this.rasterZeichnen();
+  }
+  // Karten im Blatt; im Bearbeiten-Modus direkt aus den Einstellungen (auch ausgeblendete) mit Ziehen und Menü
+  async rasterZeichnen() {
+    const s = this._schicht;
+    if (!s) return;
     const raster = s.inhalt.querySelector(".raster");
     const hilfe = await window.loadCardHelpers?.();
     if (!hilfe) { raster.innerHTML = `<div class="leise">Karten können hier nicht geladen werden.</div>`; return; }
-    if (this._kartenCfg !== this._config.cards) {
-      this._kartenCfg = this._config.cards;
-      this._karten = (this._config.cards || []).map((cfg) => { const el = hilfe.createCardElement(cfg); el.hass = this._hass; return el; });
+    if (this._schicht !== s) return;
+    this._bearbVorher = Glas.bearbeiten;
+    const raum = Glas.bearbeiten && Glas.einst ? (Glas.einst.raeume || []).find((r) => r.hash === this._config.hash) : null;
+    const sauber = (cfg) => Object.fromEntries(Object.entries(cfg).filter(([k]) => !k.startsWith("_")));
+    let cfgs;
+    if (raum) {
+      cfgs = raumCfg(this._hass, raum, true).cards;
+      this._karten = cfgs.map((cfg) => { const el = hilfe.createCardElement(sauber(cfg)); el.hass = this._hass; return el; });
+      this._kartenCfg = null;
+    } else {
+      cfgs = this._config.cards || [];
+      if (this._kartenCfg !== cfgs) {
+        this._kartenCfg = cfgs;
+        this._karten = cfgs.map((cfg) => { const el = hilfe.createCardElement(cfg); el.hass = this._hass; return el; });
+      }
     }
-    this._karten.forEach((el) => {
+    raster.replaceChildren();
+    raster.classList.remove("bearb");
+    this._karten.forEach((el, n) => {
       const z = document.createElement("div");
       const g = el.getGridOptions?.() || el.getLayoutOptions?.() || {};
       const sp = g.columns === "full" ? 12 : Number(g.columns || g.grid_columns * 3 || 12);
       z.style.gridColumn = `span ${klemmen(sp || 12, 1, 12)}`;
+      const cfg = cfgs[n] || {};
+      if (raum && cfg._i != null) {
+        z.dataset.i = cfg._i;
+        z.dataset.name = cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
+        if (cfg._aus) z.classList.add("aus");
+      }
+      if (raum && cfg._gruppe) z.dataset.gruppe = cfg._gruppe;
       z.appendChild(el);
       raster.appendChild(z);
       el.addEventListener("ll-rebuild", () => { this._kartenCfg = null; });
     });
+    if (raum) bearbeitRaster(raster, listeZugriff({ art: "raum", hash: raum.hash }), this, { scroller: s.inhalt });
   }
 }
 

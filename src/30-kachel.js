@@ -8,8 +8,15 @@ const STEUER_CSS = `
 .saeule .fuell{position:absolute;inset:0;background:var(--f,#ff9f0a);transform-origin:bottom;will-change:transform}
 .wert{font-size:44px;font-weight:300;line-height:1;color:var(--g-text);text-align:center;font-variant-numeric:tabular-nums}
 .reihe{display:flex;gap:var(--g-a2);justify-content:center;flex-wrap:wrap}
-.farbe{width:40px;height:40px;border-radius:50%;border:3px solid transparent}
-.farbe[aria-pressed="true"]{border-color:var(--g-text)}
+.farben{display:flex;align-items:center;justify-content:center;gap:var(--g-a3)}
+.farbe{position:relative;width:48px;height:48px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.farbe[aria-pressed="true"]::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2.5px solid var(--g-text)}
+.farbe-trenn{width:1px;height:28px;background:var(--g-trenn)}
+.farbe.rad-knopf{background:conic-gradient(from 90deg,#ff3b30,#ffcc00,#34c759,#30b0c7,#0a84ff,#5e5ce6,#ff2d55,#ff3b30)}
+.farbe.rad-knopf span{position:absolute;inset:11px;border-radius:50%;background:var(--g-blatt);display:flex;align-items:center;justify-content:center;color:var(--g-text)}
+.farbe.rad-knopf ha-icon{--mdc-icon-size:16px}
+.rad-feld{display:flex;justify-content:center;padding:var(--g-a2) 0;animation:aufklappen .28s cubic-bezier(.32,.72,0,1)}
+@keyframes aufklappen{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 .schalter{position:relative;width:96px;height:58px;border-radius:29px;background:var(--g-fuell);transition:background-color .25s ease}
 .schalter[aria-pressed="true"]{background:var(--g-gruen)}
 .schalter span{position:absolute;top:4px;left:4px;width:50px;height:50px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.25);
@@ -32,13 +39,15 @@ const STEUER_CSS = `
 .karte-s .kopfz{display:flex;justify-content:space-between;align-items:baseline;gap:var(--g-a2)}
 .karte-s h3{margin:0;font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .reihe.links{justify-content:flex-start}
-@media (max-width:420px){.mitte:has(.rad){flex-wrap:wrap}}
+
 `;
 
-const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["Neutral", { color_temp_kelvin: 4000 }, "#ffe2b8"],
-  ["Kaltweiß", { color_temp_kelvin: 6000 }, "#e6f0ff"], ["Rot", { rgb_color: [255, 59, 48] }, "#ff3b30"], ["Orange", { rgb_color: [255, 159, 10] }, "#ff9f0a"],
-  ["Grün", { rgb_color: [52, 199, 89] }, "#34c759"], ["Blau", { rgb_color: [10, 132, 255] }, "#0a84ff"], ["Lila", { rgb_color: [94, 92, 230] }, "#5e5ce6"],
-  ["Pink", { rgb_color: [255, 45, 85] }, "#ff2d55"]];
+// Vier ruhige Lichtstimmungen von warm bis kalt (statt bunter Punkte); bunte Farben über das Farbrad
+const LICHT_FARBEN = [["Gemütlich", 2200, [255, 147, 41], "#ffa24a"], ["Warmweiß", 2700, [255, 180, 107], "#ffc98f"],
+  ["Neutral", 4000, [255, 228, 206], "#fff0e0"], ["Tageslicht", 6000, [235, 242, 255], "#e4eeff"]];
+const lichtFarbeDaten = (st, f) => ((st.attributes.supported_color_modes || []).includes("color_temp") ? { color_temp_kelvin: f[1] } : { rgb_color: f[2] });
+// Welche Vorwahl gerade aktiv ist (Farbtemperatur ±250 K)
+const lichtFarbeAktiv = (st, f) => st.attributes.color_mode === "color_temp" && Math.abs(Number(st.attributes.color_temp_kelvin || 0) - f[1]) <= 250;
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
 // Heizung mit eigenem Temperatur-/Feuchtesensor: Messwerte im Zustand ersetzen
@@ -48,12 +57,18 @@ function mitSensoren(h, st, cfg) {
   const ok = (x) => x && !isNaN(Number(x.state)) && x.state !== "";
   return { ...st, attributes: { ...st.attributes, ...(ok(t) ? { current_temperature: Number(t.state) } : {}), ...(ok(f) ? { current_humidity: Number(f.state) } : {}) } };
 }
-// Welche Verläufe die große Ansicht zeigt
+// Welche Verläufe die große Ansicht zeigt (cfg.verlauf === false schaltet ihn ab)
+// Einträge mit „@“ sind Attribute: climate.x@current_temperature = Raumtemperatur des Thermostats
 function verlaufIds(entityId, cfg) {
+  if (cfg.verlauf === false) return [];
   const d = domainVon(entityId);
-  if (d === "climate") return [cfg.temp_sensor, cfg.feuchte_sensor].filter(Boolean);
-  if (["sensor", "binary_sensor", "light", "switch", "fan", "input_boolean", "media_player", "cover", "lock"].includes(d)) return [entityId];
-  return [];
+  if (d === "climate") {
+    const st = Glas.hass?.states[entityId];
+    return [cfg.temp_sensor || (st?.attributes.current_temperature != null ? `${entityId}@current_temperature` : null), cfg.feuchte_sensor,
+      st?.attributes.hvac_action != null ? `${entityId}@hvac_action` : null].filter(Boolean);
+  }
+  if (["weather", "camera", "button", "scene", "script", "image", "update", "event"].includes(d)) return [];
+  return [entityId];
 }
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
@@ -65,8 +80,9 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   const neu = () => { if (sig() !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
   // Verlauf (wird einmal geladen, Zeitraum umschaltbar)
   const vIds = verlaufIds(entityId, cfg);
-  let vStunden = 24, vDaten = null;
-  const vLaden = async () => { vDaten = null; zeichnen(); vDaten = await verlaufHolen(Glas.hass, vIds, vStunden); zeichnen(); };
+  const vZustand = { auf: cfg.verlauf_offen === true, stunden: cfg.verlauf_tage ? 168 : 24, daten: null };
+  let radAuf = false;
+  const vLaden = async () => { vZustand.daten = null; zeichnen(); vZustand.daten = await verlaufHolen(Glas.hass, vIds, vZustand.stunden); zeichnen(); };
   const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
   const zeichnen = () => {
@@ -84,13 +100,6 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     if (reg && d !== "climate") {
       mitte = `<div class="saeule" role="slider" tabindex="0" aria-label="${esc(name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(reg.pct)}"
         aria-valuetext="${esc(reg.text(reg.pct))}" style="--f:${Geraet.farbe(st)}"><div class="fuell" style="transform:scaleY(${klemmen(reg.pct, 0, 100) / 100})"></div></div>`;
-      if (d === "light" && (a.supported_color_modes || []).some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m))) {
-        const [hu, sa] = a.hs_color || [30, 0];
-        const w = (hu - 90) * Math.PI / 180, r = klemmen(sa, 0, 100) / 2;
-        const farbeJetzt = a.hs_color ? `hsl(${hu},100%,${100 - sa / 2}%)` : "#fff";
-        const pos = `left:${50 + Math.cos(w) * r}%;top:${50 + Math.sin(w) * r}%;background:${farbeJetzt}`;
-        mitte += `<div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div>`;
-      }
     } else if (d === "climate") {
       const soll = a.temperature != null ? String(a.temperature).replace(".", ",") + "°" : "–";
       mitte = `<button class="gross-rund" data-t="-" aria-label="Kälter">−</button><div style="text-align:center"><div class="wert">${st.state === "off" ? "Aus" : soll}</div>
@@ -106,9 +115,19 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       const modes = a.supported_color_modes || [];
       const farbig = modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m));
       const temp = modes.includes("color_temp");
-      const liste = LICHT_FARBEN.filter(([, w]) => (w.rgb_color ? farbig : temp));
-      if (liste.length) extra += `<div class="reihe">${liste.map(([n, , c], i) =>
-        `<button class="farbe" data-farbe="${i}" style="background:${c}" aria-label="${n}" title="${n}"></button>`).join("")}</div>`;
+      if (farbig || temp) {
+        extra += `<div class="farben">${LICHT_FARBEN.map((f, i) => {
+          const akt = lichtFarbeAktiv(st, f);
+          return `<button class="farbe" data-farbe="${i}" style="background:${f[3]}" aria-label="${f[0]}" title="${f[0]}" aria-pressed="${akt}"></button>`;
+        }).join("")}${farbig ? `<span class="farbe-trenn" aria-hidden="true"></span><button class="farbe rad-knopf" data-radauf aria-expanded="${radAuf}" aria-label="Eigene Farbe wählen" title="Eigene Farbe"><span><ha-icon data-i="mdi:${radAuf ? "chevron-up" : "palette-outline"}"></ha-icon></span></button>` : ""}</div>`;
+        if (farbig && radAuf) {
+          const [hu, sa] = a.hs_color || [30, 0];
+          const w = (hu - 90) * Math.PI / 180, r = klemmen(sa, 0, 100) / 2;
+          const farbeJetzt = a.hs_color ? `hsl(${hu},100%,${100 - sa / 2}%)` : "#fff";
+          const pos = `left:${50 + Math.cos(w) * r}%;top:${50 + Math.sin(w) * r}%;background:${farbeJetzt}`;
+          extra += `<div class="rad-feld"><div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div></div>`;
+        }
+      }
       if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
     }
     if (d === "climate" && a.hvac_modes?.length) {
@@ -138,8 +157,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     // Zusatzwerte (Attribute, die Menschen interessieren)
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
-    if (vIds.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Verlauf</div>${zeitraumHtml(vStunden)}
-      ${vDaten ? vIds.map((e) => verlaufKarteHtml(h, e, vDaten)).join("") : `<div class="v-leer">Lade Verlauf …</div>`}</div>`;
+    if (vIds.length) extra += verlaufKlappHtml(h, vIds, vZustand);
     extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant ›</button>`;
     s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
@@ -147,8 +165,9 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     const $ = (q) => s.inhalt.querySelector(q), $$ = (q) => [...s.inhalt.querySelectorAll(q)];
     $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => Geraet.schalten(h, st)));
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
-    $$("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { vStunden = Number(b.dataset.zeitraum); vLaden(); }));
-    $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...LICHT_FARBEN[b.dataset.farbe][1] })));
+    verlaufKlappBinden(s.inhalt, vZustand, vLaden, zeichnen);
+    $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...lichtFarbeDaten(st, LICHT_FARBEN[b.dataset.farbe]) })));
+    $("[data-radauf]")?.addEventListener("click", () => { radAuf = !radAuf; zeichnen(); });
     $$("[data-hvac]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.hvac })));
     $("[data-eco]")?.addEventListener("click", () => h.callService("climate", "set_temperature", { entity_id: entityId, temperature: 17, hvac_mode: "heat" }));
     $$("[data-timer]").forEach((b) => b.addEventListener("click", () => {
@@ -212,7 +231,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   };
   Glas.hassHoerer.add(neu);
   zeichnen();
-  if (vIds.length) vLaden();
+  if (vIds.length && vZustand.auf) vLaden();
   s.oeffnen();
   return s;
 }

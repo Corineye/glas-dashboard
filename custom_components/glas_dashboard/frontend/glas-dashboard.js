@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -349,7 +349,7 @@ const AKTIONEN_LABELS = {
 // Personen · Räume mit Geräten · Startseite pro Person · Bereiche · Aussehen
 // ---------------------------------------------------------------------------
 const ABSCHNITTE = [
-  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer heute", "mdi:calendar-check", "ganz"],
+  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer & Kalender", "mdi:calendar-check", "ganz"],
   ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "ganz"],
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
   ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
@@ -2913,15 +2913,20 @@ const SCHICHT_CSS = `
 .griff span{width:38px;height:5px;border-radius:3px;background:var(--g-text2);opacity:.45}
 .inhalt{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--g-a4) var(--g-a5);display:flex;flex-direction:column;gap:var(--g-a4);scrollbar-width:none}
 .inhalt::-webkit-scrollbar{display:none}
-.kopf{position:sticky;top:0;z-index:2;touch-action:none;margin:0 calc(-1 * var(--g-a4));padding:var(--g-a1) var(--g-a5) var(--g-a2);display:flex;align-items:center;
-  justify-content:space-between;gap:var(--g-a3);transition:background-color .2s ease,box-shadow .2s ease}
-.kopf.kompakt{background:var(--g-kopf);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:0 1px 0 var(--g-glas-rand)}
+.kopf{flex:none;position:sticky;top:0;z-index:3;height:56px;margin:0 calc(-1 * var(--g-a4)) -56px;padding:0 var(--g-a5);display:flex;align-items:center;
+  justify-content:space-between;gap:var(--g-a3);touch-action:none;pointer-events:none}
+.kopf > *{pointer-events:auto}
+/* Hintergrund des kompakten Kopfs: blendet mit dem Scrollen weich ein, unten weiche Kante statt harter Linie */
+.kopf::before{content:"";position:absolute;inset:0 0 -14px;z-index:-1;background:var(--g-blatt);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 14px),transparent);mask-image:linear-gradient(#000 calc(100% - 14px),transparent);opacity:var(--kh,0)}
+.kopf-klein{flex:1;min-width:0;font-size:var(--g-s-text);font-weight:700;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  opacity:var(--kk,0);transform:translateY(calc((1 - var(--kk,0)) * 8px));pointer-events:none}
+.kopf-gross{flex:none;position:relative;z-index:1;display:flex;flex-direction:column;gap:2px;min-height:56px;justify-content:center;padding:var(--g-a2) var(--kb,56px) 0 var(--g-a1);
+  margin:calc(-1 * var(--g-a4)) calc(-1 * var(--g-a1)) 0 0;opacity:calc(1 - var(--kg,0));transform:scale(calc(1 - var(--kg,0) * .06));transform-origin:left top;touch-action:none}
 .kopf-text{display:flex;flex-direction:column;gap:2px;min-width:0}
-.titel{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;color:var(--g-text);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis}
-.kopf.kompakt .titel{font-size:var(--g-s-h2)}
+.titel{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;line-height:1.15;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .unter{font-size:var(--g-s-name);font-weight:500;color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kopf.kompakt .unter{font-size:var(--g-s-klein)}
+@media (prefers-reduced-motion:reduce){.kopf-gross{transform:none}.kopf-klein{transform:none}}
 .kopf-knoepfe{display:flex;gap:var(--g-a2);flex:none}
 `;
 
@@ -2939,7 +2944,8 @@ class GlasSchicht {
     this.blatt = this.root.querySelector(".blatt");
     this.inhalt = this.root.querySelector(".inhalt");
     this.root.querySelector(".dimm").addEventListener("click", () => this.schliessen());
-    this._taste = (e) => { if (e.key === "Escape") this.schliessen(); };
+    // Escape schließt nur das oberste Blatt
+    this._taste = (e) => { if (e.key === "Escape" && GlasSchicht.stapel[GlasSchicht.stapel.length - 1] === this) { e.stopImmediatePropagation(); this.schliessen(); } };
     this.ziehen();
     this.host.addEventListener("focusout", () => setTimeout(() => {
       if (!this._weg && this.host.isConnected && !this.host.matches(":focus-within")) this.blatt.querySelector("[data-zu]")?.focus({ preventScroll: true });
@@ -2958,6 +2964,7 @@ class GlasSchicht {
   dunkel(an) { this.wurzel.classList.toggle("dunkel", !!an); }
   oeffnen() {
     portalWurzel().appendChild(this.host);
+    GlasSchicht.stapel.push(this);
     this._vorher = document.activeElement;
     document.addEventListener("keydown", this._taste);
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2969,6 +2976,7 @@ class GlasSchicht {
   schliessen() {
     if (this._weg) return;
     this._weg = true;
+    GlasSchicht.stapel = GlasSchicht.stapel.filter((x) => x !== this);
     document.removeEventListener("keydown", this._taste);
     this.root.querySelector(".dimm").classList.remove("auf");
     this.blatt.style.transform = "";
@@ -3007,24 +3015,41 @@ class GlasSchicht {
       e.currentTarget.setPointerCapture(e.pointerId);
     };
     for (const el of [griff, this.inhalt]) {
-      el.addEventListener("pointerdown", (e) => { if (el === griff || e.target.closest(".kopf")) runter(e); });
+      el.addEventListener("pointerdown", (e) => { if (el === griff || e.target.closest(".kopf,.kopf-gross")) runter(e); });
       el.addEventListener("pointermove", bewegen);
       el.addEventListener("pointerup", los);
       el.addEventListener("pointercancel", los);
     }
   }
-  // Kopf mit Titel, Untertitel, Knöpfen; wird beim Scrollen kompakt (bleibt oben stehen)
+  // Kopf wie bei iOS: großer Titel scrollt mit und wird blasser, oben blendet ein kleiner Titel mit Glasleiste weich ein.
+  // Keine Größenänderung im Layout → nichts springt, alles folgt dem Scrollen 1:1.
   kopfHtml(titel, unter, knoepfe = "") {
-    return `<div class="kopf"><div class="kopf-text"><h2 class="titel">${esc(titel)}</h2>${unter ? `<div class="unter">${esc(unter)}</div>` : ""}</div>
-      <div class="kopf-knoepfe">${knoepfe}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>`;
+    return `<div class="kopf"><div class="kopf-klein" aria-hidden="true">${esc(titel)}</div>
+      <div class="kopf-knoepfe">${knoepfe}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>
+      <div class="kopf-gross"><h2 class="titel">${esc(titel)}</h2>${unter ? `<div class="unter">${esc(unter)}</div>` : ""}</div>`;
   }
   kopfBinden() {
     this.inhalt.querySelector("[data-zu]")?.addEventListener("click", () => this.schliessen());
-    const kopf = this.inhalt.querySelector(".kopf");
-    this.inhalt.onscroll = () => kopf?.classList.toggle("kompakt", this.inhalt.scrollTop > 12);
+    const kopf = this.inhalt.querySelector(".kopf"), gross = this.inhalt.querySelector(".kopf-gross");
+    if (kopf && gross) {
+      const kb = kopf.querySelector(".kopf-knoepfe");
+      gross.style.setProperty("--kb", `${(kb?.offsetWidth || 36) + 12}px`);
+      const titelH = gross.querySelector(".titel")?.offsetHeight || 32;
+      let geplant = false;
+      const setzen = () => {
+        geplant = false;
+        const y = Math.max(0, this.inhalt.scrollTop);
+        kopf.style.setProperty("--kh", klemmen(y / 24, 0, 1).toFixed(3));
+        kopf.style.setProperty("--kk", klemmen((y - titelH * 0.6) / 18, 0, 1).toFixed(3));
+        gross.style.setProperty("--kg", klemmen(y / (titelH + 16), 0, 1).toFixed(3));
+      };
+      this.inhalt.onscroll = () => { if (!geplant) { geplant = true; requestAnimationFrame(setzen); } };
+      setzen();
+    }
     this.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
   }
 }
+GlasSchicht.stapel = [];
 // ---------------------------------------------------------------------------
 // Große Steuerung: öffnet beim Tippen aufs Symbol oder langem Drücken
 // Regler-Säule, Farben, Temperatur, Rollo, Medien – je nach Gerätetyp
@@ -3035,8 +3060,15 @@ const STEUER_CSS = `
 .saeule .fuell{position:absolute;inset:0;background:var(--f,#ff9f0a);transform-origin:bottom;will-change:transform}
 .wert{font-size:44px;font-weight:300;line-height:1;color:var(--g-text);text-align:center;font-variant-numeric:tabular-nums}
 .reihe{display:flex;gap:var(--g-a2);justify-content:center;flex-wrap:wrap}
-.farbe{width:40px;height:40px;border-radius:50%;border:3px solid transparent}
-.farbe[aria-pressed="true"]{border-color:var(--g-text)}
+.farben{display:flex;align-items:center;justify-content:center;gap:var(--g-a3)}
+.farbe{position:relative;width:48px;height:48px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.farbe[aria-pressed="true"]::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2.5px solid var(--g-text)}
+.farbe-trenn{width:1px;height:28px;background:var(--g-trenn)}
+.farbe.rad-knopf{background:conic-gradient(from 90deg,#ff3b30,#ffcc00,#34c759,#30b0c7,#0a84ff,#5e5ce6,#ff2d55,#ff3b30)}
+.farbe.rad-knopf span{position:absolute;inset:11px;border-radius:50%;background:var(--g-blatt);display:flex;align-items:center;justify-content:center;color:var(--g-text)}
+.farbe.rad-knopf ha-icon{--mdc-icon-size:16px}
+.rad-feld{display:flex;justify-content:center;padding:var(--g-a2) 0;animation:aufklappen .28s cubic-bezier(.32,.72,0,1)}
+@keyframes aufklappen{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 .schalter{position:relative;width:96px;height:58px;border-radius:29px;background:var(--g-fuell);transition:background-color .25s ease}
 .schalter[aria-pressed="true"]{background:var(--g-gruen)}
 .schalter span{position:absolute;top:4px;left:4px;width:50px;height:50px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.25);
@@ -3059,13 +3091,15 @@ const STEUER_CSS = `
 .karte-s .kopfz{display:flex;justify-content:space-between;align-items:baseline;gap:var(--g-a2)}
 .karte-s h3{margin:0;font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .reihe.links{justify-content:flex-start}
-@media (max-width:420px){.mitte:has(.rad){flex-wrap:wrap}}
+
 `;
 
-const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["Neutral", { color_temp_kelvin: 4000 }, "#ffe2b8"],
-  ["Kaltweiß", { color_temp_kelvin: 6000 }, "#e6f0ff"], ["Rot", { rgb_color: [255, 59, 48] }, "#ff3b30"], ["Orange", { rgb_color: [255, 159, 10] }, "#ff9f0a"],
-  ["Grün", { rgb_color: [52, 199, 89] }, "#34c759"], ["Blau", { rgb_color: [10, 132, 255] }, "#0a84ff"], ["Lila", { rgb_color: [94, 92, 230] }, "#5e5ce6"],
-  ["Pink", { rgb_color: [255, 45, 85] }, "#ff2d55"]];
+// Vier ruhige Lichtstimmungen von warm bis kalt (statt bunter Punkte); bunte Farben über das Farbrad
+const LICHT_FARBEN = [["Gemütlich", 2200, [255, 147, 41], "#ffa24a"], ["Warmweiß", 2700, [255, 180, 107], "#ffc98f"],
+  ["Neutral", 4000, [255, 228, 206], "#fff0e0"], ["Tageslicht", 6000, [235, 242, 255], "#e4eeff"]];
+const lichtFarbeDaten = (st, f) => ((st.attributes.supported_color_modes || []).includes("color_temp") ? { color_temp_kelvin: f[1] } : { rgb_color: f[2] });
+// Welche Vorwahl gerade aktiv ist (Farbtemperatur ±250 K)
+const lichtFarbeAktiv = (st, f) => st.attributes.color_mode === "color_temp" && Math.abs(Number(st.attributes.color_temp_kelvin || 0) - f[1]) <= 250;
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
 // Heizung mit eigenem Temperatur-/Feuchtesensor: Messwerte im Zustand ersetzen
@@ -3075,12 +3109,18 @@ function mitSensoren(h, st, cfg) {
   const ok = (x) => x && !isNaN(Number(x.state)) && x.state !== "";
   return { ...st, attributes: { ...st.attributes, ...(ok(t) ? { current_temperature: Number(t.state) } : {}), ...(ok(f) ? { current_humidity: Number(f.state) } : {}) } };
 }
-// Welche Verläufe die große Ansicht zeigt
+// Welche Verläufe die große Ansicht zeigt (cfg.verlauf === false schaltet ihn ab)
+// Einträge mit „@“ sind Attribute: climate.x@current_temperature = Raumtemperatur des Thermostats
 function verlaufIds(entityId, cfg) {
+  if (cfg.verlauf === false) return [];
   const d = domainVon(entityId);
-  if (d === "climate") return [cfg.temp_sensor, cfg.feuchte_sensor].filter(Boolean);
-  if (["sensor", "binary_sensor", "light", "switch", "fan", "input_boolean", "media_player", "cover", "lock"].includes(d)) return [entityId];
-  return [];
+  if (d === "climate") {
+    const st = Glas.hass?.states[entityId];
+    return [cfg.temp_sensor || (st?.attributes.current_temperature != null ? `${entityId}@current_temperature` : null), cfg.feuchte_sensor,
+      st?.attributes.hvac_action != null ? `${entityId}@hvac_action` : null].filter(Boolean);
+  }
+  if (["weather", "camera", "button", "scene", "script", "image", "update", "event"].includes(d)) return [];
+  return [entityId];
 }
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
@@ -3092,8 +3132,9 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   const neu = () => { if (sig() !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
   // Verlauf (wird einmal geladen, Zeitraum umschaltbar)
   const vIds = verlaufIds(entityId, cfg);
-  let vStunden = 24, vDaten = null;
-  const vLaden = async () => { vDaten = null; zeichnen(); vDaten = await verlaufHolen(Glas.hass, vIds, vStunden); zeichnen(); };
+  const vZustand = { auf: cfg.verlauf_offen === true, stunden: cfg.verlauf_tage ? 168 : 24, daten: null };
+  let radAuf = false;
+  const vLaden = async () => { vZustand.daten = null; zeichnen(); vZustand.daten = await verlaufHolen(Glas.hass, vIds, vZustand.stunden); zeichnen(); };
   const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
   const zeichnen = () => {
@@ -3111,13 +3152,6 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     if (reg && d !== "climate") {
       mitte = `<div class="saeule" role="slider" tabindex="0" aria-label="${esc(name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(reg.pct)}"
         aria-valuetext="${esc(reg.text(reg.pct))}" style="--f:${Geraet.farbe(st)}"><div class="fuell" style="transform:scaleY(${klemmen(reg.pct, 0, 100) / 100})"></div></div>`;
-      if (d === "light" && (a.supported_color_modes || []).some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m))) {
-        const [hu, sa] = a.hs_color || [30, 0];
-        const w = (hu - 90) * Math.PI / 180, r = klemmen(sa, 0, 100) / 2;
-        const farbeJetzt = a.hs_color ? `hsl(${hu},100%,${100 - sa / 2}%)` : "#fff";
-        const pos = `left:${50 + Math.cos(w) * r}%;top:${50 + Math.sin(w) * r}%;background:${farbeJetzt}`;
-        mitte += `<div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div>`;
-      }
     } else if (d === "climate") {
       const soll = a.temperature != null ? String(a.temperature).replace(".", ",") + "°" : "–";
       mitte = `<button class="gross-rund" data-t="-" aria-label="Kälter">−</button><div style="text-align:center"><div class="wert">${st.state === "off" ? "Aus" : soll}</div>
@@ -3133,9 +3167,19 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       const modes = a.supported_color_modes || [];
       const farbig = modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m));
       const temp = modes.includes("color_temp");
-      const liste = LICHT_FARBEN.filter(([, w]) => (w.rgb_color ? farbig : temp));
-      if (liste.length) extra += `<div class="reihe">${liste.map(([n, , c], i) =>
-        `<button class="farbe" data-farbe="${i}" style="background:${c}" aria-label="${n}" title="${n}"></button>`).join("")}</div>`;
+      if (farbig || temp) {
+        extra += `<div class="farben">${LICHT_FARBEN.map((f, i) => {
+          const akt = lichtFarbeAktiv(st, f);
+          return `<button class="farbe" data-farbe="${i}" style="background:${f[3]}" aria-label="${f[0]}" title="${f[0]}" aria-pressed="${akt}"></button>`;
+        }).join("")}${farbig ? `<span class="farbe-trenn" aria-hidden="true"></span><button class="farbe rad-knopf" data-radauf aria-expanded="${radAuf}" aria-label="Eigene Farbe wählen" title="Eigene Farbe"><span><ha-icon data-i="mdi:${radAuf ? "chevron-up" : "palette-outline"}"></ha-icon></span></button>` : ""}</div>`;
+        if (farbig && radAuf) {
+          const [hu, sa] = a.hs_color || [30, 0];
+          const w = (hu - 90) * Math.PI / 180, r = klemmen(sa, 0, 100) / 2;
+          const farbeJetzt = a.hs_color ? `hsl(${hu},100%,${100 - sa / 2}%)` : "#fff";
+          const pos = `left:${50 + Math.cos(w) * r}%;top:${50 + Math.sin(w) * r}%;background:${farbeJetzt}`;
+          extra += `<div class="rad-feld"><div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div></div>`;
+        }
+      }
       if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
     }
     if (d === "climate" && a.hvac_modes?.length) {
@@ -3165,8 +3209,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     // Zusatzwerte (Attribute, die Menschen interessieren)
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
-    if (vIds.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Verlauf</div>${zeitraumHtml(vStunden)}
-      ${vDaten ? vIds.map((e) => verlaufKarteHtml(h, e, vDaten)).join("") : `<div class="v-leer">Lade Verlauf …</div>`}</div>`;
+    if (vIds.length) extra += verlaufKlappHtml(h, vIds, vZustand);
     extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant ›</button>`;
     s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
@@ -3174,8 +3217,9 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     const $ = (q) => s.inhalt.querySelector(q), $$ = (q) => [...s.inhalt.querySelectorAll(q)];
     $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => Geraet.schalten(h, st)));
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
-    $$("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { vStunden = Number(b.dataset.zeitraum); vLaden(); }));
-    $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...LICHT_FARBEN[b.dataset.farbe][1] })));
+    verlaufKlappBinden(s.inhalt, vZustand, vLaden, zeichnen);
+    $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...lichtFarbeDaten(st, LICHT_FARBEN[b.dataset.farbe]) })));
+    $("[data-radauf]")?.addEventListener("click", () => { radAuf = !radAuf; zeichnen(); });
     $$("[data-hvac]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.hvac })));
     $("[data-eco]")?.addEventListener("click", () => h.callService("climate", "set_temperature", { entity_id: entityId, temperature: 17, hvac_mode: "heat" }));
     $$("[data-timer]").forEach((b) => b.addEventListener("click", () => {
@@ -3239,7 +3283,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   };
   Glas.hassHoerer.add(neu);
   zeichnen();
-  if (vIds.length) vLaden();
+  if (vIds.length && vZustand.auf) vLaden();
   s.oeffnen();
   return s;
 }
@@ -3497,6 +3541,11 @@ h1{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;colo
 .haus ha-icon{--mdc-icon-size:10px}
 .chips{display:flex;flex-wrap:wrap;gap:var(--g-a2);margin-top:var(--g-a3)}
 .chip{min-height:36px}
+.aktiv-rund{background:var(--g-akzent-voll);color:#fff}
+.rechts{display:flex;align-items:center;gap:var(--g-a2);flex:none}
+.bearb-zeile{display:flex;align-items:center;gap:var(--g-a2);margin-top:var(--g-a3);padding:var(--g-a2) var(--g-a3);border-radius:var(--g-r-klein);
+  font-size:var(--g-s-klein);line-height:1.4;color:var(--g-text)}
+.bearb-zeile ha-icon{flex:none;color:var(--g-akzent)}
 .chip ha-state-icon,.chip ha-icon{--mdc-icon-size:16px;color:var(--cf)}
 `;
 
@@ -3529,12 +3578,15 @@ class GlasKopfCard extends GlasKarte {
     const vorname = ich?.tablet ? "" : (ich?.name || "").split(" ")[0];
     const gruss = c.gruss_modus === "text" ? (c.gruss_text || "Zuhause") : `${c.gruss_modus === "tageszeit" ? tz : "Hallo"}${vorname ? ", " + vorname : ""}`.replace("Hallo, ", "Hallo ");
     const chips = (c.chips || []).map((ch, i) => ({ ch, i, st: h.states[ch.entity] })).filter((x) => this.chipSichtbar(x.ch, x.st));
-    return `<div class="oben"><div class="gruss"><h1>${esc(gruss)}</h1>${c.untertitel ? `<div class="leise">${esc(c.untertitel)}</div>` : ""}</div>
+    const stift = istAdmin(h) && Glas.einst && c.bearbeiten_knopf !== false
+      ? (Glas.bearbeiten ? `<button class="rund aktiv-rund" data-bearb aria-label="Bearbeiten beenden"><ha-icon data-i="mdi:check"></ha-icon></button>` : `<button class="rund glas" data-bearb aria-label="Dashboard bearbeiten"><ha-icon data-i="mdi:pencil-outline"></ha-icon></button>`) : "";
+    return `<div class="oben"><div class="gruss"><h1>${esc(gruss)}</h1>${c.untertitel ? `<div class="leise">${esc(c.untertitel)}</div>` : ""}</div><div class="rechts">${stift}
       ${ps.length > 1 ? `<div class="personen glas" role="group" aria-label="Wer schaut gerade?">${ps.map((p) => {
         const da = p.entity && h.states[p.entity]?.state === "home";
         return `<button class="person" data-p="${esc(p.id)}" aria-pressed="${ich?.id === p.id}" aria-label="${esc(p.name || "Tablet")}${da ? ", zu Hause" : ""}">
           ${p.tablet ? `<ha-icon data-i="mdi:tablet"></ha-icon>` : esc(p.kurz)}${da ? `<span class="haus" aria-hidden="true"><ha-icon data-i="mdi:home"></ha-icon></span>` : ""}</button>`;
-      }).join("")}</div>` : ""}</div>
+      }).join("")}</div>` : ""}</div></div>
+      ${Glas.bearbeiten ? `<div class="bearb-zeile glas" role="status"><ha-icon data-i="mdi:gesture-tap-hold"></ha-icon><span>Bearbeiten: Kachel antippen für alle Einstellungen, ziehen (Handy: kurz halten) zum Verschieben. Räume unten öffnen und genauso bearbeiten.</span></div>` : ""}
       ${chips.length ? `<div class="chips">${chips.map(({ ch, i, st }) => {
         const farbe = farbeAus(ch.farbe, st ? Geraet.farbe(st) : "#8e8e93");
         const text = [ch.name || st?.attributes.friendly_name || ch.entity, ch.zustand_zeigen === false || !st ? "" : Geraet.zustand(h, st, Geraet.regler(st))].filter(Boolean).join(" ");
@@ -3545,6 +3597,7 @@ class GlasKopfCard extends GlasKarte {
   binden() {
     this.iconsSetzen();
     this.$$("[data-p]").forEach((b) => b.addEventListener("click", () => Glas.personWaehlen(b.dataset.p)));
+    this.$("[data-bearb]")?.addEventListener("click", () => Glas.bearbeitenSetzen(!Glas.bearbeiten));
     this.$$("[data-c]").forEach((b) => b.addEventListener("click", () => {
       const ch = this._config.chips[b.dataset.c], st = this._hass.states[ch.entity];
       if (ch.tap_action?.action) return aktion(this, { entity: ch.entity, tap_action: ch.tap_action }, "tap");
@@ -3645,6 +3698,26 @@ const PLANER_CSS = `
 .unten{display:flex;justify-content:space-between;align-items:center;gap:var(--g-a2);flex-wrap:wrap}
 .klapp{min-height:44px;padding:0 var(--g-a1);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .leer{padding:var(--g-a2) var(--g-a1)}
+.seg{display:flex;gap:2px;padding:3px;border-radius:var(--g-r-pille);background:var(--g-fuell);align-self:flex-start}
+.seg button{min-height:32px;padding:0 var(--g-a3);border-radius:var(--g-r-pille);font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2);transition:background-color .2s ease,color .2s ease}
+.seg button[aria-selected="true"]{background:var(--g-an);color:var(--g-text-an);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.bahn{display:flex;align-items:flex-start;overflow-x:auto;overflow-y:hidden;transition:height .32s cubic-bezier(.32,.72,0,1);scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none;margin:0 calc(-1 * var(--g-a4))}
+.bahn::-webkit-scrollbar{display:none}
+.seite{flex:0 0 100%;min-width:0;scroll-snap-align:start;scroll-snap-stop:always;padding:0 var(--g-a4);display:flex;flex-direction:column;gap:var(--g-a3)}
+.punkte{display:flex;justify-content:center;gap:6px}
+.punkte i{width:6px;height:6px;border-radius:50%;background:var(--g-text2);opacity:.3;transition:opacity .2s ease}
+.punkte i.an{opacity:.9}
+.tag-titel{margin:var(--g-a1) var(--g-a1) 0;font-size:var(--g-s-klein);font-weight:700;color:var(--g-text2)}
+.tag-titel.heute{color:var(--g-akzent)}
+.woche{display:grid;grid-template-columns:auto repeat(7,minmax(0,1fr));gap:6px;align-items:center}
+.woche .kopf-t{font-size:var(--g-s-mini);font-weight:600;line-height:1.3;color:var(--g-text2);text-align:center;padding:2px 0;border-radius:8px}
+.woche .kopf-t.heute{background:var(--g-akzent-voll);color:#fff}
+.woche .wer{font-size:var(--g-s-klein);font-weight:700;color:var(--g-text);padding-right:var(--g-a1)}
+.woche .sch{height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:var(--g-s-klein);font-weight:700;
+  color:#fff;background:var(--sc);text-shadow:0 1px 2px rgba(0,0,0,.3)}
+.woche .sch.frei{background:var(--g-fuell);color:var(--g-text2);font-weight:500;text-shadow:none}
+.woche .sch.heute{box-shadow:0 0 0 2px var(--g-akzent)}
+.legende{display:flex;flex-wrap:wrap;gap:var(--g-a2)}
 .feld{width:100%;min-height:48px;padding:10px 14px;border-radius:var(--g-r-klein);font:inherit;font-size:var(--g-s-text);color:var(--g-text);
   background:var(--g-fuell);border:1px solid var(--g-glas-rand);outline-color:var(--g-akzent)}
 .gruppe{display:flex;flex-direction:column;gap:var(--g-a2)}
@@ -3654,7 +3727,7 @@ const PLANER_CSS = `
 const MONATE = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."];
 
 class GlasPlanerCard extends GlasKarte {
-  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6 }; }
+  static standard() { return { titel: "", ohne_datum: true, planer_pfad: "/planer", max_aufgaben: 6, seite_planer: true, seite_kalender: true, seite_schichten: true }; }
   static getConfigElement() { return document.createElement("glas-planer-card-editor"); }
   static getStubConfig() { return {}; }
   getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
@@ -3717,7 +3790,7 @@ class GlasPlanerCard extends GlasKarte {
     if (schluessel === this._termineSchl && Date.now() - (this._termineZeit || 0) < 5 * 60 * 1000) return;
     this._termineSchl = schluessel; this._termineZeit = Date.now();
     const start = new Date(); start.setHours(0, 0, 0, 0);
-    const ende = new Date(start); ende.setDate(ende.getDate() + 1);
+    const ende = new Date(start); ende.setDate(ende.getDate() + 7); // eine Woche: Seite „Kalender“
     const q = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(ende.toISOString())}`;
     const listen = await Promise.all(ids.map((id) => this._hass.callApi("GET", `calendars/${id}${q}`).then((l) => l.map((t) => ({ ...t, kalender: id }))).catch(() => [])));
     const gesehen = new Set();
@@ -3755,7 +3828,9 @@ class GlasPlanerCard extends GlasKarte {
     const farben = d.farben || {};
     const auf = this.aufgaben(p);
     const offen = auf.filter((a) => a.status === "offen");
-    const termine = this._termine || [];
+    const morgen0 = new Date(jetzt); morgen0.setHours(24, 0, 0, 0);
+    const heute0 = new Date(jetzt); heute0.setHours(0, 0, 0, 0);
+    const termine = (this._termine || []).filter((t) => t.start < morgen0 && t.ende > heute0);
     // Schicht der Person heute
     let schicht = "";
     const plan = p && !p.tablet ? d.schichten?.[p.benutzer] : null;
@@ -3801,15 +3876,82 @@ class GlasPlanerCard extends GlasKarte {
       else koerper = `<div class="leise leer">Heute steht nichts mehr an.</div>`;
     }
     const anz = offen.length + termine.filter((t) => t.ganztag || t.ende > jetzt).length;
-    return `<div class="karte glas">
+    const seite1 = `<section class="seite" aria-label="Planer">
       <div class="oben"><h2 class="datum">${esc(titel)}</h2><button class="rund" data-neu aria-label="Aufgabe hinzufügen"><ha-icon data-i="mdi:plus"></ha-icon></button></div>
       ${schicht}${koerper}
       <div class="unten"><button class="klapp" data-klapp aria-expanded="${!!this._auf}">${this._auf ? "Weniger ⌃" : `Ganzer Tag · ${anz} ${anz === 1 ? "Eintrag" : "Einträge"} ⌄`}</button>
-      <button class="link" data-oeffnen>Planer öffnen ›</button></div></div>`;
+      <button class="link" data-oeffnen>Planer öffnen ›</button></div></section>`;
+    const seiten = [["planer", "Planer", seite1], ["kalender", "Kalender", this.kalenderSeite(terminHtml)], ["schichten", "Schichten", this.schichtSeite()]]
+      .filter(([id]) => c[`seite_${id}`] !== false);
+    if (seiten.length <= 1) return `<div class="karte glas">${(seiten[0] || [, , seite1])[2].replace('class="seite"', 'class="seite" style="padding:0"')}</div>`;
+    const akt = klemmen(this._seite || 0, 0, seiten.length - 1);
+    return `<div class="karte glas" style="gap:var(--g-a2)">
+      <div class="seg" role="tablist" aria-label="Ansicht">${seiten.map(([, n], i) => `<button role="tab" data-seite="${i}" aria-selected="${i === akt}">${n}</button>`).join("")}</div>
+      <div class="bahn">${seiten.map(([, , html]) => html).join("")}</div>
+      <div class="punkte" aria-hidden="true">${seiten.map((_, i) => `<i class="${i === akt ? "an" : ""}"></i>`).join("")}</div></div>`;
+  }
+  // Seite 2: die nächsten 7 Tage aus den Kalendern der Person
+  kalenderSeite(terminHtml) {
+    const alle = this._termine || [];
+    const tage = [...Array(7)].map((_, i) => {
+      const a = new Date(); a.setHours(0, 0, 0, 0); a.setDate(a.getDate() + i);
+      const b = new Date(a); b.setDate(b.getDate() + 1);
+      return { i, a, liste: alle.filter((t) => t.start < b && t.ende > a) };
+    }).filter((t) => t.liste.length);
+    const name = (t) => (t.i === 0 ? "Heute" : t.i === 1 ? "Morgen" : t.a.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "short" }));
+    return `<section class="seite" aria-label="Kalender"><div class="oben"><h2 class="datum">Nächste 7 Tage</h2></div>
+      ${tage.length ? tage.map((t) => `<div class="tag-titel ${t.i === 0 ? "heute" : ""}">${esc(name(t))}</div>${t.liste.map(terminHtml).join("")}`).join("")
+        : `<div class="leise leer">Keine Termine in den nächsten 7 Tagen.</div>`}</section>`;
+  }
+  // Seite 3: Schichten der Woche für alle Personen (Mo–So), heute markiert
+  schichtSeite() {
+    const d = this._daten || {};
+    const mo = new Date(); mo.setHours(0, 0, 0, 0); mo.setDate(mo.getDate() - ((mo.getDay() + 6) % 7));
+    const tage = [...Array(7)].map((_, i) => { const x = new Date(mo); x.setDate(x.getDate() + i); return x; });
+    const heute = heuteIso();
+    const leute = Glas.personen.filter((p) => !p.tablet && p.benutzer && d.schichten?.[p.benutzer]);
+    if (!leute.length) return `<section class="seite" aria-label="Schichten"><div class="oben"><h2 class="datum">Schichten</h2></div><div class="leise leer">Noch keine Schichten im Planer eingetragen.</div></section>`;
+    const kw = (() => { const t = new Date(tage[3]); const j = new Date(t.getFullYear(), 0, 4); return 1 + Math.round(((t - j) / 864e5 - 3 + ((j.getDay() + 6) % 7)) / 7); })();
+    const benutzt = new Map();
+    const zeilen = leute.map((p) => {
+      const plan = d.schichten[p.benutzer];
+      return `<span class="wer">${esc(p.kurz || (p.name || "?")[0])}</span>${tage.map((t) => {
+        const iso = isoTag(t), art = plan.arten?.find((x) => x.id === plan.tage?.[iso]);
+        if (art) benutzt.set(art.id + art.name, art);
+        const lab = `${p.name} ${t.toLocaleDateString("de-DE", { weekday: "long" })}: ${art ? `${art.name}${art.von ? ` ${art.von}–${art.bis}` : ""}` : "frei"}`;
+        return `<span class="sch ${art ? "" : "frei"} ${iso === heute ? "heute" : ""}" style="--sc:${art ? esc(art.farbe) : "transparent"}" role="img" aria-label="${esc(lab)}">${art ? esc(art.kurz) : "–"}</span>`;
+      }).join("")}`;
+    }).join("");
+    return `<section class="seite" aria-label="Schichten"><div class="oben"><h2 class="datum">Schichten · KW ${kw}</h2></div>
+      <div class="woche"><span></span>${tage.map((t) => `<span class="kopf-t ${isoTag(t) === heute ? "heute" : ""}">${t.toLocaleDateString("de-DE", { weekday: "short" }).replace(".", "")}<br>${t.getDate()}</span>`).join("")}${zeilen}</div>
+      ${benutzt.size ? `<div class="legende">${[...benutzt.values()].map((a) => `<span class="mini"><span class="punkt" style="background:${esc(a.farbe)}"></span>${esc(a.kurz)} ${esc(a.name)}${a.von ? ` ${a.von}–${a.bis}` : ""}</span>`).join("")}</div>` : ""}</section>`;
   }
   binden() {
     this.iconsSetzen();
     const h = this._hass;
+    const bahn = this.$(".bahn");
+    if (bahn) {
+      const breite = () => bahn.clientWidth || 1;
+      // Höhe folgt der sichtbaren Seite (kein Leerraum unter kurzen Seiten)
+      const hoehe = (i) => { const sec = bahn.children[i]; if (sec?.offsetHeight) bahn.style.height = `${sec.offsetHeight}px`; };
+      bahn.scrollLeft = (this._seite || 0) * breite();
+      this._seiteAnzeige = this._seite || 0;
+      hoehe(this._seiteAnzeige);
+      let t = null;
+      bahn.addEventListener("scroll", () => {
+        const i = Math.round(bahn.scrollLeft / breite());
+        if (i === this._seiteAnzeige) return;
+        this._seiteAnzeige = i;
+        hoehe(i);
+        this.$$("[data-seite]").forEach((b, k) => b.setAttribute("aria-selected", k === i));
+        this.$$(".punkte i").forEach((p, k) => p.classList.toggle("an", k === i));
+        clearTimeout(t); t = setTimeout(() => { this._seite = i; }, 120);
+      }, { passive: true });
+      this.$$("[data-seite]").forEach((b) => b.addEventListener("click", () => {
+        this._seite = Number(b.dataset.seite);
+        bahn.scrollTo({ left: this._seite * breite(), behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      }));
+    }
     this.$("[data-klapp]")?.addEventListener("click", () => { this._auf = !this._auf; this.render(); });
     this.$("[data-oeffnen]")?.addEventListener("click", () => navigieren(this._config.planer_pfad || "/planer"));
     this.$("[data-neu]")?.addEventListener("click", () => this.neu());
@@ -3869,9 +4011,10 @@ class GlasPlanerEditor extends GlasEditor {
       { name: "ohne_datum", selector: { boolean: {} } },
       { name: "max_aufgaben", selector: { number: { min: 0, max: 30, mode: "box" } } },
       { name: "planer_pfad", selector: { text: {} } },
+      { type: "grid", name: "", schema: [{ name: "seite_planer", selector: { boolean: {} } }, { name: "seite_kalender", selector: { boolean: {} } }, { name: "seite_schichten", selector: { boolean: {} } }] },
     ];
   }
-  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer" }; }
+  labels() { return { titel: "Titel (leer = „Heute, 20. Nov.“)", ohne_datum: "Aufgaben ohne Datum mitzeigen", max_aufgaben: "Höchstens so viele erledigte+offene Aufgaben (0 = alle)", planer_pfad: "Pfad zum Planer", seite_planer: "Seite Planer", seite_kalender: "Seite Kalender (7 Tage)", seite_schichten: "Seite Schichten (Woche)" }; }
   hilfen() { return { titel: "Welche Person gezeigt wird, steuert die Personenwahl in der Kopf-Karte (C, L, Tablet)." }; }
 }
 // ---------------------------------------------------------------------------
@@ -4099,6 +4242,8 @@ class GlasRaumleisteEditor extends GlasEditor {
 // glas-raum-card: das Raum-Blatt. Enthält beliebige Karten (auch HA-Karten)
 // ---------------------------------------------------------------------------
 const RAUM_CSS = `
+.kopf-bereich{display:contents}
+.aktiv-rund{background:var(--g-akzent-voll)!important;color:#fff!important}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap;margin-top:calc(-1 * var(--g-a2));padding:0 var(--g-a1)}
 .chips ha-state-icon{--mdc-icon-size:16px}
 .raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2) var(--g-a2);align-items:start}
@@ -4127,7 +4272,11 @@ class GlasRaumCard extends GlasKarte {
     ["location-changed", "hashchange", "popstate"].forEach((t) => window.removeEventListener(t, this._ort));
     this._schicht?.schliessen();
   }
-  setConfig(c) { super.setConfig(c); this._karten = []; this._kartenCfg = null; }
+  setConfig(c) {
+    super.setConfig(c);
+    this._karten = []; this._kartenCfg = null;
+    if (this._schicht) { this._kopfHtml = null; this.kopfZeichnen(); this.rasterZeichnen(); }
+  }
   set hass(h) {
     super.hass = h;
     this._karten.forEach((k) => { k.hass = h; });
@@ -4145,6 +4294,8 @@ class GlasRaumCard extends GlasKarte {
   render() {
     karteVerstecken(this, !istBearbeiten());
     super.render();
+    // Bearbeiten-Modus umgeschaltet: offenes Blatt neu aufbauen
+    if (this._schicht && this._bearbVorher !== Glas.bearbeiten) { this.kopfZeichnen(); this.rasterZeichnen(); }
     this.iconsSetzen();
     this.$(".platz")?.addEventListener("click", () => this.oeffnen());
   }
@@ -4178,9 +4329,10 @@ class GlasRaumCard extends GlasKarte {
     if (!s) return;
     s.dunkel(istDunkel(h));
     const k = s.inhalt.querySelector(".kopf-bereich");
-    const knoepfe = c.alles_aus ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "";
+    const bearbKnopf = istAdmin(h) && Glas.einst && (Glas.einst.raeume || []).some((r) => r.hash === c.hash)
+      ? (Glas.bearbeiten ? `<button class="rund aktiv-rund" data-bearb aria-label="Bearbeiten beenden"><ha-icon data-i="mdi:check"></ha-icon></button>` : `<button class="rund glas" data-bearb aria-label="Raum bearbeiten"><ha-icon data-i="mdi:pencil-outline"></ha-icon></button>`) : "";
+    const knoepfe = bearbKnopf + (c.alles_aus && !Glas.bearbeiten ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "");
     const chips = this.chips();
-    const kompakt = s.inhalt.querySelector(".kopf")?.classList.contains("kompakt");
     const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
@@ -4189,8 +4341,8 @@ class GlasRaumCard extends GlasKarte {
     if (this._kopfHtml === kopfNeu && k.firstChild) return;
     this._kopfHtml = kopfNeu;
     k.innerHTML = kopfNeu;
-    if (kompakt) k.querySelector(".kopf").classList.add("kompakt");
     s.kopfBinden();
+    k.querySelector("[data-bearb]")?.addEventListener("click", () => Glas.bearbeitenSetzen(!Glas.bearbeiten));
     k.querySelector("[data-aus]")?.addEventListener("click", () => {
       const ziele = this.ausZiele();
       if (ziele.length) h.callService("homeassistant", "turn_off", { entity_id: ziele });
@@ -4215,25 +4367,53 @@ class GlasRaumCard extends GlasKarte {
     const s = new GlasSchicht({ quelle: this, hoch: true, titel: this._config.name || this._config.hash,
       zu: () => { this._schicht = null; if (hashJetzt() === this._config.hash) hashSchliessen(); } });
     this._schicht = s;
-    s.inhalt.innerHTML = `<style>${RAUM_CSS}</style><div class="kopf-bereich"></div><div class="raster"></div>`;
+    s.inhalt.innerHTML = `<style>${RAUM_CSS}${BEARB_CSS}</style><div class="kopf-bereich"></div><div class="raster"></div>`;
     this.kopfZeichnen();
     s.oeffnen();
+    await this.rasterZeichnen();
+  }
+  // Karten im Blatt; im Bearbeiten-Modus direkt aus den Einstellungen (auch ausgeblendete) mit Ziehen und Menü
+  async rasterZeichnen() {
+    const s = this._schicht;
+    if (!s) return;
     const raster = s.inhalt.querySelector(".raster");
     const hilfe = await window.loadCardHelpers?.();
     if (!hilfe) { raster.innerHTML = `<div class="leise">Karten können hier nicht geladen werden.</div>`; return; }
-    if (this._kartenCfg !== this._config.cards) {
-      this._kartenCfg = this._config.cards;
-      this._karten = (this._config.cards || []).map((cfg) => { const el = hilfe.createCardElement(cfg); el.hass = this._hass; return el; });
+    if (this._schicht !== s) return;
+    this._bearbVorher = Glas.bearbeiten;
+    const raum = Glas.bearbeiten && Glas.einst ? (Glas.einst.raeume || []).find((r) => r.hash === this._config.hash) : null;
+    const sauber = (cfg) => Object.fromEntries(Object.entries(cfg).filter(([k]) => !k.startsWith("_")));
+    let cfgs;
+    if (raum) {
+      cfgs = raumCfg(this._hass, raum, true).cards;
+      this._karten = cfgs.map((cfg) => { const el = hilfe.createCardElement(sauber(cfg)); el.hass = this._hass; return el; });
+      this._kartenCfg = null;
+    } else {
+      cfgs = this._config.cards || [];
+      if (this._kartenCfg !== cfgs) {
+        this._kartenCfg = cfgs;
+        this._karten = cfgs.map((cfg) => { const el = hilfe.createCardElement(cfg); el.hass = this._hass; return el; });
+      }
     }
-    this._karten.forEach((el) => {
+    raster.replaceChildren();
+    raster.classList.remove("bearb");
+    this._karten.forEach((el, n) => {
       const z = document.createElement("div");
       const g = el.getGridOptions?.() || el.getLayoutOptions?.() || {};
       const sp = g.columns === "full" ? 12 : Number(g.columns || g.grid_columns * 3 || 12);
       z.style.gridColumn = `span ${klemmen(sp || 12, 1, 12)}`;
+      const cfg = cfgs[n] || {};
+      if (raum && cfg._i != null) {
+        z.dataset.i = cfg._i;
+        z.dataset.name = cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
+        if (cfg._aus) z.classList.add("aus");
+      }
+      if (raum && cfg._gruppe) z.dataset.gruppe = cfg._gruppe;
       z.appendChild(el);
       raster.appendChild(z);
       el.addEventListener("ll-rebuild", () => { this._kartenCfg = null; });
     });
+    if (raum) bearbeitRaster(raster, listeZugriff({ art: "raum", hash: raum.hash }), this, { scroller: s.inhalt });
   }
 }
 
@@ -4339,6 +4519,381 @@ function fensterOeffnen(quelle, bereich, raumName) {
   return s;
 }
 // ---------------------------------------------------------------------------
+// Bearbeiten direkt im Dashboard
+// · Stift oben (nur Admins) schaltet den Bearbeiten-Modus für alle Karten an
+// · Kacheln in Räumen und Favoriten verschieben: Maus ziehen, am Handy kurz halten und ziehen
+// · Kachel antippen: ausführliches Menü (Gerät, Größe, Anzeige, Verhalten, Verlauf, Platz)
+// Alles wird sofort in den zentralen Einstellungen gespeichert.
+// ---------------------------------------------------------------------------
+Glas.bearbeiten = Glas.bearbeiten || false;
+Glas.bearbeitenSetzen = function (an) { this.bearbeiten = !!an; this.melden(); };
+const kopieJ = (o) => JSON.parse(JSON.stringify(o));
+const istAdmin = (h) => !!h?.user?.is_admin;
+
+// Zugriff auf eine Geräteliste in den Einstellungen: Raum (#hash) oder Favoriten der Person
+function listeZugriff(ort) {
+  const startId = (e) => (ort.person && e.startseiten?.[ort.person.id] && e.startseiten[ort.person.id].eigen !== false ? ort.person.id : "alle");
+  const z = {
+    ort,
+    lesen(h) {
+      const e = Glas.einst;
+      if (!e) return [];
+      if (ort.art === "raum") { const r = (e.raeume || []).find((x) => x.hash === ort.hash); return r ? r.geraete || raumGeraeteVorschlag(h, r.bereich) : []; }
+      return startseiteVon(e, ort.person).favoriten || [];
+    },
+    raum() { return ort.art === "raum" ? (Glas.einst?.raeume || []).find((x) => x.hash === ort.hash) : null; },
+    schreiben(h, fn) {
+      if (!Glas.einst) return Promise.resolve();
+      const e = kopieJ(Glas.einst);
+      if (ort.art === "raum") {
+        const r = (e.raeume || []).find((x) => x.hash === ort.hash);
+        if (!r) return Promise.resolve();
+        r.geraete = fn(r.geraete || raumGeraeteVorschlag(h, r.bereich), e);
+      } else {
+        e.startseiten = e.startseiten || {};
+        const id = startId(e);
+        const s = (e.startseiten[id] = { ...startseiteStandard(), ...(e.startseiten[id] || {}) });
+        s.favoriten = fn(s.favoriten || [], e);
+      }
+      return Glas.einstSpeichern(h, e).catch((err) => console.error("Glas: speichern", err));
+    },
+  };
+  return z;
+}
+
+const BEARB_CSS = `
+.bearb > [data-i]{position:relative}
+.bearb > [data-i] > :not(.deckel){pointer-events:none}
+.deckel{position:absolute;inset:0;z-index:2;border-radius:var(--g-r);background:transparent;cursor:grab;touch-action:pan-y;
+  box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--g-akzent) 50%,transparent)}
+.deckel .marke{position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--g-akzent-voll);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.deckel .marke ha-icon{--mdc-icon-size:14px}
+.bearb > .aus > :not(.deckel){opacity:.4}
+.bearb > .aus .deckel .marke{background:#636366}
+.bearb > .zieht{z-index:5}
+.bearb > .zieht > :first-child{transform:scale(1.04);border-radius:var(--g-r);box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}
+.bearb > .zieht .deckel{cursor:grabbing}
+.bearb > .gehalten > :first-child{transform:scale(1.03);transition:transform .18s cubic-bezier(.23,1,.32,1)}
+.neu-kachel{display:flex;align-items:center;justify-content:center;gap:var(--g-a2);width:100%;min-height:var(--g-kachel-h);border-radius:var(--g-r);
+  border:1.5px dashed var(--g-text2);color:var(--g-text);font-size:var(--g-s-name);font-weight:600}
+.bearb-hinweis{grid-column:span 12;display:flex;align-items:center;gap:var(--g-a2);padding:var(--g-a2) var(--g-a3);border-radius:var(--g-r-klein);
+  font-size:var(--g-s-klein);color:var(--g-text2)}
+`;
+
+// FLIP: Nachbarn gleiten weich an ihren neuen Platz
+function flip(kinder, aendern) {
+  const vorher = new Map(kinder.map((k) => [k, k.getBoundingClientRect()]));
+  aendern();
+  kinder.forEach((k) => {
+    if (k.classList.contains("zieht")) return;
+    const a = vorher.get(k), b = k.getBoundingClientRect();
+    const dx = a.left - b.left, dy = a.top - b.top;
+    if (!dx && !dy) return;
+    k.style.transition = "none";
+    k.style.transform = `translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(() => { k.style.transition = "transform .26s cubic-bezier(.23,1,.32,1)"; k.style.transform = ""; });
+  });
+}
+
+// Kacheln eines Rasters bearbeitbar machen (Kinder mit data-i = Index in der Liste)
+function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = true } = {}) {
+  raster.classList.add("bearb");
+  const kinder = () => [...raster.children].filter((z) => z.dataset.i != null);
+  const reihenfolgeSpeichern = () => {
+    const neu = kinder().map((z) => {
+      // Gruppe = letzte Überschrift davor (nur in Räumen)
+      let v = z.previousElementSibling;
+      while (v && !v.dataset.gruppe) v = v.previousElementSibling;
+      return { i: Number(z.dataset.i), gruppe: v?.dataset.gruppe };
+    });
+    zugriff.schreiben(Glas.hass, (liste) => {
+      const l = neu.map(({ i, gruppe }) => (liste[i] ? { ...liste[i], ...(gruppe && liste[i].entity ? { gruppe } : {}) } : null)).filter(Boolean);
+      return [...l, ...liste.filter((_, i) => !neu.some((x) => x.i === i))];
+    });
+  };
+  kinder().forEach((z) => {
+    const d = document.createElement("button");
+    d.className = "deckel";
+    d.setAttribute("aria-label", `${z.dataset.name || "Kachel"} bearbeiten. Pfeiltasten verschieben.`);
+    d.innerHTML = `<span class="marke" aria-hidden="true"><ha-icon></ha-icon></span>`;
+    d.querySelector("ha-icon").icon = z.classList.contains("aus") ? "mdi:eye-off" : "mdi:pencil";
+    z.appendChild(d);
+    let g = null, halteT = null;
+    const menue = () => kachelMenue(quelle, zugriff, Number(z.dataset.i));
+    const ende = (ok) => {
+      clearTimeout(halteT);
+      const x = g; g = null;
+      z.classList.remove("gehalten");
+      if (!x) return;
+      if (!x.zieht) { if (ok && !x.weg) menue(); return; }
+      z.classList.remove("zieht");
+      z.style.transition = "transform .26s cubic-bezier(.23,1,.32,1)";
+      z.style.transform = "";
+      if (x.bewegt) reihenfolgeSpeichern();
+    };
+    d.addEventListener("pointerdown", (e) => {
+      if (e.button > 0) return;
+      g = { x: e.clientX, y: e.clientY, tx: 0, ty: 0, zieht: false, weg: false, maus: e.pointerType === "mouse", ziel: null, bewegt: false };
+      try { d.setPointerCapture(e.pointerId); } catch (_) { /* */ }
+      if (!g.maus) halteT = setTimeout(() => { if (g && !g.weg) { g.bereit = true; z.classList.add("gehalten"); if (navigator.vibrate) navigator.vibrate(10); } }, 260);
+    });
+    d.addEventListener("pointermove", (e) => {
+      if (!g) return;
+      const dist = Math.hypot(e.clientX - g.x, e.clientY - g.y);
+      if (!g.zieht) {
+        if (dist < 7) return;
+        if (!g.maus && !g.bereit) { g.weg = true; clearTimeout(halteT); return; } // Finger scrollt
+        if (g.weg) return;
+        g.zieht = true;
+        const r = z.getBoundingClientRect();
+        g.gx = g.x - r.left; g.gy = g.y - r.top;
+        z.style.transition = "none";
+        z.classList.add("zieht");
+      }
+      // Ziel unter dem Finger: davor oder dahinter einsortieren
+      const ziel = kinder().find((k) => { if (k === z) return false; const r = k.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+      if (ziel && ziel !== g.ziel) {
+        const r = ziel.getBoundingClientRect(), vor = e.clientX < r.left + r.width / 2;
+        const ref = vor ? ziel : ziel.nextElementSibling;
+        if (ref !== z && z.nextElementSibling !== ref) { flip([...raster.children], () => raster.insertBefore(z, ref)); g.bewegt = true; }
+      }
+      g.ziel = ziel || null;
+      // Am Rand automatisch scrollen
+      const sc = scroller || document.scrollingElement;
+      const box = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+      if (e.clientY > box.bottom - 56) sc.scrollTop += 10; else if (e.clientY < box.top + 56) sc.scrollTop -= 10;
+      const r = z.getBoundingClientRect(), bl = r.left - g.tx, bt = r.top - g.ty;
+      g.tx = e.clientX - g.gx - bl; g.ty = e.clientY - g.gy - bt;
+      z.style.transform = `translate(${g.tx}px,${g.ty}px)`;
+    });
+    // Nach dem Halten darf der Finger nicht mehr scrollen
+    d.addEventListener("touchmove", (e) => { if (g && (g.bereit || g.zieht) && e.cancelable) e.preventDefault(); }, { passive: false });
+    d.addEventListener("pointerup", () => ende(true));
+    d.addEventListener("pointercancel", () => ende(false));
+    d.addEventListener("click", (e) => { if (e.detail === 0) menue(); });
+    d.addEventListener("contextmenu", (e) => e.preventDefault());
+    d.addEventListener("keydown", (e) => {
+      const schritt = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+      if (!schritt) return;
+      e.preventDefault();
+      const l = kinder(), pos = l.indexOf(z), nach = l[pos + schritt];
+      if (!nach) return;
+      raster.insertBefore(z, schritt < 0 ? nach : nach.nextElementSibling);
+      d.focus();
+      reihenfolgeSpeichern();
+    });
+  });
+  if (mitNeu) {
+    const z = document.createElement("div");
+    z.style.gridColumn = "span 6";
+    z.innerHTML = `<button class="neu-kachel"><ha-icon></ha-icon>Hinzufügen</button>`;
+    z.querySelector("ha-icon").icon = "mdi:plus";
+    z.querySelector("button").addEventListener("click", () => neuMenue(quelle, zugriff));
+    raster.appendChild(z);
+  }
+}
+
+// ha-form wird von HA erst bei Bedarf geladen: einmal einen Karten-Editor anfordern, dann ist es da
+async function haFormLaden() {
+  if (customElements.get("ha-form")) return;
+  try {
+    const hf = await window.loadCardHelpers?.();
+    const c = await hf?.createCardElement({ type: "entities", entities: [] });
+    await c?.constructor?.getConfigElement?.();
+  } catch (_) { /* */ }
+  await Promise.race([customElements.whenDefined("ha-form"), new Promise((r) => setTimeout(r, 1500))]);
+}
+function felderVon(schema) { return schema.flatMap((x) => (x.schema ? felderVon(x.schema) : [x.name])).filter(Boolean); }
+function haForm(box, data, schema, labels, aendern, hilfen = {}) {
+  const f = document.createElement("ha-form");
+  f.hass = Glas.hass; f.data = data; f.schema = schema;
+  f.computeLabel = (s) => labels[s.name] ?? s.title ?? s.name;
+  f.computeHelper = (s) => hilfen[s.name];
+  f.addEventListener("value-changed", (e) => { e.stopPropagation(); const v = { ...e.detail.value }; f.data = v; aendern(v, felderVon(schema)); });
+  box.appendChild(f);
+  return f;
+}
+
+const MENUE_CSS = `
+.vorschau{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);padding:var(--g-a2) 0}
+.vorschau > *{min-width:0}
+.m-gruppe{display:flex;flex-direction:column;gap:var(--g-a2);padding:var(--g-a3) var(--g-a4);border-radius:var(--g-r)}
+.m-titel{display:flex;align-items:center;gap:var(--g-a2);font-size:var(--g-s-klein);font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--g-text2)}
+.m-titel ha-icon{--mdc-icon-size:16px}
+.segment{display:flex;gap:2px;padding:3px;border-radius:var(--g-r-klein);background:var(--g-fuell)}
+.segment button{flex:1;min-height:40px;border-radius:11px;font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.segment button small{font-size:var(--g-s-mini);font-weight:500}
+.segment button[aria-pressed="true"]{background:var(--g-an);color:var(--g-text-an);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.haken{display:flex;align-items:center;justify-content:space-between;min-height:44px;font-size:var(--g-s-name);color:var(--g-text);text-align:left;width:100%}
+.haken + .haken{border-top:1px solid var(--g-trenn)}
+.sw{position:relative;flex:none;width:51px;height:31px;border-radius:16px;background:var(--g-fuell);transition:background-color .2s ease}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:transform .22s cubic-bezier(.32,.72,0,1)}
+[aria-checked="true"] .sw{background:var(--g-gruen)}
+[aria-checked="true"] .sw::after{transform:translateX(20px)}
+.knoepfe{display:flex;gap:var(--g-a2);flex-wrap:wrap}
+.knoepfe button{flex:1;min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.knoepfe .rot{color:var(--g-rot-text)}
+.m-hinweis{font-size:var(--g-s-klein);color:var(--g-text2);line-height:1.4}
+`;
+const GROESSEN_M = [["klein", "S", "1×1"], ["breit", "M", "2×1"], ["gross", "L", "2×2"], ["ganz", "Ganz", "Breite"]];
+const SPANNE_M = { klein: 3, breit: 6, gross: 6, ganz: 12 };
+
+// Ausführliches Menü für eine Kachel
+async function kachelMenue(quelle, zugriff, i) {
+  await haFormLaden();
+  const h0 = Glas.hass;
+  let eintrag = kopieJ(zugriff.lesen(h0)[i] || {});
+  if (!eintrag.entity && !eintrag.karte) return;
+  const s = new GlasSchicht({ quelle, hoch: true, titel: "Kachel bearbeiten" });
+  let speicherT = null, wegFrage = false;
+  const speichern = (sofort) => {
+    clearTimeout(speicherT);
+    const los = () => zugriff.schreiben(Glas.hass, (l) => { l[i] = kopieJ(eintrag); return l; });
+    if (sofort) los(); else speicherT = setTimeout(los, 380);
+  };
+  // Formularwerte übernehmen: Felder, die fehlen oder leer sind, werden gelöscht
+  const uebernehmen = (v, felder) => {
+    felder.forEach((k) => { if (v[k] === "" || v[k] === undefined || v[k] === null || (Array.isArray(v[k]) && !v[k].length)) delete eintrag[k]; else eintrag[k] = v[k]; });
+  };
+  const vorschau = () => {
+    const box = s.inhalt.querySelector(".vorschau");
+    if (!box || eintrag.karte) return;
+    const el = box.firstElementChild?.firstElementChild || document.createElement("glas-kachel-card");
+    try { el.setConfig(kachelCfg(eintrag)); } catch (_) { return; }
+    el.hass = Glas.hass;
+    if (!el.isConnected) { const z = document.createElement("div"); z.appendChild(el); box.appendChild(z); }
+    el.parentElement.style.gridColumn = `span ${SPANNE_M[eintrag.groesse || "breit"] || 6}`;
+  };
+  const zeichnen = () => {
+    const h = Glas.hass, x = eintrag, st = x.entity && h.states[x.entity];
+    s.dunkel(istDunkel(h));
+    const karte = x.karte && listenKarte(x.karte);
+    const name = karte ? `${karte[1]}-Karte` : x.name || st?.attributes.friendly_name || x.entity;
+    const an = x.an !== false;
+    const raum = zugriff.raum();
+    const groessen = karte ? GROESSEN_M.filter(([g]) => g === "breit" || g === "ganz") : GROESSEN_M;
+    const anzeige = anzeigeVon(x);
+    const scroll = s.inhalt.scrollTop;
+    s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(name, karte ? "Ganze Karte" : x.entity)}
+      ${karte ? "" : `<div class="vorschau" aria-hidden="true"></div>`}
+      ${karte ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:link-variant"></ha-icon>Gerät</div><div data-f="geraet"></div></div>`}
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Größe</div>
+        <div class="segment" role="group" aria-label="Größe">${groessen.map(([g, k, t]) => `<button data-g="${g}" aria-pressed="${(x.groesse || "breit") === g || (karte && g === "breit" && x.groesse !== "ganz")}">${k}<small>${t}</small></button>`).join("")}</div></div>
+      ${karte ? `<div class="m-gruppe glas"><div class="m-hinweis">Was die ${esc(karte[1])}-Karte zeigt, stellst du in den Glas-Einstellungen unter „Bereiche“ ein.</div></div>` : `
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:eye-outline"></ha-icon>Anzeige in der Kachel</div>
+        ${ANZEIGE_TEILE.map(([id, t]) => `<button class="haken" role="switch" data-a="${id}" aria-checked="${anzeige.includes(id)}">${t}<span class="sw" aria-hidden="true"></span></button>`).join("")}</div>
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:gesture-tap"></ha-icon>Verhalten</div><div data-f="verhalten"></div></div>
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:chart-timeline-variant"></ha-icon>Große Ansicht &amp; Verlauf</div><div data-f="verlauf"></div></div>`}
+      ${raum ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:map-marker-outline"></ha-icon>Platz</div><div data-f="platz"></div></div>` : ""}
+      <div class="knoepfe"><button class="glas" data-aus>${an ? "Ausblenden" : "Wieder zeigen"}</button><button class="glas rot" data-weg>${wegFrage ? "Wirklich entfernen?" : "Entfernen"}</button></div>`;
+    s.kopfBinden();
+    const $ = (q) => s.inhalt.querySelector(q);
+    if (!karte) {
+      haForm($("[data-f=geraet]"), { entity: x.entity, name: x.name, icon: x.icon }, [
+        { name: "entity", selector: { entity: {} } },
+        { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} }, context: { icon_entity: "entity" } }] },
+      ], { entity: "Entität", name: "Name (leer = aus HA)", icon: "Symbol (leer = automatisch)" }, (v, f) => {
+        const neuE = v.entity && v.entity !== x.entity;
+        uebernehmen(v, f); speichern(); vorschau();
+        if (neuE) zeichnen();
+      });
+      const klima = domainVon(x.entity) === "climate";
+      haForm($("[data-f=verhalten]"), { typ: x.typ || "auto", farbe: x.farbe || "auto", wischen: x.wischen !== false, hell_wenn_an: x.hell_wenn_an !== false }, [
+        { name: "typ", selector: { select: { mode: "dropdown", options: [{ value: "auto", label: "Automatisch" }, { value: "schalter", label: "Schalter (Tippen schaltet)" },
+          { value: "regler", label: "Regler (seitlich wischen)" }, { value: "anzeige", label: "Nur anzeigen" }] } } },
+        { name: "farbe", selector: { select: { mode: "dropdown", options: FARB_OPTIONEN.map(([value, label]) => ({ value, label })) } } },
+        { type: "grid", name: "", schema: [{ name: "wischen", selector: { boolean: {} } }, { name: "hell_wenn_an", selector: { boolean: {} } }] },
+        { type: "expandable", flatten: true, name: "akt", title: "Eigene Aktionen (Tippen, Halten …)", icon: "mdi:gesture-double-tap", schema: AKTIONEN_SCHEMA },
+      ], { typ: "Verhalten", farbe: "Farbe, wenn an", wischen: "Seitlich wischen regelt", hell_wenn_an: "Hell, wenn an", ...AKTIONEN_LABELS }, (v, f) => {
+        uebernehmen(v, f);
+        ["wischen", "hell_wenn_an"].forEach((k) => { if (eintrag[k] === true) delete eintrag[k]; });
+        if (eintrag.typ === "auto") delete eintrag.typ;
+        if (eintrag.farbe === "auto") delete eintrag.farbe;
+        speichern(); vorschau();
+      });
+      haForm($("[data-f=verlauf]"), { verlauf: x.verlauf !== false, verlauf_offen: !!x.verlauf_offen, verlauf_tage: !!x.verlauf_tage, temp_sensor: x.temp_sensor, feuchte_sensor: x.feuchte_sensor, zusatz: x.zusatz }, [
+        { type: "grid", name: "", schema: [{ name: "verlauf", selector: { boolean: {} } }, { name: "verlauf_offen", selector: { boolean: {} } }] },
+        { name: "verlauf_tage", selector: { boolean: {} } },
+        ...(klima ? [{ type: "grid", name: "", schema: [
+          { name: "temp_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
+          { name: "feuchte_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] }] : []),
+        { name: "zusatz", selector: { entity: { multiple: true } } },
+      ], { verlauf: "Verlauf zeigen", verlauf_offen: "Verlauf gleich aufgeklappt", verlauf_tage: "7 Tage statt 24 Std.", temp_sensor: "Eigener Temperatursensor", feuchte_sensor: "Eigener Feuchtesensor",
+        zusatz: "Weitere Werte als Chips in der Kachel" }, (v, f) => {
+        uebernehmen(v, f);
+        if (eintrag.verlauf === true) delete eintrag.verlauf;
+        ["verlauf_offen", "verlauf_tage"].forEach((k) => { if (!eintrag[k]) delete eintrag[k]; });
+        speichern(); vorschau();
+      }, { verlauf: "Aufklappbar unten in der großen Ansicht (Symbol antippen oder lange drücken)." });
+    }
+    if (raum) {
+      const andere = (Glas.einst.raeume || []).filter((r) => r.hash !== raum.hash);
+      haForm($("[data-f=platz]"), { gruppe: x.gruppe || (x.entity ? gruppeVon(h, x.entity) : undefined), raum: "" }, [
+        ...(x.entity ? [{ name: "gruppe", selector: { select: { mode: "dropdown", options: GRUPPEN.map(([value, label]) => ({ value, label })) } } }] : []),
+        ...(andere.length ? [{ name: "raum", selector: { select: { mode: "dropdown", options: [{ value: "", label: "–" }, ...andere.map((r) => ({ value: r.hash, label: r.name }))] } } }] : []),
+      ], { gruppe: "Abschnitt im Raum", raum: "In anderen Raum verschieben" }, (v) => {
+        if (v.raum) {
+          clearTimeout(speicherT);
+          zugriff.schreiben(Glas.hass, (l, e) => {
+            const ziel = e.raeume.find((r) => r.hash === v.raum);
+            if (ziel) ziel.geraete = [...(ziel.geraete || raumGeraeteVorschlag(Glas.hass, ziel.bereich)), { ...kopieJ(eintrag), gruppe: undefined }];
+            return l.filter((_, k) => k !== i);
+          });
+          s.schliessen();
+          return;
+        }
+        if (v.gruppe && v.gruppe !== eintrag.gruppe) { eintrag.gruppe = v.gruppe; speichern(true); }
+      });
+    }
+    s.inhalt.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => {
+      eintrag.groesse = b.dataset.g;
+      s.inhalt.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === b));
+      speichern(true); vorschau();
+    }));
+    s.inhalt.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => {
+      const id = b.dataset.a, l = anzeigeVon(eintrag);
+      let neu = l.includes(id) ? l.filter((y) => y !== id) : ANZEIGE_TEILE.map(([k]) => k).filter((k) => k === id || l.includes(k));
+      if (!neu.length) neu = ["symbol"];
+      eintrag.anzeige = neu;
+      s.inhalt.querySelectorAll("[data-a]").forEach((o) => o.setAttribute("aria-checked", neu.includes(o.dataset.a)));
+      speichern(true); vorschau();
+    }));
+    $("[data-aus]").addEventListener("click", () => { eintrag.an = eintrag.an === false; speichern(true); zeichnen(); });
+    $("[data-weg]").addEventListener("click", () => {
+      if (!wegFrage) { wegFrage = true; $("[data-weg]").textContent = "Wirklich entfernen?"; return; }
+      clearTimeout(speicherT);
+      zugriff.schreiben(Glas.hass, (l) => l.filter((_, k) => k !== i));
+      s.schliessen();
+    });
+    s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    vorschau();
+    s.inhalt.scrollTop = scroll;
+  };
+  zeichnen();
+  s.oeffnen();
+}
+
+// Neues Gerät oder ganze Karte hinzufügen
+async function neuMenue(quelle, zugriff) {
+  await haFormLaden();
+  const s = new GlasSchicht({ quelle, titel: "Hinzufügen" });
+  const h = Glas.hass, liste = zugriff.lesen(h);
+  s.dunkel(istDunkel(h));
+  const frei = LISTEN_KARTEN.filter(([id]) => !liste.some((y) => y.karte === id));
+  s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml("Hinzufügen", zugriff.raum()?.name || "Favoriten")}
+    <div class="m-gruppe glas"><div class="m-titel">Gerät</div><div data-f></div></div>
+    ${frei.length ? `<div class="m-gruppe glas"><div class="m-titel">Ganze Karte</div><div class="knoepfe">${frei.map(([id, n]) => `<button class="glas" data-karte="${id}">${esc(n)}</button>`).join("")}</div></div>` : ""}`;
+  s.kopfBinden();
+  const fertig = (neu) => { zugriff.schreiben(Glas.hass, (l) => [...l, neu]); s.schliessen(); };
+  haForm(s.inhalt.querySelector("[data-f]"), {}, [{ name: "entity", selector: { entity: {} } }], { entity: "Entität wählen" }, (v) => {
+    if (!v.entity) return;
+    fertig(zugriff.ort.art === "raum" ? { ...geraetVorschlag(h, v.entity), an: true } : { entity: v.entity, groesse: "breit" });
+  });
+  s.inhalt.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => fertig({ karte: b.dataset.karte, groesse: "breit", an: true })));
+  s.oeffnen();
+}
+// ---------------------------------------------------------------------------
 // Verläufe: Sensor-Kurven und An/Aus-Zeitleisten aus der HA-Historie
 // Einzeln in der großen Ansicht eines Sensors, gesammelt in der Raum-Verlaufsansicht
 // ---------------------------------------------------------------------------
@@ -4358,21 +4913,34 @@ const VERLAUF_CSS = `
 .v-minmax{display:flex;gap:var(--g-a3);font-size:var(--g-s-mini);color:var(--g-text2)}
 .v-leiste{position:relative;height:14px;border-radius:7px;background:var(--g-fuell);overflow:hidden}
 .v-leiste i{position:absolute;top:0;bottom:0;background:var(--vf);border-radius:3px}
+.v-klapp{display:flex;align-items:center;justify-content:space-between;gap:var(--g-a2);width:100%;min-height:52px;padding:0 var(--g-a4);border-radius:var(--g-r);
+  font-size:var(--g-s-name);font-weight:600;color:var(--g-text);text-align:left}
+.v-klapp ha-icon{transition:transform .25s cubic-bezier(.32,.72,0,1)}
+.v-klapp[aria-expanded="true"] ha-icon{transform:rotate(180deg)}
+.v-klapp .leise{margin-left:auto;font-weight:500}
+.v-inhalt{display:flex;flex-direction:column;gap:var(--g-a2);animation:aufklappen .28s cubic-bezier(.32,.72,0,1)}
+@keyframes aufklappen{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .v-leer{font-size:var(--g-s-klein);color:var(--g-text2);padding:var(--g-a2) 0}
 `;
 // Historie holen: { entity_id: [{ t: ms, s: zustand }] }
 async function verlaufHolen(h, ids, stunden) {
   const bis = Date.now(), von = bis - stunden * 36e5;
   if (!ids.length) return { von, bis, daten: {} };
-  let r = {};
-  try {
-    r = await h.callWS({ type: "history/history_during_period", start_time: new Date(von).toISOString(), end_time: new Date(bis).toISOString(),
-      entity_ids: ids, minimal_response: true, no_attributes: true, significant_changes_only: false });
-  } catch (e) { console.warn("Glas: Verlauf", e); }
+  const anfrage = (eids, mitAttr) => h.callWS({ type: "history/history_during_period", start_time: new Date(von).toISOString(), end_time: new Date(bis).toISOString(),
+    entity_ids: eids, minimal_response: !mitAttr, no_attributes: !mitAttr, significant_changes_only: false }).catch((e) => { console.warn("Glas: Verlauf", e); return {}; });
+  const normal = ids.filter((i) => !i.includes("@")), attr = [...new Set(ids.filter((i) => i.includes("@")).map((i) => i.split("@")[0]))];
+  const [r, ra] = await Promise.all([normal.length ? anfrage(normal, false) : {}, attr.length ? anfrage(attr, true) : {}]);
+  const zeit = (x) => ((x.lu ?? x.lc) != null ? (x.lu ?? x.lc) * 1000 : Date.parse(x.last_updated || x.last_changed));
   const daten = {};
   for (const id of ids) {
-    daten[id] = (r[id] || []).map((x) => ({ t: (x.lu ?? x.lc) != null ? (x.lu ?? x.lc) * 1000 : Date.parse(x.last_updated || x.last_changed), s: x.s ?? x.state }))
-      .filter((x) => !isNaN(x.t)).map((x) => ({ ...x, t: Math.max(x.t, von) }));
+    const [eid, at] = id.split("@");
+    let letzt;
+    daten[id] = ((at ? ra : r)[eid] || []).map((x) => {
+      // Attribute: im komprimierten Format „a“, sonst „attributes“; fehlende Werte gelten weiter
+      const v = at ? ((x.a || x.attributes || {})[at] ?? letzt) : (x.s ?? x.state);
+      letzt = v;
+      return { t: zeit(x), s: v };
+    }).filter((x) => !isNaN(x.t) && x.s != null).map((x) => ({ ...x, t: Math.max(x.t, von) }));
   }
   return { von, bis, daten };
 }
@@ -4409,7 +4977,7 @@ function kurveHtml(punkte, von, bis, st) {
     ${achseHtml(von, bis)}<div class="v-minmax"><span>Tief ${zahl(min, st)}</span><span>Hoch ${zahl(max, st)}</span></div>`;
 }
 // Zeitleiste für An/Aus, Offen/Zu
-const istAktivZustand = (s) => ["on", "open", "heat", "heating", "cool", "playing", "home", "detected", "unlocked"].includes(String(s).toLowerCase());
+const istAktivZustand = (s) => ["on", "open", "heat", "heating", "cool", "cooling", "playing", "home", "detected", "unlocked", "cleaning", "printing", "running", "armed_away", "armed_home", "armed_night", "triggered"].includes(String(s).toLowerCase());
 function leisteHtml(punkte, von, bis, st) {
   const p = [...punkte];
   if (!p.length && st) p.push({ t: von, s: st.state });
@@ -4425,6 +4993,31 @@ function leisteHtml(punkte, von, bis, st) {
   const std = dauer / 36e5;
   const summe = !anzahl ? "nie" : `${anzahl}× · ${std >= 1 ? `${std.toFixed(1).replace(".", ",")} Std.` : `${Math.max(1, Math.round(dauer / 6e4))} Min.`}`;
   return { html: `<div class="v-leiste" aria-hidden="true">${teile.join("")}</div>${achseHtml(von, bis)}`, summe };
+}
+// Attribut-Verlauf (z. B. Raumtemperatur des Thermostats ohne eigenen Sensor)
+function verlaufAttrHtml(h, id, v) {
+  const [eid, at] = id.split("@"), st = h.states[eid];
+  if (!st) return "";
+  if (at === "hvac_action") {
+    const l = leisteHtml(v.daten[id] || [], v.von, v.bis, { state: st.attributes.hvac_action });
+    return `<div class="v-karte glas" style="--vf:#ff9f0a"><div class="v-kopf"><b>Heizt</b><span>${esc(l.summe)}</span></div>${l.html}</div>`;
+  }
+  const einheit = h.config?.unit_system?.temperature || "°C";
+  const pseudo = { entity_id: eid, state: String(st.attributes[at] ?? ""), attributes: { unit_of_measurement: einheit } };
+  return `<div class="v-karte glas" style="--vf:#ff9f0a"><div class="v-kopf"><b>Raumtemperatur</b><span>${esc(zahl(st.attributes[at], pseudo))}</span></div>
+    ${kurveHtml(v.daten[id] || [], v.von, v.bis, pseudo)}</div>`;
+}
+// Aufklappbarer Abschnitt „Verlauf“ – in jeder großen Ansicht gleich (standardmäßig zu, lädt erst beim Aufklappen)
+function verlaufKlappHtml(h, ids, z) {
+  const inhalt = !z.auf ? "" : `<div class="v-inhalt">${zeitraumHtml(z.stunden)}${z.daten ? ids.map((e) => (e.includes("@") ? verlaufAttrHtml(h, e, z.daten) : verlaufKarteHtml(h, e, z.daten))).join("")
+    : `<div class="v-leer">Lade Verlauf …</div>`}</div>`;
+  return `<div class="abschnitt"><button class="v-klapp glas" data-vklapp aria-expanded="${z.auf}"><span>Verlauf</span><span class="leise">${z.stunden === 24 ? "24 Std." : "7 Tage"}</span>
+    <ha-icon data-i="mdi:chevron-down"></ha-icon></button>${inhalt}</div>`;
+}
+function verlaufKlappBinden(root, z, laden, zeichnen) {
+  root.querySelector("[data-vklapp]")?.addEventListener("click", () => { z.auf = !z.auf; if (z.auf && !z.daten) laden(); else zeichnen(); });
+  root.querySelectorAll("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { z.stunden = Number(b.dataset.zeitraum); laden(); }));
+  root.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
 }
 function verlaufKarteHtml(h, eid, v, fokus) {
   const st = h.states[eid];
@@ -4585,13 +5178,15 @@ class GlasBereichKarte extends GlasKarte {
   blattOeffnen() {
     if (this._blatt) return;
     this._blatt = new GlasSchicht({ quelle: this, hoch: this.blattHoch?.() ?? false, titel: this.blattTitel(), zu: () => { this._blatt = null; } });
+    this._vz = { auf: false, stunden: 24, daten: null };
     this.blattZeichnen();
     this._blatt.oeffnen();
   }
   blattZeichnen() {
     const s = this._blatt; if (!s) return;
     s.dunkel(istDunkel(this._hass));
-    const html = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
+    const vIds = (this.blattVerlauf?.() || []).filter((e) => this._hass.states[e]);
+    const html = `<style>${BLATT_CSS}${VERLAUF_CSS}</style>${this.blattHtml(s)}${vIds.length ? verlaufKlappHtml(this._hass, vIds, this._vz) : ""}`;
     if (s._letztesHtml === html) return; // nichts geändert: Blatt stehen lassen
     s._letztesHtml = html;
     const scroll = s.inhalt.scrollTop;
@@ -4601,6 +5196,10 @@ class GlasBereichKarte extends GlasKarte {
     s.kopfBinden();
     s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = this._hass; el.stateObj = this._hass.states[el.dataset.e]; });
     this.blattBinden(s, (q) => s.inhalt.querySelector(q), (q) => [...s.inhalt.querySelectorAll(q)]);
+    if (vIds.length) {
+      const neu = () => { s._letztesHtml = null; this.blattZeichnen(); };
+      verlaufKlappBinden(s.inhalt, this._vz, async () => { this._vz.daten = null; neu(); this._vz.daten = await verlaufHolen(this._hass, vIds, this._vz.stunden); neu(); }, neu);
+    }
     s.inhalt.scrollTop = scroll;
     if (fokus) { const neu = s.inhalt.querySelector("input"); if (neu) { neu.value = wert; neu.focus(); } }
   }
@@ -4733,6 +5332,7 @@ const DRUCKER_SUCHE = {
 const DRUCK_STATUS = { running: "druckt", printing: "druckt", pause: "pausiert", paused: "pausiert", finish: "fertig", finished: "fertig", idle: "bereit", failed: "Fehler", prepare: "bereitet vor", offline: "aus" };
 
 class GlasDruckerCard extends GlasBereichKarte {
+  blattVerlauf() { return [this._config.stecker, this._config.status].filter(Boolean); }
   static standard() { return { knapp_g: 200, name: "P1S" }; }
   static getConfigElement() { return document.createElement("glas-drucker-card-editor"); }
   static getStubConfig() { return { name: "P1S" }; }
@@ -4953,6 +5553,7 @@ class GlasDruckerEditor extends GlasEditor {
 const ROBI_STATUS = { docked: "In der Station", cleaning: "Saugt", paused: "Pausiert", returning: "Fährt zur Station", idle: "Bereit", error: "Fehler" };
 
 class GlasRobiCard extends GlasBereichKarte {
+  blattVerlauf() { return [this._config.entity].filter(Boolean); }
   static standard() { return { raeume: [], befehl: "spot_area" }; }
   static getConfigElement() { return document.createElement("glas-robi-card-editor"); }
   static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "" }; }
@@ -5136,6 +5737,7 @@ const ZUHAUSE_CSS = `
 .leer p{margin:0 0 var(--g-a4);color:var(--g-text2);font-size:var(--g-s-name);line-height:1.45}
 .leer a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--g-a5);border-radius:var(--g-r-pille);background:var(--g-akzent-voll);color:#fff;font-weight:600;text-decoration:none}
 .unsichtbar{display:none}
+glas-hinweise-card:not([leer]){margin-top:var(--g-a3)}
 `;
 const SPANNE = { klein: 3, breit: 6, gross: 6, ganz: 12 };
 
@@ -5176,15 +5778,20 @@ class GlasZuhauseCard extends HTMLElement {
     this._kinder.forEach((el) => { el.hass = h; });
   }
   get hass() { return this._hass; }
+  // Karten wiederverwenden (gleicher Schlüssel): geänderte Einstellungen per setConfig, damit offene Blätter offen bleiben
   kind(schluessel, tag, cfg) {
-    const k = `${schluessel}|${JSON.stringify(cfg)}`;
-    let el = this._kinder.get(k);
+    const json = JSON.stringify(cfg);
+    let el = this._kinder.get(schluessel);
+    if (el && el.localName !== tag) el = null;
     if (!el) {
       el = document.createElement(tag);
       try { el.setConfig(cfg); } catch (e) { el = document.createElement("div"); el.className = "leise"; el.textContent = e.message; }
+      el._cfgJson = json;
       if (this._hass) el.hass = this._hass;
+    } else if (el._cfgJson !== json) {
+      try { el.setConfig?.(cfg); el._cfgJson = json; } catch (e) { console.error(e); }
     }
-    this._neu.set(k, el);
+    this._neu.set(schluessel, el);
     return el;
   }
   hintergrund() {
@@ -5198,7 +5805,7 @@ class GlasZuhauseCard extends HTMLElement {
   aufbauen() {
     if (!this._hass || !this.isConnected) return;
     const e = Glas.einst;
-    if (!this.shadowRoot.firstChild) this.shadowRoot.innerHTML = `<style>${TOKENS}${ZUHAUSE_CSS}</style><div class="hg"></div><div class="seite"></div><div class="ebene"></div>`;
+    if (!this.shadowRoot.firstChild) this.shadowRoot.innerHTML = `<style>${TOKENS}${ZUHAUSE_CSS}${BEARB_CSS}</style><div class="hg"></div><div class="seite"></div><div class="ebene"></div>`;
     this.hintergrund();
     const seite = this.shadowRoot.querySelector(".seite"), ebene = this.shadowRoot.querySelector(".ebene");
     if (!e) {
@@ -5211,7 +5818,7 @@ class GlasZuhauseCard extends HTMLElement {
     // Personen gleich hier setzen (wie die Kopf-Karte), damit die richtige Startseite kommt
     Glas.personenSetzen((e.personen || []).map((p, i) => ({ ...p, id: p.benutzer || p.name || `p${i}`, kurz: p.kurz || (p.tablet ? "" : (p.name || "?")[0].toUpperCase()) })));
     const person = Glas.aktuellePerson(this._hass);
-    const schluessel = JSON.stringify([e, person?.id]);
+    const schluessel = JSON.stringify([e, person?.id, Glas.bearbeiten]);
     if (schluessel === this._schluessel) return;
     this._schluessel = schluessel;
     this._baut = true;
@@ -5230,9 +5837,13 @@ class GlasZuhauseCard extends HTMLElement {
     const s = startseiteVon(e, person);
     const teile = [];
     teile.push(this.kind("kopf", "glas-kopf-card", { gruss_modus: e.gruss_modus || "name", gruss_text: e.gruss_text, untertitel: e.untertitel, personen: e.personen || [], chips: s.chips || [] }));
+    const b = e.bereiche || {};
+    if (b.hinweise?.an !== false) {
+      teile.push(this.kind("hinweise", "glas-hinweise-card", { wetter: b.wetter?.entity, regen_stunden: b.hinweise?.regen_stunden || 3,
+        personen: (e.personen || []).filter((p) => !p.tablet && p.entity).map((p) => p.entity) }));
+    }
     const raster = document.createElement("div");
     raster.className = "raster";
-    const b = e.bereiche || {};
     for (const a of s.abschnitte) {
       if (!a.an) continue;
       let el = null;
@@ -5242,20 +5853,27 @@ class GlasZuhauseCard extends HTMLElement {
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
       else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
-      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte)))) {
+      else if (a.id === "favoriten" && (Glas.bearbeiten || (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte))))) {
+        const bearb = Glas.bearbeiten;
         const wrap = document.createElement("div");
         wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
         wrap.style.display = "contents";
         const fav = wrap.querySelector(".fav");
-        s.favoriten.filter((f) => f.an !== false && (f.entity || listenKarte(f.karte))).forEach((f, i) => {
+        (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || listenKarte(f.karte))).forEach(({ f, i }, n) => {
           const kk = f.karte && listenKarte(f.karte);
-          const k = kk ? this.kind(`fav${i}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
+          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
+          if (bearb) {
+            z.dataset.i = i;
+            z.dataset.name = kk ? kk[1] : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
+            if (f.an === false) z.classList.add("aus");
+          }
           z.appendChild(k);
           fav.appendChild(z);
         });
         fav.style.gridColumn = "span 12";
+        if (bearb) bearbeitRaster(fav, listeZugriff({ art: "fav", person }), this);
         raster.append(...wrap.childNodes);
         continue;
       }
@@ -5272,7 +5890,9 @@ class GlasZuhauseCard extends HTMLElement {
       unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
       raeume.forEach((r) => unten.push(this.kind(`raum-${r.hash}`, "glas-raum-card", raumCfg(this._hass, r))));
     }
-    ebene.replaceChildren(...unten);
+    // Nur umhängen, wenn sich etwas geändert hat: sonst würde ein offenes Raum-Blatt geschlossen
+    const jetzt = [...ebene.children];
+    if (jetzt.length !== unten.length || jetzt.some((el, i) => el !== unten[i])) ebene.replaceChildren(...unten);
     this._kinder = this._neu;
   }
 }
@@ -5281,15 +5901,17 @@ function kachelCfg(g) {
   const { an, gruppe, ...rest } = g;
   return { groesse: "breit", zweite_zeile: "zustand", ...rest };
 }
-function raumCfg(hass, r) {
-  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && (g.entity || g.karte));
+// alle = Bearbeiten-Modus: auch Ausgeblendete, mit Index (_i) und Gruppe (_gruppe) für Ziehen und Menü
+function raumCfg(hass, r, alle = false) {
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).map((g, i) => ({ g, i })).filter(({ g }) => (alle || g.an !== false) && (g.entity || g.karte));
   const cards = [];
   let gruppe = null;
-  for (const g of geraete) {
-    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle" }, k); gruppe = null; } continue; }
+  const extra = (g, i, gr) => (alle ? { _i: i, _aus: g.an === false, ...(gr ? { _gruppe: gr } : {}), ...(g.karte ? { _karte: g.karte } : {}) } : {});
+  for (const { g, i } of geraete) {
+    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle" }, { ...k, ...extra(g, i) }); gruppe = null; } continue; }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
-    if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle" }); }
-    cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g) });
+    if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle", ...(alle ? { _gruppe: gr } : {}) }); }
+    cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g), ...extra(g, i) });
   }
   return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
     fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: r.chips, cards };
@@ -5301,6 +5923,100 @@ class GlasZuhauseEditor extends GlasEditor {
     this._gezeichnet = true;
     this.innerHTML = `<p style="line-height:1.45">Diese Karte baut alles aus den zentralen Einstellungen auf. Personen, Räume, Startseite und Aussehen stellst du in der Seitenleiste unter <a href="/glas-einstellungen">Glas</a> ein.</p>`;
   }
+}
+// ---------------------------------------------------------------------------
+// glas-hinweise-card: sichtbare Warnungen ganz oben auf der Startseite
+// · Fenster/Türen offen und Regen kommt (Wetter-Vorhersage der nächsten Stunden)
+// · Fenster/Türen offen und keiner zu Hause (alle Personen abwesend)
+// Erscheint nur, wenn etwas zutrifft – sonst ist die Karte unsichtbar.
+// ---------------------------------------------------------------------------
+const HINWEIS_CSS = `
+:host{display:block}
+:host([leer]){display:none}
+.hinweise{display:flex;flex-direction:column;gap:var(--g-a2)}
+.hinweis{display:flex;align-items:center;gap:var(--g-a3);width:100%;min-height:64px;padding:var(--g-a3) var(--g-a4);border-radius:var(--g-r);text-align:left;
+  background:color-mix(in srgb,var(--hf) 16%,var(--g-glas));border:1.5px solid color-mix(in srgb,var(--hf) 55%,transparent);color:var(--g-text);
+  animation:rein .4s cubic-bezier(.32,.72,0,1)}
+.hinweis .sym{flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--hfv);color:#fff}
+.hinweis .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.hinweis b{font-size:var(--g-s-name);font-weight:700}
+.hinweis span.u{font-size:var(--g-s-klein);color:var(--g-text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hinweis .pfeil{flex:none;color:var(--g-text2)}
+@keyframes rein{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+`;
+const REGEN = ["rainy", "pouring", "lightning-rainy", "snowy-rainy", "hail", "snowy", "exceptional"];
+
+class GlasHinweiseCard extends GlasKarte {
+  static standard() { return { regen_stunden: 3, fenster_klassen: ["window", "door", "garage_door", "opening"] }; }
+  getGridOptions() { return { columns: 12, rows: "auto" }; }
+  css() { return HINWEIS_CSS; }
+  connectedCallback() { super.connectedCallback(); this.abonnieren(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._abo?.then((f) => f()).catch(() => {}); this._abo = null; }
+  set hass(h) { super.hass = h; this.abonnieren(); }
+  get hass() { return this._hass; }
+  abonnieren() {
+    const c = this._config, h = this._hass;
+    if (!c?.wetter || !h?.connection || this._abo || !this.isConnected) return;
+    this._abo = h.connection.subscribeMessage((m) => { this._vorhersage = m.forecast || []; this.render(); },
+      { type: "weather/subscribe_forecast", forecast_type: "hourly", entity_id: c.wetter });
+    this._abo.catch(() => { this._abo = null; });
+  }
+  fenster() {
+    const h = this._hass, k = this._config.fenster_klassen;
+    return Object.values(h.states).filter((st) => st.entity_id.startsWith("binary_sensor.") && k.includes(st.attributes.device_class)
+      && st.state === "on" && !h.entities?.[st.entity_id]?.hidden);
+  }
+  entitaeten() {
+    const h = this._hass;
+    return [this._config.wetter, ...(this._config.personen || []), ...Object.keys(h?.states || {}).filter((e) => e.startsWith("binary_sensor."))].filter(Boolean);
+  }
+  // Regen in den nächsten Stunden? → Minuten bis zum ersten nassen Eintrag (0 = jetzt), sonst null
+  regenIn() {
+    const h = this._hass, c = this._config, st = c.wetter && h.states[c.wetter];
+    if (!st) return null;
+    if (REGEN.includes(st.state)) return 0;
+    const bis = Date.now() + c.regen_stunden * 36e5;
+    const nass = (this._vorhersage || []).find((f) => new Date(f.datetime).getTime() <= bis
+      && (REGEN.includes(f.condition) || Number(f.precipitation) > 0.1 || Number(f.precipitation_probability) >= 60));
+    return nass ? Math.max(0, Math.round((new Date(nass.datetime).getTime() - Date.now()) / 60000)) : null;
+  }
+  keinerDa() {
+    const h = this._hass, p = (this._config.personen || []).map((e) => h.states[e]).filter(Boolean);
+    return p.length > 0 && p.every((x) => x.state !== "home");
+  }
+  html() {
+    const offen = this.fenster();
+    const liste = [];
+    if (offen.length) {
+      const regen = this.regenIn(), weg = this.keinerDa();
+      const namen = offen.map((st) => { const a = bereichVon(this._hass, st.entity_id); const r = a && this._hass.areas?.[a]?.name; return r ? `${r}: ${st.attributes.friendly_name}` : st.attributes.friendly_name; }).join(", ");
+      const n = `${offen.length} ${offen.length === 1 ? "Fenster/Tür" : "Fenster/Türen"} offen`;
+      const wann = regen === 0 ? "Es regnet" : regen != null ? (regen < 60 ? `Regen in ${Math.max(5, Math.round(regen / 5) * 5)} Min.` : `Regen in ${Math.round(regen / 60)} Std.`) : "";
+      if (weg) liste.push({ farbe: "var(--g-rot)", voll: "var(--g-rot-voll)", icon: "mdi:home-alert", titel: `Keiner zu Hause · ${n}`, unter: [wann, namen].filter(Boolean).join(" · ") });
+      else if (wann) liste.push({ farbe: "var(--g-akzent)", voll: "var(--g-akzent-voll)", icon: "mdi:weather-pouring", titel: `${wann} · ${n}`, unter: namen });
+    }
+    this.toggleAttribute("leer", !liste.length);
+    if (!liste.length) return "";
+    return `<div class="hinweise" role="status">${liste.map((x) => `<button class="hinweis k" data-fenster style="--hf:${x.farbe};--hfv:${x.voll}">
+      <span class="sym"><ha-icon data-i="${x.icon}"></ha-icon></span><span class="t"><b>${esc(x.titel)}</b><span class="u">${esc(x.unter)}</span></span>
+      <ha-icon class="pfeil" data-i="mdi:chevron-right"></ha-icon></button>`).join("")}</div>`;
+  }
+  binden() {
+    this.iconsSetzen();
+    this.$$("[data-fenster]").forEach((b) => b.addEventListener("click", () => fensterOeffnen(this, null, "")));
+  }
+}
+
+class GlasHinweiseEditor extends GlasEditor {
+  schema() {
+    return [
+      { name: "an", selector: { boolean: {} } },
+      { name: "regen_stunden", selector: { number: { min: 1, max: 12, mode: "box" } } },
+    ];
+  }
+  render() { if (this._config.an === undefined) this._config.an = true; super.render(); }
+  labels() { return { an: "Warnungen oben auf der Startseite", regen_stunden: "Regen so viele Stunden vorher melden" }; }
+  hilfen() { return { an: "Rot: keiner zu Hause und Fenster offen. Blau: Regen kommt und Fenster offen. Wetter kommt aus „Wetter“, Personen aus „Personen“." }; }
 }
 // ---------------------------------------------------------------------------
 // Einstellungsseite „Glas“ (Seitenleiste): alles an einer Stelle, gilt auf allen Geräten
@@ -5792,7 +6508,7 @@ class GlasEinstellungen extends HTMLElement {
   // ---------------- Bereiche ----------------
   bereiche(box) {
     const B = this._d.bereiche;
-    [["wetter", "Wetter", "glas-wetter-card-editor"], ["planer", "Planer heute", "glas-planer-card-editor"], ["sicherheit", "Sicherheit", "glas-sicherheit-card-editor"],
+    [["hinweise", "Warnungen", "glas-hinweise-card-editor"], ["wetter", "Wetter", "glas-wetter-card-editor"], ["planer", "Planer & Kalender", "glas-planer-card-editor"], ["sicherheit", "Sicherheit", "glas-sicherheit-card-editor"],
       ["drucker", "Drucker & Werkstatt", "glas-drucker-card-editor"], ["robi", "Robi", "glas-robi-card-editor"], ["gaeste", "Gäste", "glas-gaeste-card-editor"]].forEach(([id, titel, tag]) => {
       this.html(box, `<h2>${titel}</h2>`);
       const g = this.html(box, `<div class="gruppe form"></div>`);
@@ -5851,13 +6567,14 @@ class GlasStrategie extends HTMLElement {
 const KARTEN = [
   ["glas-kachel-card", GlasKachelCard, GlasKachelEditor, "Glas · Kachel", "Eine Kachel für jede Entität: Tippen schaltet, seitlich wischen dimmt, Symbol öffnet die große Steuerung."],
   ["glas-kopf-card", GlasKopfCard, GlasKopfEditor, "Glas · Kopf", "Begrüßung, Personenwahl (wer schaut) und Schnellzugriff-Chips."],
-  ["glas-planer-card", GlasPlanerCard, GlasPlanerEditor, "Glas · Planer heute", "Aufgaben, Schicht und Termine von heute aus dem Planer, für die gewählte Person."],
+  ["glas-planer-card", GlasPlanerCard, GlasPlanerEditor, "Glas · Planer & Kalender", "Wisch-Karte: Planer heute, Kalender der nächsten 7 Tage und Schichten der Woche, für die gewählte Person."],
   ["glas-wetter-card", GlasWetterCard, GlasWetterEditor, "Glas · Wetter", "Jetzt, die nächsten Stunden, aufklappbar 5 Tage, trocken oder nass."],
   ["glas-raumleiste-card", GlasRaumleisteCard, GlasRaumleisteEditor, "Glas · Raumleiste", "Schwebende Leiste unten mit allen Räumen."],
   ["glas-sicherheit-card", GlasSicherheitCard, GlasSicherheitEditor, "Glas · Sicherheit", "Alarmanlage scharf/unscharf, Fenster, Kamera, Verlauf."],
   ["glas-drucker-card", GlasDruckerCard, GlasDruckerEditor, "Glas · Drucker & Werkstatt", "3D-Drucker: Fortschritt, Kamera, Steuerung, Warteschlange und knappes Filament aus der Filament-Werkstatt."],
   ["glas-robi-card", GlasRobiCard, GlasRobiEditor, "Glas · Robi", "Saugroboter: Akku, alles oder einzelne Räume saugen, Saugstärke, Station."],
   ["glas-gaeste-card", GlasGaesteCard, GlasGaesteEditor, "Glas · Gäste", "WLAN-QR-Code zum Scannen, optional ein zweiter Code."],
+  ["glas-hinweise-card", GlasHinweiseCard, GlasHinweiseEditor, "Glas · Warnungen", "Fenster offen und Regen kommt / keiner zu Hause – nur sichtbar, wenn es zutrifft."],
   ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
 ];
