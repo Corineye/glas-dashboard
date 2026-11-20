@@ -32,7 +32,7 @@ const STEUER_CSS = `
 .karte-s .kopfz{display:flex;justify-content:space-between;align-items:baseline;gap:var(--g-a2)}
 .karte-s h3{margin:0;font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .reihe.links{justify-content:flex-start}
-@media (max-width:420px){.mitte{flex-wrap:wrap}}
+@media (max-width:420px){.mitte:has(.rad){flex-wrap:wrap}}
 `;
 
 const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["Neutral", { color_temp_kelvin: 4000 }, "#ffe2b8"],
@@ -41,19 +41,39 @@ const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["N
   ["Pink", { rgb_color: [255, 45, 85] }, "#ff2d55"]];
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
+// Heizung mit eigenem Temperatur-/Feuchtesensor: Messwerte im Zustand ersetzen
+function mitSensoren(h, st, cfg) {
+  if (!st || domainVon(st.entity_id) !== "climate" || !(cfg?.temp_sensor || cfg?.feuchte_sensor)) return st;
+  const t = cfg.temp_sensor && h.states[cfg.temp_sensor], f = cfg.feuchte_sensor && h.states[cfg.feuchte_sensor];
+  const ok = (x) => x && !isNaN(Number(x.state)) && x.state !== "";
+  return { ...st, attributes: { ...st.attributes, ...(ok(t) ? { current_temperature: Number(t.state) } : {}), ...(ok(f) ? { current_humidity: Number(f.state) } : {}) } };
+}
+// Welche Verläufe die große Ansicht zeigt
+function verlaufIds(entityId, cfg) {
+  const d = domainVon(entityId);
+  if (d === "climate") return [cfg.temp_sensor, cfg.feuchte_sensor].filter(Boolean);
+  if (["sensor", "binary_sensor", "light", "switch", "fan", "input_boolean", "media_player", "cover", "lock"].includes(d)) return [entityId];
+  return [];
+}
+
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
   const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
   let letzter = null;
   // nur neu zeichnen, wenn sich diese Entität geändert hat
   let letzterTimer = null;
-  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
+  const sig = () => [entityId, cfg.temp_sensor, cfg.feuchte_sensor].map((e) => (e && Glas.hass?.states[e]?.last_updated) || "").join("|");
+  const neu = () => { if (sig() !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
+  // Verlauf (wird einmal geladen, Zeitraum umschaltbar)
+  const vIds = verlaufIds(entityId, cfg);
+  let vStunden = 24, vDaten = null;
+  const vLaden = async () => { vDaten = null; zeichnen(); vDaten = await verlaufHolen(Glas.hass, vIds, vStunden); zeichnen(); };
   const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
   const zeichnen = () => {
     if (ziehen) return;
-    const h = Glas.hass, st = h?.states[entityId];
+    const h = Glas.hass, st = mitSensoren(h, h?.states[entityId], cfg);
     if (!st) return;
-    letzter = st;
+    letzter = sig();
     letzterTimer = Glas.timer?.[entityId];
     s.dunkel(istDunkel(h));
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
@@ -74,7 +94,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     } else if (d === "climate") {
       const soll = a.temperature != null ? String(a.temperature).replace(".", ",") + "°" : "–";
       mitte = `<button class="gross-rund" data-t="-" aria-label="Kälter">−</button><div style="text-align:center"><div class="wert">${st.state === "off" ? "Aus" : soll}</div>
-        <div class="leise">Raum jetzt ${a.current_temperature != null ? String(a.current_temperature).replace(".", ",") + " °" : "–"}</div></div>
+        <div class="leise">Raum jetzt ${a.current_temperature != null ? String(a.current_temperature).replace(".", ",") + " °" : "–"}${a.current_humidity != null ? ` · ${Math.round(a.current_humidity)} % Luftfeuchte` : ""}</div></div>
         <button class="gross-rund" data-t="+" aria-label="Wärmer">+</button>`;
     } else if (Geraet.schaltbar(st) || Geraet.ausloesbar(st)) {
       mitte = `<button class="schalter" data-schalten aria-pressed="${an}" aria-label="${esc(name)} ${an ? "ausschalten" : "einschalten"}"><span></span></button>`;
@@ -118,13 +138,16 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     // Zusatzwerte (Attribute, die Menschen interessieren)
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
-    extra += `<button class="zeile-knopf glas" data-ha>Verlauf und Einstellungen ›</button>`;
-    s.inhalt.innerHTML = `<style>${STEUER_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
+    if (vIds.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Verlauf</div>${zeitraumHtml(vStunden)}
+      ${vDaten ? vIds.map((e) => verlaufKarteHtml(h, e, vDaten)).join("") : `<div class="v-leer">Lade Verlauf …</div>`}</div>`;
+    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant ›</button>`;
+    s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
     s.kopfBinden();
     const $ = (q) => s.inhalt.querySelector(q), $$ = (q) => [...s.inhalt.querySelectorAll(q)];
     $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => Geraet.schalten(h, st)));
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
+    $$("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { vStunden = Number(b.dataset.zeitraum); vLaden(); }));
     $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...LICHT_FARBEN[b.dataset.farbe][1] })));
     $$("[data-hvac]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.hvac })));
     $("[data-eco]")?.addEventListener("click", () => h.callService("climate", "set_temperature", { entity_id: entityId, temperature: 17, hvac_mode: "heat" }));
@@ -189,6 +212,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   };
   Glas.hassHoerer.add(neu);
   zeichnen();
+  if (vIds.length) vLaden();
   s.oeffnen();
   return s;
 }
@@ -238,7 +262,7 @@ class GlasKachelCard extends GlasKarte {
     return { entity: e };
   }
   pruefen(c) { if (!c.entity) throw new Error("Bitte eine Entität wählen"); }
-  entitaeten() { return [this._config.entity, ...(this._config.zusatz || [])]; }
+  entitaeten() { return [this._config.entity, ...(this._config.zusatz || []), this._config.temp_sensor, this._config.feuchte_sensor].filter(Boolean); }
   getCardSize() { return this._config?.groesse === "gross" ? 3 : 1; }
   getGridOptions() {
     const g = this._config?.groesse;
@@ -258,7 +282,7 @@ class GlasKachelCard extends GlasKarte {
     };
   }
   html() {
-    const h = this._hass, c = this._config, st = h.states[c.entity];
+    const h = this._hass, c = this._config, st = mitSensoren(h, h.states[c.entity], c);
     const v = this.verhalten(st);
     const reg = Geraet.regler(st);
     const an = Geraet.istAn(st), warn = Geraet.istWarnung(st);
@@ -401,6 +425,10 @@ class GlasKachelEditor extends GlasEditor {
           { name: "wischen", selector: { boolean: {} } },
         ] },
       ] },
+      ...(domainVon(c.entity || "") === "climate" ? [{ type: "expandable", flatten: true, name: "gruppe_klima", title: "Heizung: eigene Sensoren", icon: "mdi:thermometer", schema: [
+        { type: "grid", name: "", schema: [
+          { name: "temp_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
+          { name: "feuchte_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] }] }] : []),
       { type: "expandable", flatten: true, name: "gruppe2", title: "Zusatzinfos in der Kachel", icon: "mdi:information-outline", schema: [
         { name: "zusatz", selector: { entity: { multiple: true } } },
       ] },
@@ -416,7 +444,7 @@ class GlasKachelEditor extends GlasEditor {
     return { entity: "Entität", name: "Name (leer = aus HA)", icon: "Symbol (leer = automatisch)", groesse: "Größe", typ: "Verhalten",
       zweite_zeile: "Zweite Zeile", attribut: "Attribut", text: "Text", farbe: "Farbe, wenn aktiv",
       name_zeigen: "Name zeigen", icon_zeigen: "Symbol zeigen", hell_wenn_an: "Kachel hell, wenn an", wischen: "Seitlich wischen regelt",
-      zusatz: "Weitere Entitäten (kleine Chips)", ...AKTIONEN_LABELS };
+      zusatz: "Weitere Entitäten (kleine Chips)", temp_sensor: "Temperatursensor (statt Thermostat)", feuchte_sensor: "Luftfeuchtesensor", ...AKTIONEN_LABELS };
   }
   hilfen() {
     return { typ: "Automatisch: Lampen, Rollos, Heizungen lassen sich wischen; Sensoren zeigen nur an.",

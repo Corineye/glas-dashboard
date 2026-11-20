@@ -194,7 +194,8 @@ class GlasRaumCard extends GlasKarte {
     const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
-    }).join("")}</div>` : ""}`;
+    }).join("")}${c.bereich ? `<button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button>` : ""}</div>`
+      : c.bereich ? `<div class="chips"><button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button></div>` : ""}`;
     if (this._kopfHtml === kopfNeu && k.firstChild) return;
     this._kopfHtml = kopfNeu;
     k.innerHTML = kopfNeu;
@@ -206,8 +207,17 @@ class GlasRaumCard extends GlasKarte {
     });
     k.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => {
       const st = this._hass.states[b.dataset.chip];
-      if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else mehrInfo(this, b.dataset.chip);
+      if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else raumVerlaufOeffnen(this, this._config.bereich, this._config.name, b.dataset.chip);
     }));
+    k.querySelector("[data-verlauf]")?.addEventListener("click", () => raumVerlaufOeffnen(this, this._config.bereich, this._config.name));
+    const unter = k.querySelector(".unter");
+    if (unter && c.bereich) {
+      unter.setAttribute("role", "button"); unter.tabIndex = 0; unter.style.cursor = "pointer";
+      unter.setAttribute("aria-label", `${unter.textContent}, Verlauf öffnen`);
+      const auf = () => raumVerlaufOeffnen(this, c.bereich, c.name, c.temperatur || undefined);
+      unter.addEventListener("click", auf);
+      unter.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); auf(); } });
+    }
   }
   async oeffnen(ueberHash = false) {
     if (this._schicht) return;

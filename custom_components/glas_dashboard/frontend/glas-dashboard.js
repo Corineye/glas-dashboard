@@ -2880,7 +2880,7 @@ const Geraet = {
     if (d === "light" && reg && st.state === "on") return `${reg.pct} %`;
     if (d === "cover" && a.current_position != null) return reg ? reg.text(reg.pct) : zustandText(h, st);
     if (d === "climate") {
-      const ist = a.current_temperature != null ? ` · ${String(a.current_temperature).replace(".", ",")}°` : "";
+      const ist = (a.current_temperature != null ? ` · ${String(a.current_temperature).replace(".", ",")}°` : "") + (a.current_humidity != null ? ` · ${Math.round(a.current_humidity)} %` : "");
       if (st.state === "off") return `Aus${ist}`;
       const soll = a.temperature != null ? `${String(a.temperature).replace(".", ",")}°` : zustandText(h, st);
       const was = a.hvac_action === "heating" ? "Heizt " : a.hvac_action === "cooling" ? "Kühlt " : "";
@@ -3059,7 +3059,7 @@ const STEUER_CSS = `
 .karte-s .kopfz{display:flex;justify-content:space-between;align-items:baseline;gap:var(--g-a2)}
 .karte-s h3{margin:0;font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
 .reihe.links{justify-content:flex-start}
-@media (max-width:420px){.mitte{flex-wrap:wrap}}
+@media (max-width:420px){.mitte:has(.rad){flex-wrap:wrap}}
 `;
 
 const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["Neutral", { color_temp_kelvin: 4000 }, "#ffe2b8"],
@@ -3068,19 +3068,39 @@ const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["N
   ["Pink", { rgb_color: [255, 45, 85] }, "#ff2d55"]];
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
+// Heizung mit eigenem Temperatur-/Feuchtesensor: Messwerte im Zustand ersetzen
+function mitSensoren(h, st, cfg) {
+  if (!st || domainVon(st.entity_id) !== "climate" || !(cfg?.temp_sensor || cfg?.feuchte_sensor)) return st;
+  const t = cfg.temp_sensor && h.states[cfg.temp_sensor], f = cfg.feuchte_sensor && h.states[cfg.feuchte_sensor];
+  const ok = (x) => x && !isNaN(Number(x.state)) && x.state !== "";
+  return { ...st, attributes: { ...st.attributes, ...(ok(t) ? { current_temperature: Number(t.state) } : {}), ...(ok(f) ? { current_humidity: Number(f.state) } : {}) } };
+}
+// Welche Verläufe die große Ansicht zeigt
+function verlaufIds(entityId, cfg) {
+  const d = domainVon(entityId);
+  if (d === "climate") return [cfg.temp_sensor, cfg.feuchte_sensor].filter(Boolean);
+  if (["sensor", "binary_sensor", "light", "switch", "fan", "input_boolean", "media_player", "cover", "lock"].includes(d)) return [entityId];
+  return [];
+}
+
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
   const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
   let letzter = null;
   // nur neu zeichnen, wenn sich diese Entität geändert hat
   let letzterTimer = null;
-  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
+  const sig = () => [entityId, cfg.temp_sensor, cfg.feuchte_sensor].map((e) => (e && Glas.hass?.states[e]?.last_updated) || "").join("|");
+  const neu = () => { if (sig() !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
+  // Verlauf (wird einmal geladen, Zeitraum umschaltbar)
+  const vIds = verlaufIds(entityId, cfg);
+  let vStunden = 24, vDaten = null;
+  const vLaden = async () => { vDaten = null; zeichnen(); vDaten = await verlaufHolen(Glas.hass, vIds, vStunden); zeichnen(); };
   const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
   const zeichnen = () => {
     if (ziehen) return;
-    const h = Glas.hass, st = h?.states[entityId];
+    const h = Glas.hass, st = mitSensoren(h, h?.states[entityId], cfg);
     if (!st) return;
-    letzter = st;
+    letzter = sig();
     letzterTimer = Glas.timer?.[entityId];
     s.dunkel(istDunkel(h));
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
@@ -3101,7 +3121,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     } else if (d === "climate") {
       const soll = a.temperature != null ? String(a.temperature).replace(".", ",") + "°" : "–";
       mitte = `<button class="gross-rund" data-t="-" aria-label="Kälter">−</button><div style="text-align:center"><div class="wert">${st.state === "off" ? "Aus" : soll}</div>
-        <div class="leise">Raum jetzt ${a.current_temperature != null ? String(a.current_temperature).replace(".", ",") + " °" : "–"}</div></div>
+        <div class="leise">Raum jetzt ${a.current_temperature != null ? String(a.current_temperature).replace(".", ",") + " °" : "–"}${a.current_humidity != null ? ` · ${Math.round(a.current_humidity)} % Luftfeuchte` : ""}</div></div>
         <button class="gross-rund" data-t="+" aria-label="Wärmer">+</button>`;
     } else if (Geraet.schaltbar(st) || Geraet.ausloesbar(st)) {
       mitte = `<button class="schalter" data-schalten aria-pressed="${an}" aria-label="${esc(name)} ${an ? "ausschalten" : "einschalten"}"><span></span></button>`;
@@ -3145,13 +3165,16 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     // Zusatzwerte (Attribute, die Menschen interessieren)
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
-    extra += `<button class="zeile-knopf glas" data-ha>Verlauf und Einstellungen ›</button>`;
-    s.inhalt.innerHTML = `<style>${STEUER_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
+    if (vIds.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Verlauf</div>${zeitraumHtml(vStunden)}
+      ${vDaten ? vIds.map((e) => verlaufKarteHtml(h, e, vDaten)).join("") : `<div class="v-leer">Lade Verlauf …</div>`}</div>`;
+    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant ›</button>`;
+    s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
     s.kopfBinden();
     const $ = (q) => s.inhalt.querySelector(q), $$ = (q) => [...s.inhalt.querySelectorAll(q)];
     $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => Geraet.schalten(h, st)));
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
+    $$("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { vStunden = Number(b.dataset.zeitraum); vLaden(); }));
     $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...LICHT_FARBEN[b.dataset.farbe][1] })));
     $$("[data-hvac]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.hvac })));
     $("[data-eco]")?.addEventListener("click", () => h.callService("climate", "set_temperature", { entity_id: entityId, temperature: 17, hvac_mode: "heat" }));
@@ -3216,6 +3239,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   };
   Glas.hassHoerer.add(neu);
   zeichnen();
+  if (vIds.length) vLaden();
   s.oeffnen();
   return s;
 }
@@ -3265,7 +3289,7 @@ class GlasKachelCard extends GlasKarte {
     return { entity: e };
   }
   pruefen(c) { if (!c.entity) throw new Error("Bitte eine Entität wählen"); }
-  entitaeten() { return [this._config.entity, ...(this._config.zusatz || [])]; }
+  entitaeten() { return [this._config.entity, ...(this._config.zusatz || []), this._config.temp_sensor, this._config.feuchte_sensor].filter(Boolean); }
   getCardSize() { return this._config?.groesse === "gross" ? 3 : 1; }
   getGridOptions() {
     const g = this._config?.groesse;
@@ -3285,7 +3309,7 @@ class GlasKachelCard extends GlasKarte {
     };
   }
   html() {
-    const h = this._hass, c = this._config, st = h.states[c.entity];
+    const h = this._hass, c = this._config, st = mitSensoren(h, h.states[c.entity], c);
     const v = this.verhalten(st);
     const reg = Geraet.regler(st);
     const an = Geraet.istAn(st), warn = Geraet.istWarnung(st);
@@ -3428,6 +3452,10 @@ class GlasKachelEditor extends GlasEditor {
           { name: "wischen", selector: { boolean: {} } },
         ] },
       ] },
+      ...(domainVon(c.entity || "") === "climate" ? [{ type: "expandable", flatten: true, name: "gruppe_klima", title: "Heizung: eigene Sensoren", icon: "mdi:thermometer", schema: [
+        { type: "grid", name: "", schema: [
+          { name: "temp_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
+          { name: "feuchte_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] }] }] : []),
       { type: "expandable", flatten: true, name: "gruppe2", title: "Zusatzinfos in der Kachel", icon: "mdi:information-outline", schema: [
         { name: "zusatz", selector: { entity: { multiple: true } } },
       ] },
@@ -3443,7 +3471,7 @@ class GlasKachelEditor extends GlasEditor {
     return { entity: "Entität", name: "Name (leer = aus HA)", icon: "Symbol (leer = automatisch)", groesse: "Größe", typ: "Verhalten",
       zweite_zeile: "Zweite Zeile", attribut: "Attribut", text: "Text", farbe: "Farbe, wenn aktiv",
       name_zeigen: "Name zeigen", icon_zeigen: "Symbol zeigen", hell_wenn_an: "Kachel hell, wenn an", wischen: "Seitlich wischen regelt",
-      zusatz: "Weitere Entitäten (kleine Chips)", ...AKTIONEN_LABELS };
+      zusatz: "Weitere Entitäten (kleine Chips)", temp_sensor: "Temperatursensor (statt Thermostat)", feuchte_sensor: "Luftfeuchtesensor", ...AKTIONEN_LABELS };
   }
   hilfen() {
     return { typ: "Automatisch: Lampen, Rollos, Heizungen lassen sich wischen; Sensoren zeigen nur an.",
@@ -4156,7 +4184,8 @@ class GlasRaumCard extends GlasKarte {
     const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
-    }).join("")}</div>` : ""}`;
+    }).join("")}${c.bereich ? `<button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button>` : ""}</div>`
+      : c.bereich ? `<div class="chips"><button class="pille fuell" data-verlauf><ha-icon data-i="mdi:chart-timeline-variant" style="--mdc-icon-size:16px"></ha-icon>Verlauf</button></div>` : ""}`;
     if (this._kopfHtml === kopfNeu && k.firstChild) return;
     this._kopfHtml = kopfNeu;
     k.innerHTML = kopfNeu;
@@ -4168,8 +4197,17 @@ class GlasRaumCard extends GlasKarte {
     });
     k.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => {
       const st = this._hass.states[b.dataset.chip];
-      if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else mehrInfo(this, b.dataset.chip);
+      if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else raumVerlaufOeffnen(this, this._config.bereich, this._config.name, b.dataset.chip);
     }));
+    k.querySelector("[data-verlauf]")?.addEventListener("click", () => raumVerlaufOeffnen(this, this._config.bereich, this._config.name));
+    const unter = k.querySelector(".unter");
+    if (unter && c.bereich) {
+      unter.setAttribute("role", "button"); unter.tabIndex = 0; unter.style.cursor = "pointer";
+      unter.setAttribute("aria-label", `${unter.textContent}, Verlauf öffnen`);
+      const auf = () => raumVerlaufOeffnen(this, c.bereich, c.name, c.temperatur || undefined);
+      unter.addEventListener("click", auf);
+      unter.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); auf(); } });
+    }
   }
   async oeffnen(ueberHash = false) {
     if (this._schicht) return;
@@ -4301,6 +4339,150 @@ function fensterOeffnen(quelle, bereich, raumName) {
   return s;
 }
 // ---------------------------------------------------------------------------
+// Verläufe: Sensor-Kurven und An/Aus-Zeitleisten aus der HA-Historie
+// Einzeln in der großen Ansicht eines Sensors, gesammelt in der Raum-Verlaufsansicht
+// ---------------------------------------------------------------------------
+const VERLAUF_CSS = `
+.zeitraum{display:flex;gap:var(--g-a2);margin:var(--g-a1) 0 var(--g-a2)}
+.v-gruppe{display:flex;flex-direction:column;gap:var(--g-a2);margin-bottom:var(--g-a3)}
+.v-gruppe-titel{margin:var(--g-a2) var(--g-a1) 0;font-size:var(--g-s-klein);font-weight:600;letter-spacing:.3px;text-transform:uppercase;color:var(--g-text2)}
+.v-karte{display:flex;flex-direction:column;gap:6px;padding:var(--g-a3) var(--g-a4);border-radius:var(--g-r);text-align:left;width:100%;color:inherit;font:inherit}
+.v-karte.fokus{box-shadow:0 0 0 2px var(--g-blau,#0a84ff)}
+.v-kopf{display:flex;align-items:baseline;justify-content:space-between;gap:var(--g-a2)}
+.v-kopf b{font-size:var(--g-s-name);font-weight:600;color:var(--g-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v-kopf span{flex:none;font-size:var(--g-s-name);font-weight:600;color:var(--g-text2);font-variant-numeric:tabular-nums}
+.v-kurve{display:block;width:100%;height:84px;overflow:visible}
+.v-kurve .linie{fill:none;stroke:var(--vf);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.v-kurve .flaeche{fill:var(--vf);opacity:.14}
+.v-achse{display:flex;justify-content:space-between;font-size:var(--g-s-mini);color:var(--g-text2);font-variant-numeric:tabular-nums}
+.v-minmax{display:flex;gap:var(--g-a3);font-size:var(--g-s-mini);color:var(--g-text2)}
+.v-leiste{position:relative;height:14px;border-radius:7px;background:var(--g-fuell);overflow:hidden}
+.v-leiste i{position:absolute;top:0;bottom:0;background:var(--vf);border-radius:3px}
+.v-leer{font-size:var(--g-s-klein);color:var(--g-text2);padding:var(--g-a2) 0}
+`;
+// Historie holen: { entity_id: [{ t: ms, s: zustand }] }
+async function verlaufHolen(h, ids, stunden) {
+  const bis = Date.now(), von = bis - stunden * 36e5;
+  if (!ids.length) return { von, bis, daten: {} };
+  let r = {};
+  try {
+    r = await h.callWS({ type: "history/history_during_period", start_time: new Date(von).toISOString(), end_time: new Date(bis).toISOString(),
+      entity_ids: ids, minimal_response: true, no_attributes: true, significant_changes_only: false });
+  } catch (e) { console.warn("Glas: Verlauf", e); }
+  const daten = {};
+  for (const id of ids) {
+    daten[id] = (r[id] || []).map((x) => ({ t: (x.lu ?? x.lc) != null ? (x.lu ?? x.lc) * 1000 : Date.parse(x.last_updated || x.last_changed), s: x.s ?? x.state }))
+      .filter((x) => !isNaN(x.t)).map((x) => ({ ...x, t: Math.max(x.t, von) }));
+  }
+  return { von, bis, daten };
+}
+const zahl = (v, st) => {
+  const n = Number(v);
+  if (isNaN(n)) return "–";
+  const stellen = Math.abs(n) >= 100 ? 0 : 1;
+  return `${n.toFixed(stellen).replace(".", ",")}${st?.attributes.unit_of_measurement ? ` ${st.attributes.unit_of_measurement}` : ""}`;
+};
+const istZahlSensor = (st) => st && domainVon(st.entity_id) === "sensor" && (st.attributes.unit_of_measurement != null || st.attributes.state_class) && !isNaN(Number(st.state));
+const VERLAUF_FARBE = { temperature: "#ff9f0a", humidity: "#0a84ff", carbon_dioxide: "#34c759", pm25: "#af52de", illuminance: "#ffcc00", power: "#ff375f", energy: "#ff375f" };
+function achseHtml(von, bis) {
+  const tage = (bis - von) / 864e5 > 1.5;
+  const n = tage ? 7 : 5;
+  const teile = [...Array(n)].map((_, i) => {
+    const d = new Date(von + (bis - von) * i / (n - 1));
+    return tage ? d.toLocaleDateString("de-DE", { weekday: "short" }) : (i === n - 1 ? "jetzt" : `${String(d.getHours()).padStart(2, "0")}:00`);
+  });
+  return `<div class="v-achse">${teile.map((t) => `<span>${t}</span>`).join("")}</div>`;
+}
+// Linie für Zahlensensoren
+function kurveHtml(punkte, von, bis, st) {
+  const p = punkte.map((x) => ({ t: x.t, v: Number(x.s) })).filter((x) => !isNaN(x.v));
+  if (st && !isNaN(Number(st.state))) p.push({ t: bis, v: Number(st.state) });
+  if (p.length < 2) return `<div class="v-leer">Noch kein Verlauf in diesem Zeitraum.</div>`;
+  let min = Math.min(...p.map((x) => x.v)), max = Math.max(...p.map((x) => x.v));
+  const spanne = max - min || 1, unten = min - spanne * 0.1, oben = max + spanne * 0.1;
+  const X = (t) => ((t - von) / (bis - von)) * 300, Y = (v) => 80 - ((v - unten) / (oben - unten)) * 76;
+  // Stufen statt Schrägen: Messwert gilt bis zum nächsten
+  let d = `M${X(p[0].t).toFixed(1)},${Y(p[0].v).toFixed(1)}`;
+  for (let i = 1; i < p.length; i++) d += ` L${X(p[i].t).toFixed(1)},${Y(p[i - 1].v).toFixed(1)} L${X(p[i].t).toFixed(1)},${Y(p[i].v).toFixed(1)}`;
+  const flaeche = `${d} L${X(p[p.length - 1].t).toFixed(1)},80 L${X(p[0].t).toFixed(1)},80 Z`;
+  return `<svg class="v-kurve" viewBox="0 0 300 80" preserveAspectRatio="none" aria-hidden="true"><path class="flaeche" d="${flaeche}"/><path class="linie" d="${d}"/></svg>
+    ${achseHtml(von, bis)}<div class="v-minmax"><span>Tief ${zahl(min, st)}</span><span>Hoch ${zahl(max, st)}</span></div>`;
+}
+// Zeitleiste für An/Aus, Offen/Zu
+const istAktivZustand = (s) => ["on", "open", "heat", "heating", "cool", "playing", "home", "detected", "unlocked"].includes(String(s).toLowerCase());
+function leisteHtml(punkte, von, bis, st) {
+  const p = [...punkte];
+  if (!p.length && st) p.push({ t: von, s: st.state });
+  const teile = [];
+  let anzahl = 0, dauer = 0;
+  p.forEach((x, i) => {
+    if (!istAktivZustand(x.s)) return;
+    const ende = p[i + 1]?.t ?? bis;
+    if (i === 0 || !istAktivZustand(p[i - 1].s)) anzahl++;
+    dauer += ende - x.t;
+    teile.push(`<i style="left:${((x.t - von) / (bis - von)) * 100}%;width:${Math.max(0.6, ((ende - x.t) / (bis - von)) * 100)}%"></i>`);
+  });
+  const std = dauer / 36e5;
+  const summe = !anzahl ? "nie" : `${anzahl}× · ${std >= 1 ? `${std.toFixed(1).replace(".", ",")} Std.` : `${Math.max(1, Math.round(dauer / 6e4))} Min.`}`;
+  return { html: `<div class="v-leiste" aria-hidden="true">${teile.join("")}</div>${achseHtml(von, bis)}`, summe };
+}
+function verlaufKarteHtml(h, eid, v, fokus) {
+  const st = h.states[eid];
+  if (!st) return "";
+  const dc = st.attributes.device_class;
+  const name = esc(st.attributes.friendly_name || eid);
+  const tag = fokus !== undefined ? "button" : "div";
+  if (istZahlSensor(st)) {
+    return `<${tag} class="v-karte glas ${fokus ? "fokus" : ""}" data-ve="${esc(eid)}" style="--vf:${VERLAUF_FARBE[dc] || "#0a84ff"}"><div class="v-kopf"><b>${name}</b><span>${esc(zustandText(h, st))}</span></div>
+      ${kurveHtml(v.daten[eid] || [], v.von, v.bis, st)}</${tag}>`;
+  }
+  const l = leisteHtml(v.daten[eid] || [], v.von, v.bis, st);
+  const farbe = domainVon(eid) === "light" ? "#ffcc00" : ["window", "door", "garage_door", "opening"].includes(dc) ? "#ff9f0a" : ["motion", "occupancy", "presence"].includes(dc) ? "#5e5ce6" : "#34c759";
+  return `<${tag} class="v-karte glas ${fokus ? "fokus" : ""}" data-ve="${esc(eid)}" style="--vf:${farbe}"><div class="v-kopf"><b>${name}</b><span>${esc(zustandText(h, st))} · ${l.summe}</span></div>${l.html}</${tag}>`;
+}
+const ZEITRAEUME = [[24, "24 Std."], [168, "7 Tage"]];
+const zeitraumHtml = (stunden) => `<div class="zeitraum" role="group" aria-label="Zeitraum">${ZEITRAEUME.map(([s, n]) =>
+  `<button class="pille fuell ${stunden === s ? "aktiv" : ""}" data-zeitraum="${s}" aria-pressed="${stunden === s}">${n}</button>`).join("")}</div>`;
+
+// Raum-Verlauf: Luft, Fenster & Türen, Licht, Bewegung, Heizung – alles aus dem HA-Bereich
+const RAUM_VERLAUF_GRUPPEN = [
+  ["Luft", (st) => istZahlSensor(st) && ["temperature", "humidity", "carbon_dioxide", "pm25", "pm10", "volatile_organic_compounds", "illuminance"].includes(st.attributes.device_class)],
+  ["Fenster & Türen", (st) => istFenster(st)],
+  ["Licht", (st) => domainVon(st.entity_id) === "light"],
+  ["Bewegung & Anwesenheit", (st) => domainVon(st.entity_id) === "binary_sensor" && ["motion", "occupancy", "presence"].includes(st.attributes.device_class)],
+  ["Heizung & Klima", (st) => ["climate", "fan", "humidifier"].includes(domainVon(st.entity_id))],
+  ["Strom", (st) => istZahlSensor(st) && st.attributes.device_class === "power"],
+];
+function raumVerlaufOeffnen(quelle, bereich, raumName, fokus) {
+  const s = new GlasSchicht({ quelle, hoch: true, titel: `Verlauf ${raumName || ""}`.trim() });
+  let stunden = 24, v = null, laedt = false;
+  const h0 = Glas.hass || quelle._hass;
+  const alle = bereich ? Object.keys(h0.states).filter((e) => bereichVon(h0, e) === bereich && !h0.entities?.[e]?.hidden && h0.entities?.[e]?.entity_category !== "diagnostic") : [];
+  if (fokus && !alle.includes(fokus)) alle.unshift(fokus);
+  const gruppen = RAUM_VERLAUF_GRUPPEN.map(([n, f]) => [n, alle.filter((e) => h0.states[e] && f(h0.states[e]))]).filter(([, l]) => l.length);
+  const ids = [...new Set(gruppen.flatMap(([, l]) => l))];
+  const zeichnen = () => {
+    const h = Glas.hass || quelle._hass;
+    s.dunkel(istDunkel(h));
+    s.inhalt.innerHTML = `<style>${VERLAUF_CSS}</style>${s.kopfHtml("Verlauf", [raumName, stunden === 24 ? "letzte 24 Stunden" : "letzte 7 Tage"].filter(Boolean).join(" · "))}${zeitraumHtml(stunden)}
+      ${!ids.length ? `<div class="v-leer">In diesem Raum gibt es keine Sensoren mit Verlauf.</div>` : !v ? `<div class="v-leer">Lade Verlauf …</div>`
+        : gruppen.map(([n, l]) => `<div class="v-gruppe-titel">${esc(n)}</div><div class="v-gruppe">${l.map((e) => verlaufKarteHtml(h, e, v, e === fokus)).join("")}</div>`).join("")}`;
+    s.kopfBinden();
+    s.inhalt.querySelectorAll("[data-zeitraum]").forEach((b) => b.addEventListener("click", () => { stunden = Number(b.dataset.zeitraum); laden(); }));
+    s.inhalt.querySelectorAll("button[data-ve]").forEach((b) => b.addEventListener("click", () => mehrInfo(quelle, b.dataset.ve)));
+    if (fokus && v && !s._gescrollt) { s._gescrollt = true; s.inhalt.querySelector(".fokus")?.scrollIntoView({ block: "center" }); }
+  };
+  const laden = async () => {
+    if (laedt) return;
+    laedt = true; v = null; zeichnen();
+    v = await verlaufHolen(Glas.hass || quelle._hass, ids, stunden);
+    laedt = false; zeichnen();
+  };
+  s.oeffnen();
+  laden();
+  return s;
+}
+// ---------------------------------------------------------------------------
 // Bereichs-Karten: kompakt auf der Startseite, Tippen öffnet ein Blatt mit allem
 // Sicherheit · Drucker & Werkstatt · Robi · Gäste
 // ---------------------------------------------------------------------------
@@ -4368,6 +4550,27 @@ const BLATT_CSS = `
 .robi-raum.aktiv ha-icon{color:#fff}
 .robi-chips{padding:var(--g-a1) 0 var(--g-a3)}
 .karte [data-raeume]{margin-bottom:var(--g-a2)}
+.ellipse{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.medien{display:flex;flex-direction:column;gap:var(--g-a2)}
+.medien-platz .bild{display:block;width:100%;aspect-ratio:1;padding:0;border:0}
+.medien-platz .bild.ist-live{aspect-ratio:16/9}
+.bild .live{display:none}
+.bild.ist-live .live,.bild[data-kamera] .live{display:inline-flex}
+.segment-w{display:flex;padding:3px;border-radius:var(--g-r-pille);background:var(--g-fuell);align-self:center}
+.segment-w button{min-height:36px;padding:0 var(--g-a4);border-radius:var(--g-r-pille);font-size:var(--g-s-name);font-weight:600;color:var(--g-text2)}
+.segment-w button[aria-pressed="true"]{background:var(--g-blatt,#fff);color:var(--g-text);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.aktion.licht-an{background:#ffcc00;color:#1c1c1e;border-color:transparent}
+.luefter{display:grid;grid-template-columns:minmax(0,1fr) 54px;grid-template-areas:"n w" "r r";align-items:center;gap:4px var(--g-a2);padding:var(--g-a2) 0}
+.luefter .ln{grid-area:n;display:flex;align-items:center;gap:var(--g-a2);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.luefter .ln ha-icon{--mdc-icon-size:20px;color:var(--g-text2)}
+.luefter .ln ha-icon.dreht{color:var(--g-blau,#0a84ff);animation:robi-dreh var(--dauer) linear infinite}
+.luefter .lw{grid-area:w;text-align:right;font-size:var(--g-s-name);font-variant-numeric:tabular-nums;color:var(--g-text)}
+.luefter input{grid-area:r;width:100%;height:32px;margin:0;-webkit-appearance:none;appearance:none;background:transparent;touch-action:none}
+.luefter input::-webkit-slider-runnable-track{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--g-blau,#0a84ff) var(--p),var(--g-fuell) var(--p))}
+.luefter input::-moz-range-track{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--g-blau,#0a84ff) var(--p),var(--g-fuell) var(--p))}
+.luefter input::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;margin-top:-8px;border-radius:50%;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3)}
+.luefter input::-moz-range-thumb{width:26px;height:26px;border:0;border-radius:50%;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3)}
+@media (prefers-reduced-motion:reduce){.luefter .ln ha-icon.dreht{animation:none}}
 .qr svg{width:220px;height:220px;padding:14px;border-radius:var(--g-r);background:#fff}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap}
 ${BEREICH_CSS.replace(":host{display:block;height:100%}", "")}
@@ -4542,7 +4745,6 @@ class GlasDruckerCard extends GlasBereichKarte {
     return null;
   }
   st(k) { const id = this.e(k); return id ? this._hass.states[id] : null; }
-  entitaeten() { return [...Object.keys(DRUCKER_SUCHE).map((k) => this.e(k)), this._config.stecker].filter(Boolean); }
   blattTitel() { return this._config.name; }
   blattHoch() { return true; }
   werte() {
@@ -4581,26 +4783,76 @@ class GlasDruckerCard extends GlasBereichKarte {
   disconnectedCallback() { super.disconnectedCallback(); clearInterval(this._werkT); }
   set hass(h) { const erst = !this._hass; super.hass = h; if (erst) this.werkstattLaden(); }
   get hass() { return this._hass; }
+  // Alles, was am Drucker-Gerät hängt (Lüfter, Licht, Auswahlen)
+  geraetId() {
+    const c = this._config, h = this._hass;
+    if (c.geraet) return c.geraet;
+    const e = c.fortschritt || c.status;
+    return e ? h.entities?.[e]?.device_id : null;
+  }
+  geraetEntitaeten(domain) {
+    const h = this._hass, dev = this.geraetId();
+    if (!dev) return [];
+    return Object.keys(h.entities || {}).filter((e) => e.startsWith(`${domain}.`) && h.entities[e].device_id === dev && !h.entities[e].hidden && h.states[e]);
+  }
+  luefter() { const c = this._config; return (c.luefter?.length ? c.luefter : this.geraetEntitaeten("fan")).map((e) => this._hass.states[e]).filter(Boolean); }
+  lichter() { const c = this._config; return (c.licht ? [c.licht] : this.geraetEntitaeten("light")).map((e) => this._hass.states[e]).filter(Boolean); }
+  auswahlen() { const c = this._config; return (c.auswahl?.length ? c.auswahl : this.geraetEntitaeten("select").filter((e) => /speed|geschw/i.test(e))).map((e) => this._hass.states[e]).filter(Boolean); }
+  kameraId() { return this.e("kamera") || this.geraetEntitaeten("camera")[0] || this.geraetEntitaeten("image").find((e) => /camera|kamera/i.test(e)) || null; }
+  bildId() { return this.e("bild") || this.geraetEntitaeten("image").find((e) => /cover/i.test(e)) || null; }
+  medienQuelle(modus) {
+    const h = this._hass;
+    if (modus === "live") {
+      const k = this.kameraId(), st = k && h.states[k];
+      if (!st) return "";
+      if (k.startsWith("camera.") && st.attributes.access_token) return `/api/camera_proxy_stream/${k}?token=${st.attributes.access_token}`;
+      return st.attributes.entity_picture || "";
+    }
+    const b = this.bildId(), st = b && h.states[b];
+    return st?.attributes.entity_picture || "";
+  }
   blattHtml(s) {
     const h = this._hass, c = this._config, w = this.werte();
-    const auf = this.st("aufgabe"), sch = this.st("schicht"), schs = this.st("schichten"), du = this.st("duese"), be = this.st("bett"), bild = this.st("bild");
-    const knoepfe = [];
-    if (this.e("pause") || this.e("weiter")) knoepfe.push(`<button class="aktion glas" data-pause>${w.pause ? "Fortsetzen" : "Pause"}</button>`);
-    if (this.e("licht")) knoepfe.push(`<button class="aktion glas" data-licht>Licht ${this.st("licht")?.state === "on" ? "aus" : "an"}</button>`);
-    if (c.stecker) knoepfe.push(`<button class="aktion glas" data-stecker>Strom ${h.states[c.stecker]?.state === "on" ? "aus" : "an"}</button>`);
+    const auf = this.st("aufgabe"), sch = this.st("schicht"), schs = this.st("schichten"), du = this.st("duese"), be = this.st("bett");
+    const stecker = c.stecker && h.states[c.stecker], strom = !stecker || stecker.state === "on";
+    const hatBild = !!this.medienQuelle("bild"), hatLive = !!this.kameraId();
+    const modus = this._modus || (w.laeuft && hatLive ? "live" : hatBild ? "bild" : "live");
+    this._modusJetzt = modus;
+    const farbe2 = w.laeuft ? (w.pause ? "var(--g-orange)" : "var(--g-gruen)") : "#8e8e93";
     const werk = this._werk;
     const rollen = werk?.rollen || [];
     const geladen = rollen.find((r) => r.id === werk?.geladen);
     const knapp = rollen.filter((r) => r.rest_g != null && r.rest_g < c.knapp_g).slice(0, 5);
     const farbe = (r) => r?.hex || "#8e8e93";
-    return `${s.kopfHtml(`${c.name} ${w.status}`, [auf && Geraet.verfuegbar(auf) ? auf.state : "", w.pct == null ? w.rest : ""].filter(Boolean).join(" · "))}
-      <div class="raster2">${bild?.attributes.entity_picture ? `<div class="bild" style="aspect-ratio:1"><img alt="Vorschau" src="${esc(bild.attributes.entity_picture)}"></div>` : ""}
-        ${this.kameraHtml(this.e("kamera"), "Druckerkamera").replace('class="bild"', `class="bild" style="aspect-ratio:${bild ? "1" : "16/9"}"`)}</div>
-      ${w.pct != null ? `<div><div class="balken" style="--bf:${w.pause ? "var(--g-orange)" : "var(--g-gruen)"}"><i style="width:${klemmen(w.pct, 0, 100)}%"></i></div>
-        <div class="zeile" style="border:0"><span class="gross">${Math.round(w.pct)} %</span><span class="rechts">${esc(w.rest)}</span></div></div>` : ""}
-      ${sch || du || be ? `<div class="raster3">${sch ? `<div class="wertbox glas"><span class="leise">Schicht</span><b>${esc(sch.state)}${schs ? ` / ${esc(schs.state)}` : ""}</b></div>` : ""}
+    const luefter = strom ? this.luefter() : [], lichter = strom ? this.lichter() : [], wahl = strom ? this.auswahlen() : [];
+    const knoepfe = [];
+    if (stecker) knoepfe.push(`<button class="aktion ${strom ? "glas" : "robi-haupt"}" data-stecker><ha-icon data-i="mdi:power"></ha-icon>${strom ? "Ausschalten" : "Einschalten"}</button>`);
+    if (strom && (this.e("pause") || this.e("weiter")) && w.laeuft) knoepfe.push(`<button class="aktion robi-haupt" data-pause><ha-icon data-i="${w.pause ? "mdi:play" : "mdi:pause"}"></ha-icon>${w.pause ? "Fortsetzen" : "Pause"}</button>`);
+    if (strom && this.e("stopp") && w.laeuft) knoepfe.push(`<button class="aktion glas" data-stopp><ha-icon data-i="mdi:stop"></ha-icon>${this._stoppFrage ? "Wirklich stoppen?" : "Stoppen"}</button>`);
+    lichter.forEach((l) => knoepfe.push(`<button class="aktion ${l.state === "on" ? "licht-an" : "glas"}" data-licht="${esc(l.entity_id)}" aria-pressed="${l.state === "on"}"><ha-icon data-i="${l.state === "on" ? "mdi:lightbulb-on" : "mdi:lightbulb-outline"}"></ha-icon>${esc(robiName(l, c.name).replace(/^chamber light$/i, "Licht"))}</button>`));
+    return `${s.kopfHtml(c.name || "Drucker", "3D-Drucker")}
+      <div class="robi-held glas ${w.laeuft && !w.pause ? "putzt" : ""}" style="--g-lila:${farbe2}">
+        <div class="robi-bild"><span class="ring" aria-hidden="true"></span><ha-icon data-i="mdi:printer-3d-nozzle"></ha-icon></div>
+        <div class="robi-text"><span class="robi-status">${esc(w.aus ? "Ausgeschaltet" : (w.status || "").replace(/^./, (x) => x.toUpperCase()))}${w.laeuft && w.pct != null ? ` · ${Math.round(w.pct)} %` : ""}</span>
+          ${auf && Geraet.verfuegbar(auf) && auf.state ? `<span class="leise ellipse">${esc(auf.state)}</span>` : ""}
+          ${w.laeuft && w.pct != null ? `<div class="balken"><i style="width:${klemmen(w.pct, 0, 100)}%;--bf:${farbe2}"></i></div>` : ""}
+          ${w.rest ? `<span class="leise">${esc(w.rest)}</span>` : ""}</div>
+      </div>
+      ${strom && (hatBild || hatLive) ? `<div class="medien">
+        ${hatBild && hatLive ? `<div class="segment-w" role="group" aria-label="Bild"><button data-modus="bild" aria-pressed="${modus === "bild"}">Vorschau</button><button data-modus="live" aria-pressed="${modus === "live"}">Live</button></div>` : ""}
+        <div class="medien-platz"></div></div>` : ""}
+      ${knoepfe.length ? `<div class="raster2">${knoepfe.join("")}</div>` : ""}
+      ${strom && (sch || du || be) ? `<div class="raster3">${sch ? `<div class="wertbox glas"><span class="leise">Schicht</span><b>${esc(sch.state)}${schs ? ` / ${esc(schs.state)}` : ""}</b></div>` : ""}
         ${du ? `<div class="wertbox glas"><span class="leise">Düse</span><b>${esc(zustandText(h, du))}</b></div>` : ""}${be ? `<div class="wertbox glas"><span class="leise">Bett</span><b>${esc(zustandText(h, be))}</b></div>` : ""}</div>` : ""}
-      ${knoepfe.length ? `<div class="raster3">${knoepfe.join("")}</div>` : ""}
+      ${luefter.length || wahl.length ? `<div class="karte glas">
+        ${luefter.length ? `<div class="karte-kopf"><h3 class="karte-titel">Lüfter</h3></div>${luefter.map((f) => {
+          const pct = f.state === "on" ? Math.round(Number(f.attributes.percentage ?? 100)) : 0;
+          return `<div class="luefter"><span class="ln"><ha-icon data-i="${pct ? "mdi:fan" : "mdi:fan-off"}" class="${pct ? "dreht" : ""}" style="--dauer:${pct ? (2.2 - pct / 60).toFixed(2) : 0}s"></ha-icon>${esc(luefterName(f, c.name))}</span>
+            <input type="range" min="0" max="100" step="10" value="${pct}" data-luefter="${esc(f.entity_id)}" aria-label="${esc(luefterName(f, c.name))}" style="--p:${pct}%"><b class="lw">${pct} %</b></div>`;
+        }).join("")}` : ""}
+        ${wahl.map((a) => `<div class="karte-kopf"><h3 class="karte-titel">${esc(robiName(a, c.name))}</h3></div><div class="chips robi-chips">${(a.attributes.options || []).map((o) =>
+          `<button class="pille fuell ${a.state === o ? "aktiv" : ""}" data-wahl="${esc(a.entity_id)}" data-o="${esc(o)}" aria-pressed="${a.state === o}">${esc(DRUCK_TEMPO[o] || attributText(h, { ...a, attributes: { ...a.attributes, x: o } }, "x") || o)}</button>`).join("")}</div>`).join("")}
+      </div>` : ""}
       ${geladen ? `<div class="zeile glas" style="padding:0 var(--g-a3);border-radius:var(--g-r-klein)"><span class="punkt" style="background:${farbe(geladen)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>
         ${esc(geladen.material)} ${esc(geladen.farbe)}<span class="rechts">${geladen.rest_g != null ? `noch ${Math.round(geladen.rest_g)} g` : ""}</span></div>` : ""}
       ${werk ? `<h3 class="h2" style="margin-top:var(--g-a2)">Werkstatt</h3>
@@ -4614,13 +4866,44 @@ class GlasDruckerCard extends GlasBereichKarte {
         `<div class="zeile"><span class="punkt" style="background:${farbe(r)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>${esc(r.material)} ${esc(r.farbe)}<span class="rechts warn">noch ${Math.round(r.rest_g)} g</span></div>`).join("")}</div>` : ""}` : ""}
       <button class="link" data-werk>Werkstatt öffnen ›</button>`;
   }
+  // Bild/Livebild bleibt als eigenes Element bestehen, damit der Stream beim Neuzeichnen nicht abreißt
+  medienSetzen(platz) {
+    if (!platz) return;
+    const src = this.medienQuelle(this._modusJetzt);
+    if (!this._medien) {
+      this._medien = document.createElement("button");
+      this._medien.className = "bild drucker-bild";
+      this._medien.innerHTML = `<img alt=""><span class="live">LIVE</span>`;
+      this._medien.addEventListener("click", () => { const k = this._modusJetzt === "live" ? this.kameraId() : this.bildId(); if (k) mehrInfo(this, k); });
+    }
+    const img = this._medien.querySelector("img");
+    if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    this._medien.classList.toggle("ist-live", this._modusJetzt === "live");
+    this._medien.setAttribute("aria-label", this._modusJetzt === "live" ? "Livebild groß öffnen" : "Vorschaubild groß öffnen");
+    platz.appendChild(this._medien);
+  }
   blattBinden(s, $, $$) {
     const h = this._hass, w = this.werte();
     s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    this.medienSetzen($(".medien-platz"));
+    $$("[data-modus]").forEach((b) => b.addEventListener("click", () => { this._modus = b.dataset.modus; this.blattZeichnen(); }));
     $("[data-pause]")?.addEventListener("click", () => { const b = this.e(w.pause ? "weiter" : "pause"); if (b) h.callService("button", "press", { entity_id: b }); });
-    $("[data-licht]")?.addEventListener("click", () => h.callService("light", "toggle", { entity_id: this.e("licht") }));
+    $("[data-stopp]")?.addEventListener("click", () => {
+      if (!this._stoppFrage) { this._stoppFrage = true; this.blattZeichnen(); setTimeout(() => { this._stoppFrage = false; this.blattZeichnen(); }, 4000); return; }
+      this._stoppFrage = false; h.callService("button", "press", { entity_id: this.e("stopp") });
+    });
+    $$("[data-licht]").forEach((b) => b.addEventListener("click", () => h.callService("light", "toggle", { entity_id: b.dataset.licht })));
     $("[data-stecker]")?.addEventListener("click", () => h.callService("homeassistant", "toggle", { entity_id: this._config.stecker }));
-    $$("[data-kamera]").forEach((b) => b.addEventListener("click", () => mehrInfo(this, b.dataset.kamera)));
+    $$("[data-luefter]").forEach((r) => {
+      const anzeigen = () => { r.style.setProperty("--p", `${r.value}%`); r.nextElementSibling.textContent = `${r.value} %`; };
+      r.addEventListener("pointerdown", () => { this._blattSperre = true; });
+      r.addEventListener("input", anzeigen);
+      r.addEventListener("change", () => {
+        this._blattSperre = false; const v = Number(r.value);
+        h.callService("fan", v ? "set_percentage" : "turn_off", v ? { entity_id: r.dataset.luefter, percentage: v } : { entity_id: r.dataset.luefter });
+      });
+    });
+    $$("[data-wahl]").forEach((b) => b.addEventListener("click", () => h.callService("select", "select_option", { entity_id: b.dataset.wahl, option: b.dataset.o })));
     $("[data-werk]")?.addEventListener("click", () => { s.schliessen(); navigieren(this._config.werkstatt_pfad || "/filament"); });
     const feld = $("input.feld");
     const hinzu = async () => {
@@ -4632,23 +4915,36 @@ class GlasDruckerCard extends GlasBereichKarte {
     feld?.addEventListener("keydown", (e) => { if (e.key === "Enter") hinzu(); });
     $("[data-plus]")?.addEventListener("click", hinzu);
   }
+  entitaeten() { return [...Object.keys(DRUCKER_SUCHE).map((k) => this.e(k)), this._config.stecker, this.kameraId(), this.bildId(),
+    ...this.luefter().map((x) => x.entity_id), ...this.lichter().map((x) => x.entity_id), ...this.auswahlen().map((x) => x.entity_id)].filter(Boolean); }
 }
+const DRUCK_TEMPO = { silent: "Leise", standard: "Standard", sport: "Sport", ludicrous: "Turbo" };
+const luefterName = (st, vorne) => {
+  const n = robiName(st, vorne), roh = `${st.entity_id} ${n}`.toLowerCase();
+  if (/aux/.test(roh)) return "Hilfslüfter";
+  if (/chamber|kammer/.test(roh)) return "Kammerlüfter";
+  if (/cooling|part|bauteil/.test(roh)) return "Bauteillüfter";
+  return n;
+};
 class GlasDruckerEditor extends GlasEditor {
   schema() {
     return [
       { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "breite", selector: { select: { mode: "dropdown", options: [{ value: "ganz", label: "Ganze Breite" }, { value: "halb", label: "Halbe Breite" }] } } }] },
       { name: "geraet", selector: { device: {} } },
-      { name: "stecker", selector: { entity: { filter: { domain: "switch" } } } },
+      { name: "stecker", selector: { entity: { filter: { domain: ["switch", "input_boolean"] } } } },
+      { name: "luefter", selector: { entity: { multiple: true, filter: { domain: "fan" } } } },
+      { type: "grid", name: "", schema: [{ name: "licht", selector: { entity: { filter: { domain: "light" } } } }, { name: "auswahl", selector: { entity: { multiple: true, filter: { domain: "select" } } } }] },
       { type: "grid", name: "", schema: [{ name: "werkstatt", selector: { boolean: {} } }, { name: "knapp_g", selector: { number: { min: 0, max: 1000, mode: "box", unit_of_measurement: "g" } } }] },
       { type: "expandable", flatten: true, name: "einzeln", title: "Entitäten einzeln festlegen (sonst automatisch)", icon: "mdi:tune", schema:
         Object.keys(DRUCKER_SUCHE).map((k) => ({ name: k, selector: { entity: {} } })) },
     ];
   }
   render() { if (this._config.werkstatt === undefined) this._config.werkstatt = true; super.render(); }
-  labels() { return { name: "Name", breite: "Breite", geraet: "Drucker-Gerät (Bambu Lab)", stecker: "Steckdose des Druckers", werkstatt: "Werkstatt-Daten zeigen", knapp_g: "Filament knapp unter",
+  labels() { return { name: "Name", breite: "Breite", geraet: "Drucker-Gerät (Bambu Lab)", stecker: "Steckdose, die den Drucker ein- und ausschaltet", luefter: "Lüfter (leer = alle vom Drucker)", licht: "Licht (leer = automatisch)",
+    auswahl: "Auswahlen, z. B. Druckgeschwindigkeit", werkstatt: "Werkstatt-Daten zeigen", knapp_g: "Filament knapp unter",
     fortschritt: "Fortschritt", status: "Status", restzeit: "Restzeit", ende: "Endzeit", schicht: "Aktuelle Schicht", schichten: "Schichten gesamt", duese: "Düsentemperatur",
     bett: "Betttemperatur", aufgabe: "Dateiname", kamera: "Kamera", licht: "Licht", pause: "Knopf Pause", weiter: "Knopf Fortsetzen", stopp: "Knopf Stopp", bild: "Vorschaubild" }; }
-  hilfen() { return { geraet: "Alle Werte werden aus dem Gerät gesucht. Fehlt etwas, unten einzeln festlegen." }; }
+  hilfen() { return { geraet: "Alle Werte, Lüfter, Licht, Vorschaubild und Kamera werden aus dem Gerät gesucht. Fehlt etwas, unten einzeln festlegen." }; }
 }
 
 // ---------------------------------------------------------------------------

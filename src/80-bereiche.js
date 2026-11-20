@@ -66,6 +66,27 @@ const BLATT_CSS = `
 .robi-raum.aktiv ha-icon{color:#fff}
 .robi-chips{padding:var(--g-a1) 0 var(--g-a3)}
 .karte [data-raeume]{margin-bottom:var(--g-a2)}
+.ellipse{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.medien{display:flex;flex-direction:column;gap:var(--g-a2)}
+.medien-platz .bild{display:block;width:100%;aspect-ratio:1;padding:0;border:0}
+.medien-platz .bild.ist-live{aspect-ratio:16/9}
+.bild .live{display:none}
+.bild.ist-live .live,.bild[data-kamera] .live{display:inline-flex}
+.segment-w{display:flex;padding:3px;border-radius:var(--g-r-pille);background:var(--g-fuell);align-self:center}
+.segment-w button{min-height:36px;padding:0 var(--g-a4);border-radius:var(--g-r-pille);font-size:var(--g-s-name);font-weight:600;color:var(--g-text2)}
+.segment-w button[aria-pressed="true"]{background:var(--g-blatt,#fff);color:var(--g-text);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.aktion.licht-an{background:#ffcc00;color:#1c1c1e;border-color:transparent}
+.luefter{display:grid;grid-template-columns:minmax(0,1fr) 54px;grid-template-areas:"n w" "r r";align-items:center;gap:4px var(--g-a2);padding:var(--g-a2) 0}
+.luefter .ln{grid-area:n;display:flex;align-items:center;gap:var(--g-a2);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.luefter .ln ha-icon{--mdc-icon-size:20px;color:var(--g-text2)}
+.luefter .ln ha-icon.dreht{color:var(--g-blau,#0a84ff);animation:robi-dreh var(--dauer) linear infinite}
+.luefter .lw{grid-area:w;text-align:right;font-size:var(--g-s-name);font-variant-numeric:tabular-nums;color:var(--g-text)}
+.luefter input{grid-area:r;width:100%;height:32px;margin:0;-webkit-appearance:none;appearance:none;background:transparent;touch-action:none}
+.luefter input::-webkit-slider-runnable-track{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--g-blau,#0a84ff) var(--p),var(--g-fuell) var(--p))}
+.luefter input::-moz-range-track{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--g-blau,#0a84ff) var(--p),var(--g-fuell) var(--p))}
+.luefter input::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;margin-top:-8px;border-radius:50%;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3)}
+.luefter input::-moz-range-thumb{width:26px;height:26px;border:0;border-radius:50%;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3)}
+@media (prefers-reduced-motion:reduce){.luefter .ln ha-icon.dreht{animation:none}}
 .qr svg{width:220px;height:220px;padding:14px;border-radius:var(--g-r);background:#fff}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap}
 ${BEREICH_CSS.replace(":host{display:block;height:100%}", "")}
@@ -240,7 +261,6 @@ class GlasDruckerCard extends GlasBereichKarte {
     return null;
   }
   st(k) { const id = this.e(k); return id ? this._hass.states[id] : null; }
-  entitaeten() { return [...Object.keys(DRUCKER_SUCHE).map((k) => this.e(k)), this._config.stecker].filter(Boolean); }
   blattTitel() { return this._config.name; }
   blattHoch() { return true; }
   werte() {
@@ -279,26 +299,76 @@ class GlasDruckerCard extends GlasBereichKarte {
   disconnectedCallback() { super.disconnectedCallback(); clearInterval(this._werkT); }
   set hass(h) { const erst = !this._hass; super.hass = h; if (erst) this.werkstattLaden(); }
   get hass() { return this._hass; }
+  // Alles, was am Drucker-Gerät hängt (Lüfter, Licht, Auswahlen)
+  geraetId() {
+    const c = this._config, h = this._hass;
+    if (c.geraet) return c.geraet;
+    const e = c.fortschritt || c.status;
+    return e ? h.entities?.[e]?.device_id : null;
+  }
+  geraetEntitaeten(domain) {
+    const h = this._hass, dev = this.geraetId();
+    if (!dev) return [];
+    return Object.keys(h.entities || {}).filter((e) => e.startsWith(`${domain}.`) && h.entities[e].device_id === dev && !h.entities[e].hidden && h.states[e]);
+  }
+  luefter() { const c = this._config; return (c.luefter?.length ? c.luefter : this.geraetEntitaeten("fan")).map((e) => this._hass.states[e]).filter(Boolean); }
+  lichter() { const c = this._config; return (c.licht ? [c.licht] : this.geraetEntitaeten("light")).map((e) => this._hass.states[e]).filter(Boolean); }
+  auswahlen() { const c = this._config; return (c.auswahl?.length ? c.auswahl : this.geraetEntitaeten("select").filter((e) => /speed|geschw/i.test(e))).map((e) => this._hass.states[e]).filter(Boolean); }
+  kameraId() { return this.e("kamera") || this.geraetEntitaeten("camera")[0] || this.geraetEntitaeten("image").find((e) => /camera|kamera/i.test(e)) || null; }
+  bildId() { return this.e("bild") || this.geraetEntitaeten("image").find((e) => /cover/i.test(e)) || null; }
+  medienQuelle(modus) {
+    const h = this._hass;
+    if (modus === "live") {
+      const k = this.kameraId(), st = k && h.states[k];
+      if (!st) return "";
+      if (k.startsWith("camera.") && st.attributes.access_token) return `/api/camera_proxy_stream/${k}?token=${st.attributes.access_token}`;
+      return st.attributes.entity_picture || "";
+    }
+    const b = this.bildId(), st = b && h.states[b];
+    return st?.attributes.entity_picture || "";
+  }
   blattHtml(s) {
     const h = this._hass, c = this._config, w = this.werte();
-    const auf = this.st("aufgabe"), sch = this.st("schicht"), schs = this.st("schichten"), du = this.st("duese"), be = this.st("bett"), bild = this.st("bild");
-    const knoepfe = [];
-    if (this.e("pause") || this.e("weiter")) knoepfe.push(`<button class="aktion glas" data-pause>${w.pause ? "Fortsetzen" : "Pause"}</button>`);
-    if (this.e("licht")) knoepfe.push(`<button class="aktion glas" data-licht>Licht ${this.st("licht")?.state === "on" ? "aus" : "an"}</button>`);
-    if (c.stecker) knoepfe.push(`<button class="aktion glas" data-stecker>Strom ${h.states[c.stecker]?.state === "on" ? "aus" : "an"}</button>`);
+    const auf = this.st("aufgabe"), sch = this.st("schicht"), schs = this.st("schichten"), du = this.st("duese"), be = this.st("bett");
+    const stecker = c.stecker && h.states[c.stecker], strom = !stecker || stecker.state === "on";
+    const hatBild = !!this.medienQuelle("bild"), hatLive = !!this.kameraId();
+    const modus = this._modus || (w.laeuft && hatLive ? "live" : hatBild ? "bild" : "live");
+    this._modusJetzt = modus;
+    const farbe2 = w.laeuft ? (w.pause ? "var(--g-orange)" : "var(--g-gruen)") : "#8e8e93";
     const werk = this._werk;
     const rollen = werk?.rollen || [];
     const geladen = rollen.find((r) => r.id === werk?.geladen);
     const knapp = rollen.filter((r) => r.rest_g != null && r.rest_g < c.knapp_g).slice(0, 5);
     const farbe = (r) => r?.hex || "#8e8e93";
-    return `${s.kopfHtml(`${c.name} ${w.status}`, [auf && Geraet.verfuegbar(auf) ? auf.state : "", w.pct == null ? w.rest : ""].filter(Boolean).join(" · "))}
-      <div class="raster2">${bild?.attributes.entity_picture ? `<div class="bild" style="aspect-ratio:1"><img alt="Vorschau" src="${esc(bild.attributes.entity_picture)}"></div>` : ""}
-        ${this.kameraHtml(this.e("kamera"), "Druckerkamera").replace('class="bild"', `class="bild" style="aspect-ratio:${bild ? "1" : "16/9"}"`)}</div>
-      ${w.pct != null ? `<div><div class="balken" style="--bf:${w.pause ? "var(--g-orange)" : "var(--g-gruen)"}"><i style="width:${klemmen(w.pct, 0, 100)}%"></i></div>
-        <div class="zeile" style="border:0"><span class="gross">${Math.round(w.pct)} %</span><span class="rechts">${esc(w.rest)}</span></div></div>` : ""}
-      ${sch || du || be ? `<div class="raster3">${sch ? `<div class="wertbox glas"><span class="leise">Schicht</span><b>${esc(sch.state)}${schs ? ` / ${esc(schs.state)}` : ""}</b></div>` : ""}
+    const luefter = strom ? this.luefter() : [], lichter = strom ? this.lichter() : [], wahl = strom ? this.auswahlen() : [];
+    const knoepfe = [];
+    if (stecker) knoepfe.push(`<button class="aktion ${strom ? "glas" : "robi-haupt"}" data-stecker><ha-icon data-i="mdi:power"></ha-icon>${strom ? "Ausschalten" : "Einschalten"}</button>`);
+    if (strom && (this.e("pause") || this.e("weiter")) && w.laeuft) knoepfe.push(`<button class="aktion robi-haupt" data-pause><ha-icon data-i="${w.pause ? "mdi:play" : "mdi:pause"}"></ha-icon>${w.pause ? "Fortsetzen" : "Pause"}</button>`);
+    if (strom && this.e("stopp") && w.laeuft) knoepfe.push(`<button class="aktion glas" data-stopp><ha-icon data-i="mdi:stop"></ha-icon>${this._stoppFrage ? "Wirklich stoppen?" : "Stoppen"}</button>`);
+    lichter.forEach((l) => knoepfe.push(`<button class="aktion ${l.state === "on" ? "licht-an" : "glas"}" data-licht="${esc(l.entity_id)}" aria-pressed="${l.state === "on"}"><ha-icon data-i="${l.state === "on" ? "mdi:lightbulb-on" : "mdi:lightbulb-outline"}"></ha-icon>${esc(robiName(l, c.name).replace(/^chamber light$/i, "Licht"))}</button>`));
+    return `${s.kopfHtml(c.name || "Drucker", "3D-Drucker")}
+      <div class="robi-held glas ${w.laeuft && !w.pause ? "putzt" : ""}" style="--g-lila:${farbe2}">
+        <div class="robi-bild"><span class="ring" aria-hidden="true"></span><ha-icon data-i="mdi:printer-3d-nozzle"></ha-icon></div>
+        <div class="robi-text"><span class="robi-status">${esc(w.aus ? "Ausgeschaltet" : (w.status || "").replace(/^./, (x) => x.toUpperCase()))}${w.laeuft && w.pct != null ? ` · ${Math.round(w.pct)} %` : ""}</span>
+          ${auf && Geraet.verfuegbar(auf) && auf.state ? `<span class="leise ellipse">${esc(auf.state)}</span>` : ""}
+          ${w.laeuft && w.pct != null ? `<div class="balken"><i style="width:${klemmen(w.pct, 0, 100)}%;--bf:${farbe2}"></i></div>` : ""}
+          ${w.rest ? `<span class="leise">${esc(w.rest)}</span>` : ""}</div>
+      </div>
+      ${strom && (hatBild || hatLive) ? `<div class="medien">
+        ${hatBild && hatLive ? `<div class="segment-w" role="group" aria-label="Bild"><button data-modus="bild" aria-pressed="${modus === "bild"}">Vorschau</button><button data-modus="live" aria-pressed="${modus === "live"}">Live</button></div>` : ""}
+        <div class="medien-platz"></div></div>` : ""}
+      ${knoepfe.length ? `<div class="raster2">${knoepfe.join("")}</div>` : ""}
+      ${strom && (sch || du || be) ? `<div class="raster3">${sch ? `<div class="wertbox glas"><span class="leise">Schicht</span><b>${esc(sch.state)}${schs ? ` / ${esc(schs.state)}` : ""}</b></div>` : ""}
         ${du ? `<div class="wertbox glas"><span class="leise">Düse</span><b>${esc(zustandText(h, du))}</b></div>` : ""}${be ? `<div class="wertbox glas"><span class="leise">Bett</span><b>${esc(zustandText(h, be))}</b></div>` : ""}</div>` : ""}
-      ${knoepfe.length ? `<div class="raster3">${knoepfe.join("")}</div>` : ""}
+      ${luefter.length || wahl.length ? `<div class="karte glas">
+        ${luefter.length ? `<div class="karte-kopf"><h3 class="karte-titel">Lüfter</h3></div>${luefter.map((f) => {
+          const pct = f.state === "on" ? Math.round(Number(f.attributes.percentage ?? 100)) : 0;
+          return `<div class="luefter"><span class="ln"><ha-icon data-i="${pct ? "mdi:fan" : "mdi:fan-off"}" class="${pct ? "dreht" : ""}" style="--dauer:${pct ? (2.2 - pct / 60).toFixed(2) : 0}s"></ha-icon>${esc(luefterName(f, c.name))}</span>
+            <input type="range" min="0" max="100" step="10" value="${pct}" data-luefter="${esc(f.entity_id)}" aria-label="${esc(luefterName(f, c.name))}" style="--p:${pct}%"><b class="lw">${pct} %</b></div>`;
+        }).join("")}` : ""}
+        ${wahl.map((a) => `<div class="karte-kopf"><h3 class="karte-titel">${esc(robiName(a, c.name))}</h3></div><div class="chips robi-chips">${(a.attributes.options || []).map((o) =>
+          `<button class="pille fuell ${a.state === o ? "aktiv" : ""}" data-wahl="${esc(a.entity_id)}" data-o="${esc(o)}" aria-pressed="${a.state === o}">${esc(DRUCK_TEMPO[o] || attributText(h, { ...a, attributes: { ...a.attributes, x: o } }, "x") || o)}</button>`).join("")}</div>`).join("")}
+      </div>` : ""}
       ${geladen ? `<div class="zeile glas" style="padding:0 var(--g-a3);border-radius:var(--g-r-klein)"><span class="punkt" style="background:${farbe(geladen)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>
         ${esc(geladen.material)} ${esc(geladen.farbe)}<span class="rechts">${geladen.rest_g != null ? `noch ${Math.round(geladen.rest_g)} g` : ""}</span></div>` : ""}
       ${werk ? `<h3 class="h2" style="margin-top:var(--g-a2)">Werkstatt</h3>
@@ -312,13 +382,44 @@ class GlasDruckerCard extends GlasBereichKarte {
         `<div class="zeile"><span class="punkt" style="background:${farbe(r)};box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></span>${esc(r.material)} ${esc(r.farbe)}<span class="rechts warn">noch ${Math.round(r.rest_g)} g</span></div>`).join("")}</div>` : ""}` : ""}
       <button class="link" data-werk>Werkstatt öffnen ›</button>`;
   }
+  // Bild/Livebild bleibt als eigenes Element bestehen, damit der Stream beim Neuzeichnen nicht abreißt
+  medienSetzen(platz) {
+    if (!platz) return;
+    const src = this.medienQuelle(this._modusJetzt);
+    if (!this._medien) {
+      this._medien = document.createElement("button");
+      this._medien.className = "bild drucker-bild";
+      this._medien.innerHTML = `<img alt=""><span class="live">LIVE</span>`;
+      this._medien.addEventListener("click", () => { const k = this._modusJetzt === "live" ? this.kameraId() : this.bildId(); if (k) mehrInfo(this, k); });
+    }
+    const img = this._medien.querySelector("img");
+    if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    this._medien.classList.toggle("ist-live", this._modusJetzt === "live");
+    this._medien.setAttribute("aria-label", this._modusJetzt === "live" ? "Livebild groß öffnen" : "Vorschaubild groß öffnen");
+    platz.appendChild(this._medien);
+  }
   blattBinden(s, $, $$) {
     const h = this._hass, w = this.werte();
     s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    this.medienSetzen($(".medien-platz"));
+    $$("[data-modus]").forEach((b) => b.addEventListener("click", () => { this._modus = b.dataset.modus; this.blattZeichnen(); }));
     $("[data-pause]")?.addEventListener("click", () => { const b = this.e(w.pause ? "weiter" : "pause"); if (b) h.callService("button", "press", { entity_id: b }); });
-    $("[data-licht]")?.addEventListener("click", () => h.callService("light", "toggle", { entity_id: this.e("licht") }));
+    $("[data-stopp]")?.addEventListener("click", () => {
+      if (!this._stoppFrage) { this._stoppFrage = true; this.blattZeichnen(); setTimeout(() => { this._stoppFrage = false; this.blattZeichnen(); }, 4000); return; }
+      this._stoppFrage = false; h.callService("button", "press", { entity_id: this.e("stopp") });
+    });
+    $$("[data-licht]").forEach((b) => b.addEventListener("click", () => h.callService("light", "toggle", { entity_id: b.dataset.licht })));
     $("[data-stecker]")?.addEventListener("click", () => h.callService("homeassistant", "toggle", { entity_id: this._config.stecker }));
-    $$("[data-kamera]").forEach((b) => b.addEventListener("click", () => mehrInfo(this, b.dataset.kamera)));
+    $$("[data-luefter]").forEach((r) => {
+      const anzeigen = () => { r.style.setProperty("--p", `${r.value}%`); r.nextElementSibling.textContent = `${r.value} %`; };
+      r.addEventListener("pointerdown", () => { this._blattSperre = true; });
+      r.addEventListener("input", anzeigen);
+      r.addEventListener("change", () => {
+        this._blattSperre = false; const v = Number(r.value);
+        h.callService("fan", v ? "set_percentage" : "turn_off", v ? { entity_id: r.dataset.luefter, percentage: v } : { entity_id: r.dataset.luefter });
+      });
+    });
+    $$("[data-wahl]").forEach((b) => b.addEventListener("click", () => h.callService("select", "select_option", { entity_id: b.dataset.wahl, option: b.dataset.o })));
     $("[data-werk]")?.addEventListener("click", () => { s.schliessen(); navigieren(this._config.werkstatt_pfad || "/filament"); });
     const feld = $("input.feld");
     const hinzu = async () => {
@@ -330,23 +431,36 @@ class GlasDruckerCard extends GlasBereichKarte {
     feld?.addEventListener("keydown", (e) => { if (e.key === "Enter") hinzu(); });
     $("[data-plus]")?.addEventListener("click", hinzu);
   }
+  entitaeten() { return [...Object.keys(DRUCKER_SUCHE).map((k) => this.e(k)), this._config.stecker, this.kameraId(), this.bildId(),
+    ...this.luefter().map((x) => x.entity_id), ...this.lichter().map((x) => x.entity_id), ...this.auswahlen().map((x) => x.entity_id)].filter(Boolean); }
 }
+const DRUCK_TEMPO = { silent: "Leise", standard: "Standard", sport: "Sport", ludicrous: "Turbo" };
+const luefterName = (st, vorne) => {
+  const n = robiName(st, vorne), roh = `${st.entity_id} ${n}`.toLowerCase();
+  if (/aux/.test(roh)) return "Hilfslüfter";
+  if (/chamber|kammer/.test(roh)) return "Kammerlüfter";
+  if (/cooling|part|bauteil/.test(roh)) return "Bauteillüfter";
+  return n;
+};
 class GlasDruckerEditor extends GlasEditor {
   schema() {
     return [
       { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "breite", selector: { select: { mode: "dropdown", options: [{ value: "ganz", label: "Ganze Breite" }, { value: "halb", label: "Halbe Breite" }] } } }] },
       { name: "geraet", selector: { device: {} } },
-      { name: "stecker", selector: { entity: { filter: { domain: "switch" } } } },
+      { name: "stecker", selector: { entity: { filter: { domain: ["switch", "input_boolean"] } } } },
+      { name: "luefter", selector: { entity: { multiple: true, filter: { domain: "fan" } } } },
+      { type: "grid", name: "", schema: [{ name: "licht", selector: { entity: { filter: { domain: "light" } } } }, { name: "auswahl", selector: { entity: { multiple: true, filter: { domain: "select" } } } }] },
       { type: "grid", name: "", schema: [{ name: "werkstatt", selector: { boolean: {} } }, { name: "knapp_g", selector: { number: { min: 0, max: 1000, mode: "box", unit_of_measurement: "g" } } }] },
       { type: "expandable", flatten: true, name: "einzeln", title: "Entitäten einzeln festlegen (sonst automatisch)", icon: "mdi:tune", schema:
         Object.keys(DRUCKER_SUCHE).map((k) => ({ name: k, selector: { entity: {} } })) },
     ];
   }
   render() { if (this._config.werkstatt === undefined) this._config.werkstatt = true; super.render(); }
-  labels() { return { name: "Name", breite: "Breite", geraet: "Drucker-Gerät (Bambu Lab)", stecker: "Steckdose des Druckers", werkstatt: "Werkstatt-Daten zeigen", knapp_g: "Filament knapp unter",
+  labels() { return { name: "Name", breite: "Breite", geraet: "Drucker-Gerät (Bambu Lab)", stecker: "Steckdose, die den Drucker ein- und ausschaltet", luefter: "Lüfter (leer = alle vom Drucker)", licht: "Licht (leer = automatisch)",
+    auswahl: "Auswahlen, z. B. Druckgeschwindigkeit", werkstatt: "Werkstatt-Daten zeigen", knapp_g: "Filament knapp unter",
     fortschritt: "Fortschritt", status: "Status", restzeit: "Restzeit", ende: "Endzeit", schicht: "Aktuelle Schicht", schichten: "Schichten gesamt", duese: "Düsentemperatur",
     bett: "Betttemperatur", aufgabe: "Dateiname", kamera: "Kamera", licht: "Licht", pause: "Knopf Pause", weiter: "Knopf Fortsetzen", stopp: "Knopf Stopp", bild: "Vorschaubild" }; }
-  hilfen() { return { geraet: "Alle Werte werden aus dem Gerät gesucht. Fehlt etwas, unten einzeln festlegen." }; }
+  hilfen() { return { geraet: "Alle Werte, Lüfter, Licht, Vorschaubild und Kamera werden aus dem Gerät gesucht. Fehlt etwas, unten einzeln festlegen." }; }
 }
 
 // ---------------------------------------------------------------------------

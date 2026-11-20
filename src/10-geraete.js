@@ -111,7 +111,7 @@ const Geraet = {
     if (d === "light" && reg && st.state === "on") return `${reg.pct} %`;
     if (d === "cover" && a.current_position != null) return reg ? reg.text(reg.pct) : zustandText(h, st);
     if (d === "climate") {
-      const ist = a.current_temperature != null ? ` · ${String(a.current_temperature).replace(".", ",")}°` : "";
+      const ist = (a.current_temperature != null ? ` · ${String(a.current_temperature).replace(".", ",")}°` : "") + (a.current_humidity != null ? ` · ${Math.round(a.current_humidity)} %` : "");
       if (st.state === "off") return `Aus${ist}`;
       const soll = a.temperature != null ? `${String(a.temperature).replace(".", ",")}°` : zustandText(h, st);
       const was = a.hvac_action === "heating" ? "Heizt " : a.hvac_action === "cooling" ? "Kühlt " : "";
