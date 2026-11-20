@@ -21,7 +21,7 @@ const TOKENS = `
   --g-akzent:#0a84ff; --g-rot:#ff3b30; --g-orange:#ff9f0a; --g-gruen:#34c759; --g-lila:#5e5ce6;
   --g-rot-text:#c4261d;
   /* kräftigere Töne für weiße Schrift (Kontrast mind. 4,5:1) */
-  --g-gruen-voll:#1f7a35; --g-rot-voll:#d70015; --g-akzent-voll:#0067d6;
+  --g-gruen-voll:#1f7a35; --g-rot-voll:#d70015; --g-akzent-voll:#0067d6; --g-lila-voll:#4a48c9;
   --g-trenn:rgba(60,60,67,.14);
   --g-blur:blur(20px) saturate(160%);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;

@@ -61,8 +61,12 @@ Glas.einstLaden = function (hass) {
   if (this._einstVersprechen || !hass?.connection) return this._einstVersprechen;
   this._einstVersprechen = hass.callWS({ type: "glas_dashboard/lesen" }).then((r) => {
     this.einst = { ...einstStandard(), ...(r.daten || {}) };
+    this.timer = r.timer || {};
     this.einstFehler = null;
-    hass.connection.subscribeMessage((m) => { this.einst = { ...einstStandard(), ...(m.daten || {}) }; this.melden(); }, { type: "glas_dashboard/abonnieren" }).catch(() => {});
+    hass.connection.subscribeMessage((m) => {
+      if (m.timer) { this.timer = m.timer; this.hassHoerer.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); }
+      if (m.daten) { this.einst = { ...einstStandard(), ...m.daten }; this.melden(); }
+    }, { type: "glas_dashboard/abonnieren" }).catch(() => {});
     this.melden();
     return this.einst;
   }).catch((e) => {
@@ -78,6 +82,17 @@ Glas.einstSpeichern = function (hass, daten) {
   this.melden();
   return hass.callWS({ type: "glas_dashboard/speichern", daten });
 };
+// Ausschalt-Timer (läuft in der Integration, übersteht Neustarts)
+Glas.timer = Glas.timer || {};
+Glas.timerSetzen = function (hass, entity_id, minuten) {
+  return hass.callWS({ type: "glas_dashboard/timer", entity_id, minuten }).then((r) => { this.timer = r.timer || {}; this.hassHoerer.forEach((f) => f()); });
+};
+function timerRest(eid) {
+  const t = Glas.timer?.[eid];
+  if (!t) return null;
+  const min = Math.max(0, Math.round((new Date(t).getTime() - Date.now()) / 60000));
+  return min >= 60 ? `${Math.floor(min / 60)} Std. ${min % 60 ? `${min % 60} Min.` : ""}`.trim() : `${min} Min.`;
+}
 // Hell/Dunkel: folgt HA bzw. dem Handy, außer in den Einstellungen fest gewählt
 function istDunkel(h) {
   const m = Glas.einst?.aussehen?.modus;

@@ -46,6 +46,26 @@ const BLATT_CSS = `
   background:var(--g-fuell);border:1px solid var(--g-glas-rand);outline-color:var(--g-akzent)}
 .plus{flex:none;width:44px;height:44px;border-radius:var(--g-r-klein);display:flex;align-items:center;justify-content:center;color:#fff;background:var(--g-akzent-voll)}
 .qr{display:flex;flex-direction:column;align-items:center;gap:var(--g-a3)}
+.robi-held{display:flex;align-items:center;gap:var(--g-a4);padding:var(--g-a4);border-radius:var(--g-r)}
+.robi-bild{position:relative;flex:none;width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--g-lila)}
+.robi-bild ha-icon{--mdc-icon-size:36px}
+.robi-bild .ring{position:absolute;inset:-5px;border-radius:50%;border:3px solid transparent;border-top-color:var(--g-lila);opacity:0}
+.robi-held.putzt .ring{opacity:1;animation:robi-dreh 1.4s linear infinite}
+@keyframes robi-dreh{to{transform:rotate(360deg)}}
+.robi-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.robi-status{font-size:var(--g-s-h2);font-weight:700;color:var(--g-text)}
+.robi-text .balken{height:8px;margin-top:2px}
+.aktion{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.aktion ha-icon{--mdc-icon-size:20px}
+.robi-haupt{color:#fff;background:var(--g-lila-voll);border-color:transparent}
+.robi-raeume{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:var(--g-a2);padding:var(--g-a1) 0 var(--g-a3)}
+.robi-raum{display:flex;align-items:center;gap:var(--g-a2);min-height:48px;padding:0 var(--g-a3);border-radius:var(--g-r-klein);background:var(--g-fuell);
+  font-size:var(--g-s-name);font-weight:600;color:var(--g-text);text-align:left;transition:background-color .2s ease}
+.robi-raum ha-icon{--mdc-icon-size:20px;color:var(--g-text2)}
+.robi-raum.aktiv{background:var(--g-lila-voll);color:#fff}
+.robi-raum.aktiv ha-icon{color:#fff}
+.robi-chips{padding:var(--g-a1) 0 var(--g-a3)}
+.karte [data-raeume]{margin-bottom:var(--g-a2)}
 .qr svg{width:220px;height:220px;padding:14px;border-radius:var(--g-r);background:#fff}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap}
 ${BEREICH_CSS.replace(":host{display:block;height:100%}", "")}
@@ -339,7 +359,6 @@ class GlasRobiCard extends GlasBereichKarte {
   static getConfigElement() { return document.createElement("glas-robi-card-editor"); }
   static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "" }; }
   pruefen(c) { if (!c.entity) throw new Error("Bitte den Saugroboter wählen"); }
-  entitaeten() { return [this._config.entity, this._config.akku, ...(this._config.auswahl || [])].filter(Boolean); }
   blattTitel() { return this._config.name || "Robi"; }
   akku() {
     const c = this._config, st = this._hass.states[c.entity], a = c.akku && this._hass.states[c.akku];
@@ -353,27 +372,55 @@ class GlasRobiCard extends GlasBereichKarte {
       t2: ak != null ? `Akku ${Math.round(ak)} %` : "", balken: ak, knopf: st?.state === "cleaning" ? "Pause" : "", knopfFarbe: "var(--g-aktiv)" });
   }
   knopf() { this.dienst("vacuum", "pause", { entity_id: this._config.entity }); }
+  // Was zum Roboter gehört: Räume, Auswahlen, Stationsknöpfe – eingestellt oder automatisch vom Gerät
+  geraetEntitaeten(domain) {
+    const h = this._hass, dev = h.entities?.[this._config.entity]?.device_id;
+    if (!dev) return [];
+    return Object.keys(h.entities || {}).filter((e) => e.startsWith(`${domain}.`) && h.entities[e].device_id === dev && h.entities[e].entity_category !== "diagnostic"
+      && !h.entities[e].hidden && h.states[e] && !/reset|zurueck|zurück|lifespan|lebensdauer/i.test(`${e} ${h.states[e].attributes.friendly_name || ""}`));
+  }
+  raumListe() {
+    const c = this._config, st = this._hass.states[c.entity];
+    if ((c.raeume || []).length) return c.raeume;
+    const r = st?.attributes.rooms;
+    if (!r || typeof r !== "object") return [];
+    return Object.entries(r).map(([name, id]) => ({ name: ROBI_RAUM[name] || name.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()), id: [].concat(id).join(",") }));
+  }
+  auswahlen() { const c = this._config; return (c.auswahl?.length ? c.auswahl : this.geraetEntitaeten("select")).map((e) => this._hass.states[e]).filter(Boolean); }
+  knoepfe() { const c = this._config; return (c.knoepfe?.length ? c.knoepfe : this.geraetEntitaeten("button")).map((e) => this._hass.states[e]).filter(Boolean); }
   blattHtml(s) {
     const h = this._hass, c = this._config, st = h.states[c.entity], ak = this.akku();
-    if (!st) return s.kopfHtml("Robi", "nicht gefunden");
+    if (!st) return s.kopfHtml(c.name || "Robi", "nicht gefunden");
     const gew = this._gewaehlt || new Set();
-    const putzt = st.state === "cleaning";
+    const putzt = st.state === "cleaning", pause = st.state === "paused";
     const stufen = st.attributes.fan_speed_list || [];
-    return `${s.kopfHtml(c.name || "Robi", `${ROBI_STATUS[st.state] || zustandText(h, st)}${ak != null ? ` · Akku ${Math.round(ak)} %` : ""}`)}
-      ${ak != null ? `<div class="balken"><i style="width:${ak}%"></i></div>` : ""}
-      <div class="raster2"><button class="aktion haupt" data-start>${putzt ? "Pause" : st.state === "paused" ? "Fortsetzen" : "Alles saugen"}</button>
-        <button class="aktion glas" data-station>Zur Station</button></div>
-      ${(c.raeume || []).length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Räume saugen</h3></div>
-        <div class="chips" style="padding:var(--g-a1) 0 var(--g-a2)">${c.raeume.map((r, i) =>
-          `<button class="pille fuell ${gew.has(i) ? "aktiv" : ""}" data-raum="${i}" aria-pressed="${gew.has(i)}">${esc(r.name)}</button>`).join("")}</div>
-        <button class="aktion haupt" data-raeume ${gew.size ? "" : "disabled"} style="margin-bottom:var(--g-a2)">${gew.size ? `${gew.size} ${gew.size === 1 ? "Raum" : "Räume"} saugen` : "Räume auswählen"}</button></div>` : ""}
-      ${stufen.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Saugstärke</h3></div><div class="chips" style="padding:var(--g-a1) 0 var(--g-a2)">${stufen.map((f) =>
-        `<button class="pille fuell ${st.attributes.fan_speed === f ? "aktiv" : ""}" data-stufe="${esc(f)}">${esc(f)}</button>`).join("")}</div></div>` : ""}
-      ${(c.auswahl || []).map((e) => h.states[e]).filter(Boolean).map((a) => `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">${esc(a.attributes.friendly_name)}</h3></div>
-        <div class="chips" style="padding:var(--g-a1) 0 var(--g-a2)">${(a.attributes.options || []).map((o) =>
-          `<button class="pille fuell ${a.state === o ? "aktiv" : ""}" data-wahl="${esc(a.entity_id)}" data-o="${esc(o)}">${esc(attributText(h, { ...a, attributes: { ...a.attributes, x: o } }, "x") || o)}</button>`).join("")}</div></div>`).join("")}
-      ${(c.knoepfe || []).length ? `<div class="raster2">${c.knoepfe.map((b) => h.states[b]).filter(Boolean).map((b) =>
-        `<button class="aktion glas" data-btn="${esc(b.entity_id)}">${esc(b.attributes.friendly_name)}</button>`).join("")}</div>` : ""}`;
+    const raeume = this.raumListe();
+    const status = ROBI_STATUS[st.state] || zustandText(h, st);
+    const akkuFarbe = ak == null ? "" : ak < 20 ? "var(--g-rot)" : ak < 40 ? "var(--g-orange)" : "var(--g-gruen)";
+    const wahlChips = (a, opts, wert, attr) => opts.map((o) =>
+      `<button class="pille fuell robi-chip ${wert === o ? "aktiv" : ""}" ${attr}="${esc(o)}" aria-pressed="${wert === o}">${esc(o.label || o)}</button>`).join("");
+    return `${s.kopfHtml(c.name || "Robi", "Saugroboter")}
+      <div class="robi-held glas ${putzt ? "putzt" : ""}">
+        <div class="robi-bild"><span class="ring" aria-hidden="true"></span><ha-icon data-i="mdi:robot-vacuum"></ha-icon></div>
+        <div class="robi-text"><span class="robi-status">${esc(status)}</span>
+          ${ak != null ? `<span class="leise">Akku ${Math.round(ak)} %${st.attributes.fan_speed ? ` · ${esc(ROBI_STUFE[st.attributes.fan_speed] || st.attributes.fan_speed)}` : ""}</span>
+          <div class="balken"><i style="width:${ak}%;--bf:${akkuFarbe}"></i></div>` : ""}</div>
+      </div>
+      <div class="raster2">
+        <button class="aktion robi-haupt" data-start><ha-icon data-i="${putzt ? "mdi:pause" : "mdi:play"}"></ha-icon>${putzt ? "Pause" : pause ? "Fortsetzen" : "Alles saugen"}</button>
+        <button class="aktion glas" data-station><ha-icon data-i="mdi:home-import-outline"></ha-icon>Zur Station</button></div>
+      ${raeume.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Räume saugen</h3>${gew.size ? `<span class="leise">${gew.size} gewählt</span>` : ""}</div>
+        <div class="robi-raeume">${raeume.map((r, i) => `<button class="robi-raum ${gew.has(i) ? "aktiv" : ""}" data-raum="${i}" aria-pressed="${gew.has(i)}">
+          <ha-icon data-i="${gew.has(i) ? "mdi:check-circle" : "mdi:circle-outline"}"></ha-icon><span>${esc(r.name)}</span></button>`).join("")}</div>
+        <button class="aktion robi-haupt" data-raeume ${gew.size ? "" : "disabled"}>${gew.size ? `${gew.size} ${gew.size === 1 ? "Raum" : "Räume"} saugen` : "Räume antippen"}</button></div>` : ""}
+      ${stufen.length || this.auswahlen().length ? `<div class="karte glas">
+        ${stufen.length ? `<div class="karte-kopf"><h3 class="karte-titel">Saugstärke</h3></div><div class="chips robi-chips">${stufen.map((f) =>
+          `<button class="pille fuell ${st.attributes.fan_speed === f ? "aktiv" : ""}" data-stufe="${esc(f)}" aria-pressed="${st.attributes.fan_speed === f}">${esc(ROBI_STUFE[f] || f)}</button>`).join("")}</div>` : ""}
+        ${this.auswahlen().map((a) => `<div class="karte-kopf"><h3 class="karte-titel">${esc(robiName(a, c.name))}</h3></div><div class="chips robi-chips">${(a.attributes.options || []).map((o) =>
+          `<button class="pille fuell ${a.state === o ? "aktiv" : ""}" data-wahl="${esc(a.entity_id)}" data-o="${esc(o)}" aria-pressed="${a.state === o}">${esc(attributText(h, { ...a, attributes: { ...a.attributes, x: o } }, "x") || ROBI_STUFE[o] || o)}</button>`).join("")}</div>`).join("")}
+      </div>` : ""}
+      ${this.knoepfe().length ? `<div class="raster2">${this.knoepfe().map((b) =>
+        `<button class="aktion glas" data-btn="${esc(b.entity_id)}"><ha-icon data-i="${esc(b.attributes.icon || robiKnopfIcon(b.entity_id))}"></ha-icon>${esc(robiName(b, c.name))}</button>`).join("")}</div>` : ""}`;
   }
   blattBinden(s, $, $$) {
     const h = this._hass, c = this._config, st = h.states[c.entity];
@@ -384,7 +431,8 @@ class GlasRobiCard extends GlasBereichKarte {
       this._gewaehlt.has(i) ? this._gewaehlt.delete(i) : this._gewaehlt.add(i); this.blattZeichnen();
     }));
     $("[data-raeume]")?.addEventListener("click", () => {
-      const ids = [...(this._gewaehlt || [])].map((i) => c.raeume[i].id).filter((x) => x !== undefined && x !== "");
+      const liste = this.raumListe();
+      const ids = [...(this._gewaehlt || [])].map((i) => liste[i]?.id).filter((x) => x !== undefined && x !== "");
       if (!ids.length) return;
       h.callService("vacuum", "send_command", { entity_id: c.entity, command: c.befehl || "spot_area", params: { rooms: ids.join(","), cleanings: 1 } });
       this._gewaehlt = new Set(); this.blattZeichnen();
@@ -392,8 +440,19 @@ class GlasRobiCard extends GlasBereichKarte {
     $$("[data-stufe]").forEach((b) => b.addEventListener("click", () => h.callService("vacuum", "set_fan_speed", { entity_id: c.entity, fan_speed: b.dataset.stufe })));
     $$("[data-wahl]").forEach((b) => b.addEventListener("click", () => h.callService("select", "select_option", { entity_id: b.dataset.wahl, option: b.dataset.o })));
     $$("[data-btn]").forEach((b) => b.addEventListener("click", () => h.callService("button", "press", { entity_id: b.dataset.btn })));
+    s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
   }
+  entitaeten() { return [this._config.entity, this._config.akku, ...this.auswahlen().map((a) => a.entity_id), ...this.knoepfe().map((b) => b.entity_id)].filter(Boolean); }
 }
+// Ecovacs meldet Raumtypen auf Englisch
+const ROBI_RAUM = { kitchen: "Küche", living_room: "Wohnzimmer", bedroom: "Schlafzimmer", study: "Arbeitszimmer", corridor: "Flur", bathroom: "Bad", dining_room: "Esszimmer",
+  balcony: "Balkon", laundry: "Waschraum", childrens_room: "Kinderzimmer", storeroom: "Abstellraum", sunroom: "Wintergarten", lounge: "Lounge", default: "Raum" };
+const ROBI_STUFE = { quiet: "Leise", silent: "Leise", standard: "Standard", normal: "Normal", strong: "Stark", turbo: "Turbo", max: "Max", max_plus: "Max+",
+  low: "Niedrig", medium: "Mittel", high: "Hoch", ultrahigh: "Sehr hoch", auto: "Automatisch" };
+// „Robi Wassermenge“ → „Wassermenge“: Gerätename vorne weglassen
+const robiName = (st, vorne) => { const n = st.attributes.friendly_name || st.entity_id; const v = [vorne, "Robi", "Deebot", "Ecovacs"].filter(Boolean).find((x) => n.toLowerCase().startsWith(x.toLowerCase() + " ")); return v ? n.slice(v.length + 1).replace(/^./, (x) => x.toUpperCase()) : n; };
+const robiKnopfIcon = (id) => (/empty|absaug|dust/i.test(id) ? "mdi:delete-empty-outline" : /mop|wash|wisch|clean/i.test(id) ? "mdi:water-outline" : /dry|trock/i.test(id) ? "mdi:fan" : /relocat/i.test(id) ? "mdi:map-marker-radius-outline" : "mdi:gesture-tap-button");
+
 class GlasRobiEditor extends GlasEditor {
   schema() {
     return [

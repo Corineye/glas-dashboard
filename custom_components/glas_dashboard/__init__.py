@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 import voluptuous as vol
@@ -13,7 +14,10 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
+import homeassistant.helpers.config_validation as cv
 
 from .const import (
     DOMAIN, MAX_GROESSE, PANEL_PFAD, SIGNAL_GEAENDERT, SPEICHER_SCHLUESSEL, SPEICHER_VERSION, URL_BASIS,
@@ -34,13 +38,20 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
     websocket_api.async_register_command(hass, ws_lesen)
     websocket_api.async_register_command(hass, ws_speichern)
     websocket_api.async_register_command(hass, ws_abonnieren)
+    websocket_api.async_register_command(hass, ws_timer_setzen)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = Store(hass, SPEICHER_VERSION, SPEICHER_SCHLUESSEL)
     daten = await store.async_load() or {}
-    hass.data[DOMAIN] = {"store": store, "daten": daten}
+    timer_store = Store(hass, SPEICHER_VERSION, f"{SPEICHER_SCHLUESSEL}_timer")
+    hass.data[DOMAIN] = {"store": store, "daten": daten, "timer_store": timer_store, "timer": {}, "abbruch": {}}
+    # Ausschalt-Timer nach einem Neustart wieder aufnehmen
+    for eid, ende in ((await timer_store.async_load()) or {}).items():
+        zeit = dt_util.parse_datetime(ende)
+        if zeit:
+            _timer_planen(hass, eid, zeit)
 
     version = await hass.async_add_executor_job(_version)
     if not hass.data.get(f"{DOMAIN}_pfad"):
@@ -64,6 +75,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    for ab in (hass.data.get(DOMAIN) or {}).get("abbruch", {}).values():
+        ab()
     frontend.async_remove_panel(hass, PANEL_PFAD)
     url = hass.data.pop(f"{DOMAIN}_url", None)
     if url:
@@ -83,7 +96,7 @@ def ws_lesen(hass: HomeAssistant, connection, msg) -> None:
     if z is None:
         connection.send_error(msg["id"], "nicht_eingerichtet", "Glas-Dashboard ist nicht eingerichtet")
         return
-    connection.send_result(msg["id"], {"daten": z["daten"]})
+    connection.send_result(msg["id"], {"daten": z["daten"], "timer": z["timer"]})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "glas_dashboard/speichern", vol.Required("daten"): dict})
@@ -110,5 +123,75 @@ def ws_abonnieren(hass: HomeAssistant, connection, msg) -> None:
     def geaendert(daten) -> None:
         connection.send_message(websocket_api.event_message(msg["id"], {"daten": daten}))
 
-    connection.subscriptions[msg["id"]] = async_dispatcher_connect(hass, SIGNAL_GEAENDERT, geaendert)
+    @callback
+    def timer_geaendert(timer) -> None:
+        connection.send_message(websocket_api.event_message(msg["id"], {"timer": timer}))
+
+    ab1 = async_dispatcher_connect(hass, SIGNAL_GEAENDERT, geaendert)
+    ab2 = async_dispatcher_connect(hass, f"{SIGNAL_GEAENDERT}_timer", timer_geaendert)
+
+    @callback
+    def abmelden() -> None:
+        ab1()
+        ab2()
+
+    connection.subscriptions[msg["id"]] = abmelden
     connection.send_result(msg["id"])
+
+
+# ---------------------------------------------------------------------------
+# Ausschalt-Timer: „Ausschalten in 30 min“ für Lampen, Steckdosen, Heizungen …
+# ---------------------------------------------------------------------------
+@callback
+def _timer_melden(hass: HomeAssistant) -> None:
+    z = hass.data[DOMAIN]
+    z["timer_store"].async_delay_save(lambda: dict(z["timer"]), 1)
+    async_dispatcher_send(hass, f"{SIGNAL_GEAENDERT}_timer", dict(z["timer"]))
+
+
+@callback
+def _timer_planen(hass: HomeAssistant, entity_id: str, ende) -> None:
+    z = hass.data[DOMAIN]
+    if (alt := z["abbruch"].pop(entity_id, None)) is not None:
+        alt()
+    if ende <= dt_util.utcnow():
+        ende = dt_util.utcnow()
+
+    async def ablaufen(_now) -> None:
+        z["abbruch"].pop(entity_id, None)
+        z["timer"].pop(entity_id, None)
+        _timer_melden(hass)
+        domain = entity_id.split(".")[0]
+        try:
+            if domain == "climate":
+                await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=False)
+            else:
+                await hass.services.async_call("homeassistant", "turn_off", {"entity_id": entity_id}, blocking=False)
+        except Exception:  # noqa: BLE001 – Gerät weg oder kann nicht aus: nur protokollieren
+            _LOGGER.warning("Timer: %s ließ sich nicht ausschalten", entity_id)
+
+    z["timer"][entity_id] = ende.isoformat()
+    z["abbruch"][entity_id] = async_track_point_in_utc_time(hass, ablaufen, ende)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "glas_dashboard/timer",
+    vol.Required("entity_id"): cv.entity_id,
+    vol.Required("minuten"): vol.All(vol.Coerce(float), vol.Range(min=0, max=24 * 60)),
+})
+@callback
+def ws_timer_setzen(hass: HomeAssistant, connection, msg) -> None:
+    """minuten = 0 hebt den Timer auf."""
+    z = _zustand(hass)
+    if z is None:
+        connection.send_error(msg["id"], "nicht_eingerichtet", "Glas-Dashboard ist nicht eingerichtet")
+        return
+    eid = msg["entity_id"]
+    if msg["minuten"] <= 0:
+        if (ab := z["abbruch"].pop(eid, None)) is not None:
+            ab()
+        z["timer"].pop(eid, None)
+    else:
+        _timer_planen(hass, eid, dt_util.utcnow() + timedelta(minutes=msg["minuten"]))
+    _timer_melden(hass)
+    connection.send_result(msg["id"], {"timer": z["timer"]})

@@ -23,7 +23,7 @@ const TOKENS = `
   --g-akzent:#0a84ff; --g-rot:#ff3b30; --g-orange:#ff9f0a; --g-gruen:#34c759; --g-lila:#5e5ce6;
   --g-rot-text:#c4261d;
   /* kräftigere Töne für weiße Schrift (Kontrast mind. 4,5:1) */
-  --g-gruen-voll:#1f7a35; --g-rot-voll:#d70015; --g-akzent-voll:#0067d6;
+  --g-gruen-voll:#1f7a35; --g-rot-voll:#d70015; --g-akzent-voll:#0067d6; --g-lila-voll:#4a48c9;
   --g-trenn:rgba(60,60,67,.14);
   --g-blur:blur(20px) saturate(160%);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;
@@ -407,8 +407,12 @@ Glas.einstLaden = function (hass) {
   if (this._einstVersprechen || !hass?.connection) return this._einstVersprechen;
   this._einstVersprechen = hass.callWS({ type: "glas_dashboard/lesen" }).then((r) => {
     this.einst = { ...einstStandard(), ...(r.daten || {}) };
+    this.timer = r.timer || {};
     this.einstFehler = null;
-    hass.connection.subscribeMessage((m) => { this.einst = { ...einstStandard(), ...(m.daten || {}) }; this.melden(); }, { type: "glas_dashboard/abonnieren" }).catch(() => {});
+    hass.connection.subscribeMessage((m) => {
+      if (m.timer) { this.timer = m.timer; this.hassHoerer.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); }
+      if (m.daten) { this.einst = { ...einstStandard(), ...m.daten }; this.melden(); }
+    }, { type: "glas_dashboard/abonnieren" }).catch(() => {});
     this.melden();
     return this.einst;
   }).catch((e) => {
@@ -424,6 +428,17 @@ Glas.einstSpeichern = function (hass, daten) {
   this.melden();
   return hass.callWS({ type: "glas_dashboard/speichern", daten });
 };
+// Ausschalt-Timer (läuft in der Integration, übersteht Neustarts)
+Glas.timer = Glas.timer || {};
+Glas.timerSetzen = function (hass, entity_id, minuten) {
+  return hass.callWS({ type: "glas_dashboard/timer", entity_id, minuten }).then((r) => { this.timer = r.timer || {}; this.hassHoerer.forEach((f) => f()); });
+};
+function timerRest(eid) {
+  const t = Glas.timer?.[eid];
+  if (!t) return null;
+  const min = Math.max(0, Math.round((new Date(t).getTime() - Date.now()) / 60000));
+  return min >= 60 ? `${Math.floor(min / 60)} Std. ${min % 60 ? `${min % 60} Min.` : ""}`.trim() : `${min} Min.`;
+}
 // Hell/Dunkel: folgt HA bzw. dem Handy, außer in den Einstellungen fest gewählt
 function istDunkel(h) {
   const m = Glas.einst?.aussehen?.modus;
@@ -3027,6 +3042,17 @@ const STEUER_CSS = `
 .werte{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:var(--g-a2)}
 .wertbox{display:flex;flex-direction:column;gap:2px;padding:10px var(--g-a3);border-radius:var(--g-r-klein)}
 .wertbox b{font-size:var(--g-s-text);color:var(--g-text)}
+.rad{position:relative;flex:none;width:170px;height:170px;border-radius:50%;touch-action:none;cursor:crosshair;
+  background:radial-gradient(circle closest-side,#fff,rgba(255,255,255,0)),conic-gradient(hsl(0,100%,50%),hsl(60,100%,50%),hsl(120,100%,50%),hsl(180,100%,50%),hsl(240,100%,50%),hsl(300,100%,50%),hsl(360,100%,50%))}
+.rad .marke,.rad .lupe{position:absolute;border-radius:50%;border:3px solid #fff;pointer-events:none;transform:translate(-50%,-50%)}
+.rad .marke{width:26px;height:26px;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.rad .lupe{width:64px;height:64px;border-width:4px;box-shadow:0 6px 18px rgba(0,0,0,.35);transform:translate(-50%,-125%);opacity:0;transition:opacity .15s ease}
+.rad.zieht .lupe{opacity:1}
+.karte-s{display:flex;flex-direction:column;gap:var(--g-a2);padding:var(--g-a3) var(--g-a4) var(--g-a4);border-radius:var(--g-r)}
+.karte-s .kopfz{display:flex;justify-content:space-between;align-items:baseline;gap:var(--g-a2)}
+.karte-s h3{margin:0;font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.reihe.links{justify-content:flex-start}
+@media (max-width:420px){.mitte{flex-wrap:wrap}}
 `;
 
 const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["Neutral", { color_temp_kelvin: 4000 }, "#ffe2b8"],
@@ -3036,16 +3062,19 @@ const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["N
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
-  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => Glas.hassHoerer.delete(neu) });
+  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
   let letzter = null;
   // nur neu zeichnen, wenn sich diese Entität geändert hat
-  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter) zeichnen(); };
+  let letzterTimer = null;
+  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
+  const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
   const zeichnen = () => {
     if (ziehen) return;
     const h = Glas.hass, st = h?.states[entityId];
     if (!st) return;
     letzter = st;
+    letzterTimer = Glas.timer?.[entityId];
     s.dunkel(istDunkel(h));
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
     const bereich = bereichVon(h, entityId);
@@ -3055,6 +3084,13 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     if (reg && d !== "climate") {
       mitte = `<div class="saeule" role="slider" tabindex="0" aria-label="${esc(name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(reg.pct)}"
         aria-valuetext="${esc(reg.text(reg.pct))}" style="--f:${Geraet.farbe(st)}"><div class="fuell" style="transform:scaleY(${klemmen(reg.pct, 0, 100) / 100})"></div></div>`;
+      if (d === "light" && (a.supported_color_modes || []).some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m))) {
+        const [hu, sa] = a.hs_color || [30, 0];
+        const w = (hu - 90) * Math.PI / 180, r = klemmen(sa, 0, 100) / 2;
+        const farbeJetzt = a.hs_color ? `hsl(${hu},100%,${100 - sa / 2}%)` : "#fff";
+        const pos = `left:${50 + Math.cos(w) * r}%;top:${50 + Math.sin(w) * r}%;background:${farbeJetzt}`;
+        mitte += `<div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div>`;
+      }
     } else if (d === "climate") {
       const soll = a.temperature != null ? String(a.temperature).replace(".", ",") + "°" : "–";
       mitte = `<button class="gross-rund" data-t="-" aria-label="Kälter">−</button><div style="text-align:center"><div class="wert">${st.state === "off" ? "Aus" : soll}</div>
@@ -3071,12 +3107,16 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       const farbig = modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m));
       const temp = modes.includes("color_temp");
       const liste = LICHT_FARBEN.filter(([, w]) => (w.rgb_color ? farbig : temp));
-      if (liste.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Farbe</div><div class="reihe">${liste.map(([n, , c], i) =>
-        `<button class="farbe" data-farbe="${i}" style="background:${c}" aria-label="${n}"></button>`).join("")}</div></div>`;
+      if (liste.length) extra += `<div class="reihe">${liste.map(([n, , c], i) =>
+        `<button class="farbe" data-farbe="${i}" style="background:${c}" aria-label="${n}" title="${n}"></button>`).join("")}</div>`;
+      if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) extra += `<button class="zeile-knopf glas" data-raumfarbe>Diese Farbe für alle Lichter im Raum</button>`;
     }
     if (d === "climate" && a.hvac_modes?.length) {
-      extra += `<div class="abschnitt"><div class="abschnitt-titel">Modus</div><div class="reihe">${a.hvac_modes.map((m) =>
-        `<button class="pille fuell ${st.state === m ? "aktiv" : ""}" data-hvac="${m}" aria-pressed="${st.state === m}">${HVAC[m] || m}</button>`).join("")}</div></div>`;
+      const eco = st.state !== "off" && Number(a.temperature) === 17;
+      extra += `<div class="abschnitt"><div class="abschnitt-titel">Modus</div><div class="reihe">${a.hvac_modes.map((m) => {
+        const akt = st.state === m && !(eco && m === "heat");
+        return `<button class="pille fuell ${akt ? "aktiv" : ""}" data-hvac="${m}" aria-pressed="${akt}">${HVAC[m] || m}</button>`;
+      }).join("")}${a.hvac_modes.includes("heat") ? `<button class="pille fuell ${eco ? "aktiv" : ""}" data-eco aria-pressed="${eco}">Eco 17°</button>` : ""}</div></div>`;
       if (a.preset_modes?.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Voreinstellung</div><div class="reihe">${a.preset_modes.map((m) =>
         `<button class="pille fuell ${a.preset_mode === m ? "aktiv" : ""}" data-preset="${esc(m)}">${esc(attributText(h, { ...st, attributes: { ...a, preset_mode: m } }, "preset_mode") || m)}</button>`).join("")}</div></div>`;
     }
@@ -3086,6 +3126,15 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       <button class="gross-rund" data-m="media_next_track" aria-label="Weiter"><ha-icon data-i="mdi:skip-next"></ha-icon></button></div>`;
     if (d === "vacuum") extra += `<div class="reihe"><button class="zeile-knopf glas" data-v="start">Starten</button><button class="zeile-knopf glas" data-v="pause">Pause</button><button class="zeile-knopf glas" data-v="return_to_base">Zur Station</button></div>`;
     if (reg && d !== "climate" && (Geraet.schaltbar(st))) extra = `<div class="reihe"><button class="zeile-knopf glas" data-schalten>${an ? "Ausschalten" : "Einschalten"}</button></div>` + extra;
+    // Ausschalten in … (Timer läuft in der Integration)
+    if (Glas.einst && ["light", "switch", "fan", "media_player", "climate", "input_boolean", "humidifier"].includes(d)) {
+      const rest = timerRest(entityId), aktiv = Glas.timer?.[entityId], gewaehlt = Number(Glas._timerWahl?.[entityId] || 0);
+      extra += `<div class="karte-s glas"><div class="kopfz"><h3>Ausschalten in</h3><span class="leise">${rest ? `Aus in ${rest}` : "Kein Timer"}</span></div>
+        <div class="reihe links">${[[15, "15 min"], [30, "30 min"], [60, "1 h"], [120, "2 h"]].map(([m, n]) => {
+          const an2 = !!aktiv && gewaehlt === m;
+          return `<button class="pille fuell ${an2 ? "aktiv" : ""}" data-timer="${m}" aria-pressed="${an2}">${n}</button>`;
+        }).join("")}${aktiv ? `<button class="pille fuell" data-timer="0">Abbrechen</button>` : ""}</div></div>`;
+    }
     // Zusatzwerte (Attribute, die Menschen interessieren)
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
@@ -3098,6 +3147,36 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
     $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...LICHT_FARBEN[b.dataset.farbe][1] })));
     $$("[data-hvac]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.hvac })));
+    $("[data-eco]")?.addEventListener("click", () => h.callService("climate", "set_temperature", { entity_id: entityId, temperature: 17, hvac_mode: "heat" }));
+    $$("[data-timer]").forEach((b) => b.addEventListener("click", () => {
+      const m = Number(b.dataset.timer), vorher = Number(Glas._timerWahl?.[entityId] || 0);
+      const neuM = m && vorher === m && Glas.timer?.[entityId] ? 0 : m; // gleicher Knopf nochmal = Timer aus
+      Glas._timerWahl = { ...(Glas._timerWahl || {}), [entityId]: neuM };
+      if (neuM && !an) Geraet.schalten(h, st);
+      Glas.timerSetzen(h, entityId, neuM).catch(() => {});
+    }));
+    $("[data-raumfarbe]")?.addEventListener("click", () => {
+      const ziel = entitaetenImBereich(h, bereich, ["light"]);
+      const farbe = a.hs_color && a.color_mode !== "color_temp" ? { hs_color: a.hs_color } : a.color_temp_kelvin ? { color_temp_kelvin: a.color_temp_kelvin } : {};
+      h.callService("light", "turn_on", { entity_id: ziel, ...farbe });
+    });
+    const rad = $(".rad");
+    if (rad) {
+      const marke = rad.querySelector(".marke"), lupe = rad.querySelector(".lupe");
+      let hs = null;
+      const setzeFarbe = (e) => {
+        const r = rad.getBoundingClientRect(), vx = e.clientX - (r.left + r.width / 2), vy = e.clientY - (r.top + r.height / 2);
+        const R = r.width / 2, abstand = Math.min(Math.hypot(vx, vy), R), w = Math.atan2(vy, vx);
+        const hu = Math.round((w * 180 / Math.PI + 90 + 360) % 360), sa = Math.round(abstand / R * 100);
+        const c = `hsl(${hu},100%,${100 - sa / 2}%)`;
+        [marke, lupe].forEach((el) => { el.style.left = `${50 + Math.cos(w) * abstand / R * 50}%`; el.style.top = `${50 + Math.sin(w) * abstand / R * 50}%`; el.style.background = c; });
+        hs = [hu, sa];
+      };
+      rad.addEventListener("pointerdown", (e) => { ziehen = true; rad.setPointerCapture(e.pointerId); rad.classList.add("zieht"); setzeFarbe(e); });
+      rad.addEventListener("pointermove", (e) => { if (ziehen) setzeFarbe(e); });
+      const radLos = () => { if (!ziehen) return; ziehen = false; rad.classList.remove("zieht"); if (hs) h.callService("light", "turn_on", { entity_id: entityId, hs_color: hs }); };
+      rad.addEventListener("pointerup", radLos); rad.addEventListener("pointercancel", radLos);
+    }
     $$("[data-preset]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_preset_mode", { entity_id: entityId, preset_mode: b.dataset.preset })));
     $$("[data-t]").forEach((b) => b.addEventListener("click", () => {
       const schritt = Number(a.target_temp_step || 0.5) * (b.dataset.t === "+" ? 1 : -1);
@@ -4190,6 +4269,26 @@ const BLATT_CSS = `
   background:var(--g-fuell);border:1px solid var(--g-glas-rand);outline-color:var(--g-akzent)}
 .plus{flex:none;width:44px;height:44px;border-radius:var(--g-r-klein);display:flex;align-items:center;justify-content:center;color:#fff;background:var(--g-akzent-voll)}
 .qr{display:flex;flex-direction:column;align-items:center;gap:var(--g-a3)}
+.robi-held{display:flex;align-items:center;gap:var(--g-a4);padding:var(--g-a4);border-radius:var(--g-r)}
+.robi-bild{position:relative;flex:none;width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--g-lila)}
+.robi-bild ha-icon{--mdc-icon-size:36px}
+.robi-bild .ring{position:absolute;inset:-5px;border-radius:50%;border:3px solid transparent;border-top-color:var(--g-lila);opacity:0}
+.robi-held.putzt .ring{opacity:1;animation:robi-dreh 1.4s linear infinite}
+@keyframes robi-dreh{to{transform:rotate(360deg)}}
+.robi-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.robi-status{font-size:var(--g-s-h2);font-weight:700;color:var(--g-text)}
+.robi-text .balken{height:8px;margin-top:2px}
+.aktion{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.aktion ha-icon{--mdc-icon-size:20px}
+.robi-haupt{color:#fff;background:var(--g-lila-voll);border-color:transparent}
+.robi-raeume{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:var(--g-a2);padding:var(--g-a1) 0 var(--g-a3)}
+.robi-raum{display:flex;align-items:center;gap:var(--g-a2);min-height:48px;padding:0 var(--g-a3);border-radius:var(--g-r-klein);background:var(--g-fuell);
+  font-size:var(--g-s-name);font-weight:600;color:var(--g-text);text-align:left;transition:background-color .2s ease}
+.robi-raum ha-icon{--mdc-icon-size:20px;color:var(--g-text2)}
+.robi-raum.aktiv{background:var(--g-lila-voll);color:#fff}
+.robi-raum.aktiv ha-icon{color:#fff}
+.robi-chips{padding:var(--g-a1) 0 var(--g-a3)}
+.karte [data-raeume]{margin-bottom:var(--g-a2)}
 .qr svg{width:220px;height:220px;padding:14px;border-radius:var(--g-r);background:#fff}
 .chips{display:flex;gap:var(--g-a2);flex-wrap:wrap}
 ${BEREICH_CSS.replace(":host{display:block;height:100%}", "")}
@@ -4483,7 +4582,6 @@ class GlasRobiCard extends GlasBereichKarte {
   static getConfigElement() { return document.createElement("glas-robi-card-editor"); }
   static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "" }; }
   pruefen(c) { if (!c.entity) throw new Error("Bitte den Saugroboter wählen"); }
-  entitaeten() { return [this._config.entity, this._config.akku, ...(this._config.auswahl || [])].filter(Boolean); }
   blattTitel() { return this._config.name || "Robi"; }
   akku() {
     const c = this._config, st = this._hass.states[c.entity], a = c.akku && this._hass.states[c.akku];
@@ -4497,27 +4595,55 @@ class GlasRobiCard extends GlasBereichKarte {
       t2: ak != null ? `Akku ${Math.round(ak)} %` : "", balken: ak, knopf: st?.state === "cleaning" ? "Pause" : "", knopfFarbe: "var(--g-aktiv)" });
   }
   knopf() { this.dienst("vacuum", "pause", { entity_id: this._config.entity }); }
+  // Was zum Roboter gehört: Räume, Auswahlen, Stationsknöpfe – eingestellt oder automatisch vom Gerät
+  geraetEntitaeten(domain) {
+    const h = this._hass, dev = h.entities?.[this._config.entity]?.device_id;
+    if (!dev) return [];
+    return Object.keys(h.entities || {}).filter((e) => e.startsWith(`${domain}.`) && h.entities[e].device_id === dev && h.entities[e].entity_category !== "diagnostic"
+      && !h.entities[e].hidden && h.states[e] && !/reset|zurueck|zurück|lifespan|lebensdauer/i.test(`${e} ${h.states[e].attributes.friendly_name || ""}`));
+  }
+  raumListe() {
+    const c = this._config, st = this._hass.states[c.entity];
+    if ((c.raeume || []).length) return c.raeume;
+    const r = st?.attributes.rooms;
+    if (!r || typeof r !== "object") return [];
+    return Object.entries(r).map(([name, id]) => ({ name: ROBI_RAUM[name] || name.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()), id: [].concat(id).join(",") }));
+  }
+  auswahlen() { const c = this._config; return (c.auswahl?.length ? c.auswahl : this.geraetEntitaeten("select")).map((e) => this._hass.states[e]).filter(Boolean); }
+  knoepfe() { const c = this._config; return (c.knoepfe?.length ? c.knoepfe : this.geraetEntitaeten("button")).map((e) => this._hass.states[e]).filter(Boolean); }
   blattHtml(s) {
     const h = this._hass, c = this._config, st = h.states[c.entity], ak = this.akku();
-    if (!st) return s.kopfHtml("Robi", "nicht gefunden");
+    if (!st) return s.kopfHtml(c.name || "Robi", "nicht gefunden");
     const gew = this._gewaehlt || new Set();
-    const putzt = st.state === "cleaning";
+    const putzt = st.state === "cleaning", pause = st.state === "paused";
     const stufen = st.attributes.fan_speed_list || [];
-    return `${s.kopfHtml(c.name || "Robi", `${ROBI_STATUS[st.state] || zustandText(h, st)}${ak != null ? ` · Akku ${Math.round(ak)} %` : ""}`)}
-      ${ak != null ? `<div class="balken"><i style="width:${ak}%"></i></div>` : ""}
-      <div class="raster2"><button class="aktion haupt" data-start>${putzt ? "Pause" : st.state === "paused" ? "Fortsetzen" : "Alles saugen"}</button>
-        <button class="aktion glas" data-station>Zur Station</button></div>
-      ${(c.raeume || []).length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Räume saugen</h3></div>
-        <div class="chips" style="padding:var(--g-a1) 0 var(--g-a2)">${c.raeume.map((r, i) =>
-          `<button class="pille fuell ${gew.has(i) ? "aktiv" : ""}" data-raum="${i}" aria-pressed="${gew.has(i)}">${esc(r.name)}</button>`).join("")}</div>
-        <button class="aktion haupt" data-raeume ${gew.size ? "" : "disabled"} style="margin-bottom:var(--g-a2)">${gew.size ? `${gew.size} ${gew.size === 1 ? "Raum" : "Räume"} saugen` : "Räume auswählen"}</button></div>` : ""}
-      ${stufen.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Saugstärke</h3></div><div class="chips" style="padding:var(--g-a1) 0 var(--g-a2)">${stufen.map((f) =>
-        `<button class="pille fuell ${st.attributes.fan_speed === f ? "aktiv" : ""}" data-stufe="${esc(f)}">${esc(f)}</button>`).join("")}</div></div>` : ""}
-      ${(c.auswahl || []).map((e) => h.states[e]).filter(Boolean).map((a) => `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">${esc(a.attributes.friendly_name)}</h3></div>
-        <div class="chips" style="padding:var(--g-a1) 0 var(--g-a2)">${(a.attributes.options || []).map((o) =>
-          `<button class="pille fuell ${a.state === o ? "aktiv" : ""}" data-wahl="${esc(a.entity_id)}" data-o="${esc(o)}">${esc(attributText(h, { ...a, attributes: { ...a.attributes, x: o } }, "x") || o)}</button>`).join("")}</div></div>`).join("")}
-      ${(c.knoepfe || []).length ? `<div class="raster2">${c.knoepfe.map((b) => h.states[b]).filter(Boolean).map((b) =>
-        `<button class="aktion glas" data-btn="${esc(b.entity_id)}">${esc(b.attributes.friendly_name)}</button>`).join("")}</div>` : ""}`;
+    const raeume = this.raumListe();
+    const status = ROBI_STATUS[st.state] || zustandText(h, st);
+    const akkuFarbe = ak == null ? "" : ak < 20 ? "var(--g-rot)" : ak < 40 ? "var(--g-orange)" : "var(--g-gruen)";
+    const wahlChips = (a, opts, wert, attr) => opts.map((o) =>
+      `<button class="pille fuell robi-chip ${wert === o ? "aktiv" : ""}" ${attr}="${esc(o)}" aria-pressed="${wert === o}">${esc(o.label || o)}</button>`).join("");
+    return `${s.kopfHtml(c.name || "Robi", "Saugroboter")}
+      <div class="robi-held glas ${putzt ? "putzt" : ""}">
+        <div class="robi-bild"><span class="ring" aria-hidden="true"></span><ha-icon data-i="mdi:robot-vacuum"></ha-icon></div>
+        <div class="robi-text"><span class="robi-status">${esc(status)}</span>
+          ${ak != null ? `<span class="leise">Akku ${Math.round(ak)} %${st.attributes.fan_speed ? ` · ${esc(ROBI_STUFE[st.attributes.fan_speed] || st.attributes.fan_speed)}` : ""}</span>
+          <div class="balken"><i style="width:${ak}%;--bf:${akkuFarbe}"></i></div>` : ""}</div>
+      </div>
+      <div class="raster2">
+        <button class="aktion robi-haupt" data-start><ha-icon data-i="${putzt ? "mdi:pause" : "mdi:play"}"></ha-icon>${putzt ? "Pause" : pause ? "Fortsetzen" : "Alles saugen"}</button>
+        <button class="aktion glas" data-station><ha-icon data-i="mdi:home-import-outline"></ha-icon>Zur Station</button></div>
+      ${raeume.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Räume saugen</h3>${gew.size ? `<span class="leise">${gew.size} gewählt</span>` : ""}</div>
+        <div class="robi-raeume">${raeume.map((r, i) => `<button class="robi-raum ${gew.has(i) ? "aktiv" : ""}" data-raum="${i}" aria-pressed="${gew.has(i)}">
+          <ha-icon data-i="${gew.has(i) ? "mdi:check-circle" : "mdi:circle-outline"}"></ha-icon><span>${esc(r.name)}</span></button>`).join("")}</div>
+        <button class="aktion robi-haupt" data-raeume ${gew.size ? "" : "disabled"}>${gew.size ? `${gew.size} ${gew.size === 1 ? "Raum" : "Räume"} saugen` : "Räume antippen"}</button></div>` : ""}
+      ${stufen.length || this.auswahlen().length ? `<div class="karte glas">
+        ${stufen.length ? `<div class="karte-kopf"><h3 class="karte-titel">Saugstärke</h3></div><div class="chips robi-chips">${stufen.map((f) =>
+          `<button class="pille fuell ${st.attributes.fan_speed === f ? "aktiv" : ""}" data-stufe="${esc(f)}" aria-pressed="${st.attributes.fan_speed === f}">${esc(ROBI_STUFE[f] || f)}</button>`).join("")}</div>` : ""}
+        ${this.auswahlen().map((a) => `<div class="karte-kopf"><h3 class="karte-titel">${esc(robiName(a, c.name))}</h3></div><div class="chips robi-chips">${(a.attributes.options || []).map((o) =>
+          `<button class="pille fuell ${a.state === o ? "aktiv" : ""}" data-wahl="${esc(a.entity_id)}" data-o="${esc(o)}" aria-pressed="${a.state === o}">${esc(attributText(h, { ...a, attributes: { ...a.attributes, x: o } }, "x") || ROBI_STUFE[o] || o)}</button>`).join("")}</div>`).join("")}
+      </div>` : ""}
+      ${this.knoepfe().length ? `<div class="raster2">${this.knoepfe().map((b) =>
+        `<button class="aktion glas" data-btn="${esc(b.entity_id)}"><ha-icon data-i="${esc(b.attributes.icon || robiKnopfIcon(b.entity_id))}"></ha-icon>${esc(robiName(b, c.name))}</button>`).join("")}</div>` : ""}`;
   }
   blattBinden(s, $, $$) {
     const h = this._hass, c = this._config, st = h.states[c.entity];
@@ -4528,7 +4654,8 @@ class GlasRobiCard extends GlasBereichKarte {
       this._gewaehlt.has(i) ? this._gewaehlt.delete(i) : this._gewaehlt.add(i); this.blattZeichnen();
     }));
     $("[data-raeume]")?.addEventListener("click", () => {
-      const ids = [...(this._gewaehlt || [])].map((i) => c.raeume[i].id).filter((x) => x !== undefined && x !== "");
+      const liste = this.raumListe();
+      const ids = [...(this._gewaehlt || [])].map((i) => liste[i]?.id).filter((x) => x !== undefined && x !== "");
       if (!ids.length) return;
       h.callService("vacuum", "send_command", { entity_id: c.entity, command: c.befehl || "spot_area", params: { rooms: ids.join(","), cleanings: 1 } });
       this._gewaehlt = new Set(); this.blattZeichnen();
@@ -4536,8 +4663,19 @@ class GlasRobiCard extends GlasBereichKarte {
     $$("[data-stufe]").forEach((b) => b.addEventListener("click", () => h.callService("vacuum", "set_fan_speed", { entity_id: c.entity, fan_speed: b.dataset.stufe })));
     $$("[data-wahl]").forEach((b) => b.addEventListener("click", () => h.callService("select", "select_option", { entity_id: b.dataset.wahl, option: b.dataset.o })));
     $$("[data-btn]").forEach((b) => b.addEventListener("click", () => h.callService("button", "press", { entity_id: b.dataset.btn })));
+    s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
   }
+  entitaeten() { return [this._config.entity, this._config.akku, ...this.auswahlen().map((a) => a.entity_id), ...this.knoepfe().map((b) => b.entity_id)].filter(Boolean); }
 }
+// Ecovacs meldet Raumtypen auf Englisch
+const ROBI_RAUM = { kitchen: "Küche", living_room: "Wohnzimmer", bedroom: "Schlafzimmer", study: "Arbeitszimmer", corridor: "Flur", bathroom: "Bad", dining_room: "Esszimmer",
+  balcony: "Balkon", laundry: "Waschraum", childrens_room: "Kinderzimmer", storeroom: "Abstellraum", sunroom: "Wintergarten", lounge: "Lounge", default: "Raum" };
+const ROBI_STUFE = { quiet: "Leise", silent: "Leise", standard: "Standard", normal: "Normal", strong: "Stark", turbo: "Turbo", max: "Max", max_plus: "Max+",
+  low: "Niedrig", medium: "Mittel", high: "Hoch", ultrahigh: "Sehr hoch", auto: "Automatisch" };
+// „Robi Wassermenge“ → „Wassermenge“: Gerätename vorne weglassen
+const robiName = (st, vorne) => { const n = st.attributes.friendly_name || st.entity_id; const v = [vorne, "Robi", "Deebot", "Ecovacs"].filter(Boolean).find((x) => n.toLowerCase().startsWith(x.toLowerCase() + " ")); return v ? n.slice(v.length + 1).replace(/^./, (x) => x.toUpperCase()) : n; };
+const robiKnopfIcon = (id) => (/empty|absaug|dust/i.test(id) ? "mdi:delete-empty-outline" : /mop|wash|wisch|clean/i.test(id) ? "mdi:water-outline" : /dry|trock/i.test(id) ? "mdi:fan" : /relocat/i.test(id) ? "mdi:map-marker-radius-outline" : "mdi:gesture-tap-button");
+
 class GlasRobiEditor extends GlasEditor {
   schema() {
     return [
