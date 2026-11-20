@@ -5,12 +5,12 @@
 const ZUHAUSE_CSS = `
 :host{display:block;position:relative;min-height:100vh;min-height:100dvh}
 .hg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.seite{position:relative;z-index:1;container-type:inline-size;max-width:1320px;margin:0 auto;
-  padding:calc(var(--g-a5) + env(safe-area-inset-top)) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
-.raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a3);margin-top:var(--g-a5);align-items:start}
+.seite{position:relative;z-index:1;max-width:1320px;margin:0 auto;
+  padding:var(--g-a4) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
+.raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);margin-top:var(--g-a3);align-items:start}
 .raster > *{grid-column:span 12;min-width:0}
-@container (min-width:720px){.raster > .halb{grid-column:span 6}}
-.abschnitt-titel{grid-column:span 12;margin:var(--g-a3) var(--g-a1) calc(-1 * var(--g-a1))}
+.raster > .halb{grid-column:span 6}
+.abschnitt-titel{grid-column:span 12;margin:var(--g-a4) var(--g-a1) var(--g-a1)}
 .fav{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2)}
 .fav > *{min-width:0}
 .leer{max-width:520px;margin:12vh auto 0;padding:var(--g-a5);border-radius:var(--g-r);text-align:center;color:var(--g-text)}
@@ -33,10 +33,22 @@ class GlasZuhauseCard extends HTMLElement {
   getGridOptions() { return { columns: 12, rows: "auto" }; }
   connectedCallback() {
     Glas.hoerer.add(this._hoerer);
+    this.themaSetzen(true);
     this._takt = setInterval(() => this.hintergrund(), 10 * 60e3);
     this.aufbauen();
   }
-  disconnectedCallback() { Glas.hoerer.delete(this._hoerer); clearInterval(this._takt); }
+  disconnectedCallback() { Glas.hoerer.delete(this._hoerer); clearInterval(this._takt); this.themaSetzen(false); }
+  // Wie das bisherige Glas-Thema: gläserne Kopfleiste, normale HA-Karten rund und durchscheinend
+  themaSetzen(an) {
+    const d = istDunkel(this._hass), r = document.documentElement.style;
+    const werte = { "--app-header-background-color": d ? "rgba(22,22,28,.7)" : "rgba(246,246,250,.7)", "--app-header-text-color": d ? "#f2f2f7" : "#1c1c1e",
+      "--ha-card-border-radius": "22px", "--ha-card-background": d ? "rgba(44,44,52,.55)" : "rgba(255,255,255,.55)",
+      "--ha-card-border-color": d ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.7)", "--ha-card-box-shadow": "none" };
+    if (!an) { if (this._thema) { Object.keys(werte).forEach((k) => r.removeProperty(k)); this._thema = false; } return; }
+    if (Glas.einst?.aussehen?.hintergrund === "aus") return this.themaSetzen(false);
+    Object.entries(werte).forEach(([k, v]) => r.setProperty(k, v));
+    this._thema = true;
+  }
   set hass(h) {
     const erst = !this._hass;
     this._hass = h;
@@ -62,8 +74,8 @@ class GlasZuhauseCard extends HTMLElement {
     if (!hg || !this._hass) return;
     const d = istDunkel(this._hass);
     this.toggleAttribute("dunkel", d);
-    const css = hintergrundCss(Glas.einst?.aussehen?.hintergrund || "aurora", d);
-    if (hg._css !== css) { hg._css = css; hg.style.background = css; }
+    const css = hintergrundCss(Glas.einst?.aussehen?.hintergrund || "klassisch", d);
+    if (hg._css !== css) { hg._css = css; hg.style.background = css; this.themaSetzen(true); }
   }
   aufbauen() {
     if (!this._hass || !this.isConnected) return;

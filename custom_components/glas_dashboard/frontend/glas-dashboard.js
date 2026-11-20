@@ -349,10 +349,10 @@ const AKTIONEN_LABELS = {
 // Personen · Räume mit Geräten · Startseite pro Person · Bereiche · Aussehen
 // ---------------------------------------------------------------------------
 const ABSCHNITTE = [
-  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "halb"], ["planer", "Planer heute", "mdi:calendar-check", "halb"],
-  ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "halb"],
+  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer heute", "mdi:calendar-check", "ganz"],
+  ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "ganz"],
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
-  ["gaeste", "Gäste", "mdi:qrcode", "halb"],
+  ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
 ];
 const GRUPPEN = [
   ["licht", "Licht"], ["klima", "Klima"], ["rollos", "Rollos"], ["schalter", "Steckdosen & Schalter"],
@@ -386,7 +386,7 @@ function raumGeraeteVorschlag(hass, bereich) {
 }
 function einstStandard() {
   return { version: 1, personen: [], gruss_modus: "name", raeume: [], startseiten: { alle: startseiteStandard() }, bereiche: {},
-    aussehen: { modus: "auto", hintergrund: "aurora" } };
+    aussehen: { modus: "auto", hintergrund: "klassisch" } };
 }
 function startseiteStandard() {
   return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: true, breite })), favoriten: [], chips: [] };
@@ -436,6 +436,7 @@ function istDunkel(h) {
 // Hintergründe: weiche Farbflächen hinter dem Glas (ruhig, ohne Bewegung)
 // ---------------------------------------------------------------------------
 const HINTERGRUENDE = {
+  klassisch: { name: "Glas (wie bisher)", verlauf: true, hell: ["#dfe9f7", "#eee3f1", "#f8eadb"], dunkel: ["#1b2742", "#0d111c", "#271c33"] },
   aurora: { name: "Aurora", hell: ["#eef1f8", "#bcd6ff", "#e2d3ff", "#ffdcc4", "#c9efe2"], dunkel: ["#0b0d14", "#1b3566", "#36225a", "#4a2a1c", "#0f3b37"] },
   morgen: { name: "Morgenrot", hell: ["#fbf1ec", "#ffd3c2", "#ffe6b3", "#f6c9de", "#e4dcff"], dunkel: ["#120c0e", "#4a1f1b", "#4a3510", "#45193a", "#26204a"] },
   see: { name: "See", hell: ["#ecf4f6", "#b9e3ef", "#cfe7ff", "#d5f2e6", "#e6e0fa"], dunkel: ["#081114", "#0f3a48", "#132f57", "#0f3d2f", "#262150"] },
@@ -443,11 +444,12 @@ const HINTERGRUENDE = {
   ruhig: { name: "Ruhig", hell: ["#f1f1f4", "#e3e5ec", "#ecebf0", "#e8e6e3", "#e5e9ea"], dunkel: ["#111114", "#1f2129", "#23222a", "#24221f", "#1e2326"] },
 };
 // „Nach Tageszeit“: morgens warm, tagsüber Aurora, abends See, nachts ruhig
-const tageszeitHg = () => { const s = new Date().getHours(); return s < 6 ? "ruhig" : s < 10 ? "morgen" : s < 17 ? "aurora" : s < 21 ? "see" : "ruhig"; };
+const tageszeitHg = () => { const s = new Date().getHours(); return s < 6 ? "ruhig" : s < 10 ? "morgen" : s < 17 ? "klassisch" : s < 21 ? "see" : "ruhig"; };
 function hintergrundCss(id, dunkel) {
   const wahl = id === "tageszeit" ? tageszeitHg() : id;
   const h = HINTERGRUENDE[wahl];
   if (!h) return "var(--primary-background-color)";
+  if (h.verlauf) { const [a, b, c] = h[dunkel ? "dunkel" : "hell"]; return `linear-gradient(160deg, ${a} 0%, ${b} 55%, ${c} 100%)`; }
   const [b, c1, c2, c3, c4] = h[dunkel ? "dunkel" : "hell"];
   const a = dunkel ? "cc" : "ff";
   return `radial-gradient(70% 55% at 8% 0%, ${c1}${a} 0%, transparent 70%),radial-gradient(55% 50% at 100% 12%, ${c2}${a} 0%, transparent 70%),`
@@ -4608,12 +4610,12 @@ class GlasGaesteEditor extends GlasEditor {
 const ZUHAUSE_CSS = `
 :host{display:block;position:relative;min-height:100vh;min-height:100dvh}
 .hg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.seite{position:relative;z-index:1;container-type:inline-size;max-width:1320px;margin:0 auto;
-  padding:calc(var(--g-a5) + env(safe-area-inset-top)) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
-.raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a3);margin-top:var(--g-a5);align-items:start}
+.seite{position:relative;z-index:1;max-width:1320px;margin:0 auto;
+  padding:var(--g-a4) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
+.raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);margin-top:var(--g-a3);align-items:start}
 .raster > *{grid-column:span 12;min-width:0}
-@container (min-width:720px){.raster > .halb{grid-column:span 6}}
-.abschnitt-titel{grid-column:span 12;margin:var(--g-a3) var(--g-a1) calc(-1 * var(--g-a1))}
+.raster > .halb{grid-column:span 6}
+.abschnitt-titel{grid-column:span 12;margin:var(--g-a4) var(--g-a1) var(--g-a1)}
 .fav{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2)}
 .fav > *{min-width:0}
 .leer{max-width:520px;margin:12vh auto 0;padding:var(--g-a5);border-radius:var(--g-r);text-align:center;color:var(--g-text)}
@@ -4636,10 +4638,22 @@ class GlasZuhauseCard extends HTMLElement {
   getGridOptions() { return { columns: 12, rows: "auto" }; }
   connectedCallback() {
     Glas.hoerer.add(this._hoerer);
+    this.themaSetzen(true);
     this._takt = setInterval(() => this.hintergrund(), 10 * 60e3);
     this.aufbauen();
   }
-  disconnectedCallback() { Glas.hoerer.delete(this._hoerer); clearInterval(this._takt); }
+  disconnectedCallback() { Glas.hoerer.delete(this._hoerer); clearInterval(this._takt); this.themaSetzen(false); }
+  // Wie das bisherige Glas-Thema: gläserne Kopfleiste, normale HA-Karten rund und durchscheinend
+  themaSetzen(an) {
+    const d = istDunkel(this._hass), r = document.documentElement.style;
+    const werte = { "--app-header-background-color": d ? "rgba(22,22,28,.7)" : "rgba(246,246,250,.7)", "--app-header-text-color": d ? "#f2f2f7" : "#1c1c1e",
+      "--ha-card-border-radius": "22px", "--ha-card-background": d ? "rgba(44,44,52,.55)" : "rgba(255,255,255,.55)",
+      "--ha-card-border-color": d ? "rgba(255,255,255,.08)" : "rgba(255,255,255,.7)", "--ha-card-box-shadow": "none" };
+    if (!an) { if (this._thema) { Object.keys(werte).forEach((k) => r.removeProperty(k)); this._thema = false; } return; }
+    if (Glas.einst?.aussehen?.hintergrund === "aus") return this.themaSetzen(false);
+    Object.entries(werte).forEach(([k, v]) => r.setProperty(k, v));
+    this._thema = true;
+  }
   set hass(h) {
     const erst = !this._hass;
     this._hass = h;
@@ -4665,8 +4679,8 @@ class GlasZuhauseCard extends HTMLElement {
     if (!hg || !this._hass) return;
     const d = istDunkel(this._hass);
     this.toggleAttribute("dunkel", d);
-    const css = hintergrundCss(Glas.einst?.aussehen?.hintergrund || "aurora", d);
-    if (hg._css !== css) { hg._css = css; hg.style.background = css; }
+    const css = hintergrundCss(Glas.einst?.aussehen?.hintergrund || "klassisch", d);
+    if (hg._css !== css) { hg._css = css; hg.style.background = css; this.themaSetzen(true); }
   }
   aufbauen() {
     if (!this._hass || !this.isConnected) return;
@@ -4944,7 +4958,7 @@ class GlasEinstellungen extends HTMLElement {
     const d = istDunkel(this._hass);
     this.toggleAttribute("dunkel", d);
     const hg = this.$(".hg");
-    if (hg) hg.style.background = hintergrundCss(this._d?.aussehen?.hintergrund || Glas.einst?.aussehen?.hintergrund || "aurora", d);
+    if (hg) hg.style.background = hintergrundCss(this._d?.aussehen?.hintergrund || Glas.einst?.aussehen?.hintergrund || "klassisch", d);
   }
   speichern() {
     clearTimeout(this._speicherT);
@@ -5178,7 +5192,7 @@ class GlasEinstellungen extends HTMLElement {
 
   // ---------------- Aussehen ----------------
   aussehen(box) {
-    const A = (this._d.aussehen = { modus: "auto", hintergrund: "aurora", ...(this._d.aussehen || {}) });
+    const A = (this._d.aussehen = { modus: "auto", hintergrund: "klassisch", ...(this._d.aussehen || {}) });
     this.html(box, `<h2>Hell oder dunkel</h2>`);
     const m = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Darstellung</b><span>Automatisch folgt dem Handy bzw. HA</span></span>
       <span class="segment" role="group" aria-label="Darstellung">${[["auto", "Auto"], ["hell", "Hell"], ["dunkel", "Dunkel"]].map(([id, t]) => `<button data-m="${id}" aria-pressed="${A.modus === id}">${t}</button>`).join("")}</span></div></div>`);
@@ -5188,7 +5202,7 @@ class GlasEinstellungen extends HTMLElement {
     const hg = this.html(box, `<div class="gruppe"><div class="hgs">${[...Object.entries(HINTERGRUENDE).map(([id, x]) => [id, x.name]), ["tageszeit", "Nach Tageszeit"], ["aus", "Wie Home Assistant"]]
       .map(([id, n]) => `<button class="hg-wahl" data-hg="${id}" aria-pressed="${A.hintergrund === id}"><span class="muster" style="background:${hintergrundCss(id, d)}"><span></span></span>${esc(n)}</button>`).join("")}</div></div>`);
     hg.querySelectorAll("[data-hg]").forEach((b) => b.addEventListener("click", () => { A.hintergrund = b.dataset.hg; this.speichern(); this.hintergrund(); this.zeichnen(); }));
-    this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber Aurora, abends See, nachts ruhig.</div>`);
+    this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber wie bisher, abends See, nachts ruhig.</div>`);
     this.dashboardBlock(box);
   }
   async dashboardBlock(box) {

@@ -3,10 +3,10 @@
 // Personen · Räume mit Geräten · Startseite pro Person · Bereiche · Aussehen
 // ---------------------------------------------------------------------------
 const ABSCHNITTE = [
-  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "halb"], ["planer", "Planer heute", "mdi:calendar-check", "halb"],
-  ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "halb"],
+  ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer heute", "mdi:calendar-check", "ganz"],
+  ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "ganz"],
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
-  ["gaeste", "Gäste", "mdi:qrcode", "halb"],
+  ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
 ];
 const GRUPPEN = [
   ["licht", "Licht"], ["klima", "Klima"], ["rollos", "Rollos"], ["schalter", "Steckdosen & Schalter"],
@@ -40,7 +40,7 @@ function raumGeraeteVorschlag(hass, bereich) {
 }
 function einstStandard() {
   return { version: 1, personen: [], gruss_modus: "name", raeume: [], startseiten: { alle: startseiteStandard() }, bereiche: {},
-    aussehen: { modus: "auto", hintergrund: "aurora" } };
+    aussehen: { modus: "auto", hintergrund: "klassisch" } };
 }
 function startseiteStandard() {
   return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: true, breite })), favoriten: [], chips: [] };
@@ -90,6 +90,7 @@ function istDunkel(h) {
 // Hintergründe: weiche Farbflächen hinter dem Glas (ruhig, ohne Bewegung)
 // ---------------------------------------------------------------------------
 const HINTERGRUENDE = {
+  klassisch: { name: "Glas (wie bisher)", verlauf: true, hell: ["#dfe9f7", "#eee3f1", "#f8eadb"], dunkel: ["#1b2742", "#0d111c", "#271c33"] },
   aurora: { name: "Aurora", hell: ["#eef1f8", "#bcd6ff", "#e2d3ff", "#ffdcc4", "#c9efe2"], dunkel: ["#0b0d14", "#1b3566", "#36225a", "#4a2a1c", "#0f3b37"] },
   morgen: { name: "Morgenrot", hell: ["#fbf1ec", "#ffd3c2", "#ffe6b3", "#f6c9de", "#e4dcff"], dunkel: ["#120c0e", "#4a1f1b", "#4a3510", "#45193a", "#26204a"] },
   see: { name: "See", hell: ["#ecf4f6", "#b9e3ef", "#cfe7ff", "#d5f2e6", "#e6e0fa"], dunkel: ["#081114", "#0f3a48", "#132f57", "#0f3d2f", "#262150"] },
@@ -97,11 +98,12 @@ const HINTERGRUENDE = {
   ruhig: { name: "Ruhig", hell: ["#f1f1f4", "#e3e5ec", "#ecebf0", "#e8e6e3", "#e5e9ea"], dunkel: ["#111114", "#1f2129", "#23222a", "#24221f", "#1e2326"] },
 };
 // „Nach Tageszeit“: morgens warm, tagsüber Aurora, abends See, nachts ruhig
-const tageszeitHg = () => { const s = new Date().getHours(); return s < 6 ? "ruhig" : s < 10 ? "morgen" : s < 17 ? "aurora" : s < 21 ? "see" : "ruhig"; };
+const tageszeitHg = () => { const s = new Date().getHours(); return s < 6 ? "ruhig" : s < 10 ? "morgen" : s < 17 ? "klassisch" : s < 21 ? "see" : "ruhig"; };
 function hintergrundCss(id, dunkel) {
   const wahl = id === "tageszeit" ? tageszeitHg() : id;
   const h = HINTERGRUENDE[wahl];
   if (!h) return "var(--primary-background-color)";
+  if (h.verlauf) { const [a, b, c] = h[dunkel ? "dunkel" : "hell"]; return `linear-gradient(160deg, ${a} 0%, ${b} 55%, ${c} 100%)`; }
   const [b, c1, c2, c3, c4] = h[dunkel ? "dunkel" : "hell"];
   const a = dunkel ? "cc" : "ff";
   return `radial-gradient(70% 55% at 8% 0%, ${c1}${a} 0%, transparent 70%),radial-gradient(55% 50% at 100% 12%, ${c2}${a} 0%, transparent 70%),`

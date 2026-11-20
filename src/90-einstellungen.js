@@ -169,7 +169,7 @@ class GlasEinstellungen extends HTMLElement {
     const d = istDunkel(this._hass);
     this.toggleAttribute("dunkel", d);
     const hg = this.$(".hg");
-    if (hg) hg.style.background = hintergrundCss(this._d?.aussehen?.hintergrund || Glas.einst?.aussehen?.hintergrund || "aurora", d);
+    if (hg) hg.style.background = hintergrundCss(this._d?.aussehen?.hintergrund || Glas.einst?.aussehen?.hintergrund || "klassisch", d);
   }
   speichern() {
     clearTimeout(this._speicherT);
@@ -403,7 +403,7 @@ class GlasEinstellungen extends HTMLElement {
 
   // ---------------- Aussehen ----------------
   aussehen(box) {
-    const A = (this._d.aussehen = { modus: "auto", hintergrund: "aurora", ...(this._d.aussehen || {}) });
+    const A = (this._d.aussehen = { modus: "auto", hintergrund: "klassisch", ...(this._d.aussehen || {}) });
     this.html(box, `<h2>Hell oder dunkel</h2>`);
     const m = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Darstellung</b><span>Automatisch folgt dem Handy bzw. HA</span></span>
       <span class="segment" role="group" aria-label="Darstellung">${[["auto", "Auto"], ["hell", "Hell"], ["dunkel", "Dunkel"]].map(([id, t]) => `<button data-m="${id}" aria-pressed="${A.modus === id}">${t}</button>`).join("")}</span></div></div>`);
@@ -413,7 +413,7 @@ class GlasEinstellungen extends HTMLElement {
     const hg = this.html(box, `<div class="gruppe"><div class="hgs">${[...Object.entries(HINTERGRUENDE).map(([id, x]) => [id, x.name]), ["tageszeit", "Nach Tageszeit"], ["aus", "Wie Home Assistant"]]
       .map(([id, n]) => `<button class="hg-wahl" data-hg="${id}" aria-pressed="${A.hintergrund === id}"><span class="muster" style="background:${hintergrundCss(id, d)}"><span></span></span>${esc(n)}</button>`).join("")}</div></div>`);
     hg.querySelectorAll("[data-hg]").forEach((b) => b.addEventListener("click", () => { A.hintergrund = b.dataset.hg; this.speichern(); this.hintergrund(); this.zeichnen(); }));
-    this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber Aurora, abends See, nachts ruhig.</div>`);
+    this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber wie bisher, abends See, nachts ruhig.</div>`);
     this.dashboardBlock(box);
   }
   async dashboardBlock(box) {
