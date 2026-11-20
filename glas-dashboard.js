@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -130,8 +130,14 @@ function entitaetenImBereich(hass, area, domains) {
 const Glas = (window.__glasDashboard = window.__glasDashboard || {
   personen: [], person: null, hass: null, hoerer: new Set(),
 });
+// hoerer = Personenwechsel (selten), hassHoerer = jede neue hass-Version (nur offene Steuerungen)
+Glas.hassHoerer = Glas.hassHoerer || new Set();
 Glas.melden = function () { this.hoerer.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); };
-Glas.hassSetzen = function (h) { if (h && h !== this.hass) { this.hass = h; this.melden(); } };
+Glas.hassSetzen = function (h) {
+  if (!h || h === this.hass) return;
+  this.hass = h;
+  this.hassHoerer.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
+};
 Glas.personenSetzen = function (liste) {
   const neu = JSON.stringify(liste);
   if (neu === JSON.stringify(this.personen)) return;
@@ -188,7 +194,11 @@ class GlasKarte extends HTMLElement {
   entitaeten() { return []; }
   getCardSize() { return 2; }
   render() {
-    this.shadowRoot.innerHTML = `<style>${TOKENS}${this.css()}</style>${this.html()}`;
+    // Nur neu aufbauen, wenn sich wirklich etwas geändert hat (spart Neuaufbau, Icons und Unschärfe)
+    const html = `<style>${TOKENS}${this.css()}</style>${this.html()}`;
+    if (html === this._letztesHtml && this.shadowRoot.firstChild) return;
+    this._letztesHtml = html;
+    this.shadowRoot.innerHTML = html;
     this.binden?.();
   }
   css() { return ""; }
@@ -2913,13 +2923,16 @@ const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["N
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
-  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => Glas.hoerer.delete(neu) });
-  const neu = () => zeichnen();
+  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => Glas.hassHoerer.delete(neu) });
+  let letzter = null;
+  // nur neu zeichnen, wenn sich diese Entität geändert hat
+  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter) zeichnen(); };
   let ziehen = false;
   const zeichnen = () => {
     if (ziehen) return;
     const h = Glas.hass, st = h?.states[entityId];
     if (!st) return;
+    letzter = st;
     s.dunkel(h.themes?.darkMode);
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
     const bereich = bereichVon(h, entityId);
@@ -3002,7 +3015,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       });
     }
   };
-  Glas.hoerer.add(neu);
+  Glas.hassHoerer.add(neu);
   zeichnen();
   s.oeffnen();
   return s;
@@ -3929,10 +3942,13 @@ class GlasRaumCard extends GlasKarte {
     const knoepfe = c.alles_aus ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "";
     const chips = this.chips();
     const kompakt = s.inhalt.querySelector(".kopf")?.classList.contains("kompakt");
-    k.innerHTML = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
+    const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
     }).join("")}</div>` : ""}`;
+    if (this._kopfHtml === kopfNeu && k.firstChild) return;
+    this._kopfHtml = kopfNeu;
+    k.innerHTML = kopfNeu;
     if (kompakt) k.querySelector(".kopf").classList.add("kompakt");
     s.kopfBinden();
     k.querySelector("[data-aus]")?.addEventListener("click", () => {
@@ -4081,10 +4097,13 @@ class GlasBereichKarte extends GlasKarte {
   blattZeichnen() {
     const s = this._blatt; if (!s) return;
     s.dunkel(this._hass.themes?.darkMode);
+    const html = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
+    if (s._letztesHtml === html) return; // nichts geändert: Blatt stehen lassen
+    s._letztesHtml = html;
     const scroll = s.inhalt.scrollTop;
     const fokus = s.inhalt.querySelector("input:focus");
     const wert = fokus?.value;
-    s.inhalt.innerHTML = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
+    s.inhalt.innerHTML = html;
     s.kopfBinden();
     s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = this._hass; el.stateObj = this._hass.states[el.dataset.e]; });
     this.blattBinden(s, (q) => s.inhalt.querySelector(q), (q) => [...s.inhalt.querySelectorAll(q)]);

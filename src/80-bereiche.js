@@ -66,10 +66,13 @@ class GlasBereichKarte extends GlasKarte {
   blattZeichnen() {
     const s = this._blatt; if (!s) return;
     s.dunkel(this._hass.themes?.darkMode);
+    const html = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
+    if (s._letztesHtml === html) return; // nichts geändert: Blatt stehen lassen
+    s._letztesHtml = html;
     const scroll = s.inhalt.scrollTop;
     const fokus = s.inhalt.querySelector("input:focus");
     const wert = fokus?.value;
-    s.inhalt.innerHTML = `<style>${BLATT_CSS}</style>${this.blattHtml(s)}`;
+    s.inhalt.innerHTML = html;
     s.kopfBinden();
     s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = this._hass; el.stateObj = this._hass.states[el.dataset.e]; });
     this.blattBinden(s, (q) => s.inhalt.querySelector(q), (q) => [...s.inhalt.querySelectorAll(q)]);

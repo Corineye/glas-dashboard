@@ -31,13 +31,16 @@ const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["N
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
-  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => Glas.hoerer.delete(neu) });
-  const neu = () => zeichnen();
+  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => Glas.hassHoerer.delete(neu) });
+  let letzter = null;
+  // nur neu zeichnen, wenn sich diese Entität geändert hat
+  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter) zeichnen(); };
   let ziehen = false;
   const zeichnen = () => {
     if (ziehen) return;
     const h = Glas.hass, st = h?.states[entityId];
     if (!st) return;
+    letzter = st;
     s.dunkel(h.themes?.darkMode);
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
     const bereich = bereichVon(h, entityId);
@@ -120,7 +123,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       });
     }
   };
-  Glas.hoerer.add(neu);
+  Glas.hassHoerer.add(neu);
   zeichnen();
   s.oeffnen();
   return s;
