@@ -191,10 +191,13 @@ class GlasRaumCard extends GlasKarte {
     const knoepfe = c.alles_aus ? `<button class="rund glas" data-aus aria-label="Alles im Raum ausschalten"><ha-icon data-i="mdi:power"></ha-icon></button>` : "";
     const chips = this.chips();
     const kompakt = s.inhalt.querySelector(".kopf")?.classList.contains("kompakt");
-    k.innerHTML = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
+    const kopfNeu = `${s.kopfHtml(c.name || c.hash, this.messwerte(), knoepfe)}${chips.length ? `<div class="chips">${chips.map((st) => {
       const w = Geraet.istWarnung(st);
       return `<button class="pille fuell" data-chip="${esc(st.entity_id)}"><span class="punkt" style="background:${w ? FARBEN[w] : "var(--g-gruen)"}"></span>${esc(st.attributes.friendly_name)} ${esc(zustandText(h, st))}</button>`;
     }).join("")}</div>` : ""}`;
+    if (this._kopfHtml === kopfNeu && k.firstChild) return;
+    this._kopfHtml = kopfNeu;
+    k.innerHTML = kopfNeu;
     if (kompakt) k.querySelector(".kopf").classList.add("kompakt");
     s.kopfBinden();
     k.querySelector("[data-aus]")?.addEventListener("click", () => {

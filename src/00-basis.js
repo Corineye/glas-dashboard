@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -128,8 +128,14 @@ function entitaetenImBereich(hass, area, domains) {
 const Glas = (window.__glasDashboard = window.__glasDashboard || {
   personen: [], person: null, hass: null, hoerer: new Set(),
 });
+// hoerer = Personenwechsel (selten), hassHoerer = jede neue hass-Version (nur offene Steuerungen)
+Glas.hassHoerer = Glas.hassHoerer || new Set();
 Glas.melden = function () { this.hoerer.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); };
-Glas.hassSetzen = function (h) { if (h && h !== this.hass) { this.hass = h; this.melden(); } };
+Glas.hassSetzen = function (h) {
+  if (!h || h === this.hass) return;
+  this.hass = h;
+  this.hassHoerer.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
+};
 Glas.personenSetzen = function (liste) {
   const neu = JSON.stringify(liste);
   if (neu === JSON.stringify(this.personen)) return;
@@ -186,7 +192,11 @@ class GlasKarte extends HTMLElement {
   entitaeten() { return []; }
   getCardSize() { return 2; }
   render() {
-    this.shadowRoot.innerHTML = `<style>${TOKENS}${this.css()}</style>${this.html()}`;
+    // Nur neu aufbauen, wenn sich wirklich etwas geändert hat (spart Neuaufbau, Icons und Unschärfe)
+    const html = `<style>${TOKENS}${this.css()}</style>${this.html()}`;
+    if (html === this._letztesHtml && this.shadowRoot.firstChild) return;
+    this._letztesHtml = html;
+    this.shadowRoot.innerHTML = html;
     this.binden?.();
   }
   css() { return ""; }
