@@ -6165,8 +6165,10 @@ class GlasKameraCard extends GlasBereichKarte {
   static getConfigElement() { return document.createElement("glas-kamera-card-editor"); }
   static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("camera.")) || "" }; }
   css() { return BEREICH_CSS + BILD_CSS; }
-  entitaeten() { return [this._config.entity].filter(Boolean); }
-  st() { return this._hass.states[this._config.entity]; }
+  // Keine Entität eingestellt: die einzige Kamera in HA nehmen
+  eid() { const c = this._config; if (c.entity) return c.entity; const l = Object.keys(this._hass?.states || {}).filter((e) => e.startsWith("camera.")); return l.length === 1 ? l[0] : null; }
+  entitaeten() { return [this.eid()].filter(Boolean); }
+  st() { return this._hass.states[this.eid()]; }
   titel() { return this._config.name || this.st()?.attributes.friendly_name || "Kamera"; }
   blattTitel() { return this.titel(); }
   blattHoch() { return false; }
@@ -6208,7 +6210,7 @@ class GlasKameraCard extends GlasBereichKarte {
     const img = this._live.querySelector("img");
     if (img.getAttribute("src") !== src) img.setAttribute("src", src);
     $(".kamera-platz").appendChild(this._live);
-    $("[data-mehr]")?.addEventListener("click", () => mehrInfo(this, this._config.entity));
+    $("[data-mehr]")?.addEventListener("click", () => mehrInfo(this, this.eid()));
   }
 }
 class GlasKameraEditor extends GlasEditor {
