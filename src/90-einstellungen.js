@@ -56,6 +56,9 @@ h2:first-child{margin-top:0}
 .hg-wahl .muster span{width:56%;height:38%;border-radius:10px;background:var(--g-glas);border:1px solid var(--g-glas-rand);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur)}
 .hg-wahl[aria-pressed="true"] .muster{outline:3px solid var(--g-akzent);outline-offset:2px}
 .hinzu{padding:var(--g-a2) var(--g-a4) var(--g-a3);background:var(--g-blatt);box-shadow:inset 0 1px 0 var(--g-trenn)}
+.karten-hinzu{display:flex;flex-wrap:wrap;align-items:center;gap:var(--g-a2)}
+.karten-hinzu .knopf ha-icon,.karte-zeile .name b ha-icon{--mdc-icon-size:18px}
+.karte-zeile .name b{display:inline-flex;align-items:center;gap:6px}
 .leise-zeile{padding:var(--g-a4);font-size:var(--g-s-klein);color:var(--g-text2);background:var(--g-blatt)}
 @media (max-width:560px){
   .zeile.geraet{flex-wrap:wrap}
@@ -64,9 +67,30 @@ h2:first-child{margin-top:0}
   .zeile.geraet .optionen .auswahl{flex:1;min-width:0}
 }
 .optionen{display:flex;gap:var(--g-a2);align-items:center}
+.seite{position:relative}
+.anzeige-knopf{display:inline-flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;max-width:170px;overflow:hidden;text-overflow:ellipsis}
+.anzeige-knopf ha-icon{--mdc-icon-size:16px;flex:none}
+.menue-pop{position:absolute;z-index:30;min-width:220px;padding:6px;border-radius:var(--g-r-klein);background:var(--g-blatt);border:1px solid var(--g-glas-rand);
+  box-shadow:0 12px 40px rgba(0,0,0,.2);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);animation:pop-auf .16s cubic-bezier(.23,1,.32,1)}
+@keyframes pop-auf{from{opacity:0;transform:scale(.96) translateY(-4px)}}
+.menue-pop button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;border-radius:9px;font-size:var(--g-s-name);color:var(--g-text);text-align:left}
+.menue-pop button:hover{background:var(--g-fuell)}
+.menue-pop button[aria-checked="true"] ha-icon{color:var(--g-akzent)}
+.menue-pop button[aria-checked="false"] ha-icon{color:var(--g-text2)}
 `;
 const GROESSEN = [["klein", "S", "Klein (1×1)"], ["breit", "M", "Breit (2×1)"], ["gross", "L", "Groß (2×2)"], ["ganz", "▭", "Ganze Breite"]];
 const ANZEIGEN = [["zustand", "Zustand"], ["zustand_zuletzt", "Zustand + Zeit"], ["zuletzt", "Zuletzt geändert"], ["aus", "Nur Name"]];
+const ANZEIGE_TEILE = [["name", "Name"], ["symbol", "Symbol"], ["zustand", "Zustand"], ["zuletzt", "Zuletzt geändert"], ["raum", "Raum / Bereich"]];
+// alte Einstellung (zweite_zeile, name_zeigen …) in die Häkchen-Liste übersetzen
+function anzeigeVon(x) {
+  if (Array.isArray(x.anzeige)) return x.anzeige;
+  const z = x.zweite_zeile || "zustand";
+  return [x.name_zeigen !== false && "name", x.icon_zeigen !== false && "symbol", (z === "zustand" || z === "zustand_zuletzt") && "zustand", (z === "zuletzt" || z === "zustand_zuletzt") && "zuletzt"].filter(Boolean);
+}
+function anzeigeText(l) {
+  const teile = ANZEIGE_TEILE.filter(([id]) => l.includes(id) && id !== "symbol" && id !== "name").map(([, t]) => (t === "Raum / Bereich" ? "Raum" : t === "Zuletzt geändert" ? "Zeit" : t));
+  return teile.length ? teile.join(" + ") : l.includes("name") ? "Nur Name" : "Nur Symbol";
+}
 const slug = (s) => String(s || "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "raum";
 const kopie = (o) => JSON.parse(JSON.stringify(o));
 
@@ -293,6 +317,7 @@ class GlasEinstellungen extends HTMLElement {
     if (!liste.length) g.innerHTML = `<div class="leise-zeile">Noch keine Geräte.</div>`;
     let letzte = null;
     liste.forEach((x, i) => {
+      if (x.karte) { this.kartenZeile(g, liste, i, setzen, (l) => { liste = l; }); if (gruppen) letzte = null; return; }
       const st = h.states[x.entity];
       const gr = x.gruppe || gruppeVon(h, x.entity);
       if (gruppen && gr !== letzte) { letzte = gr; this.html(g, `<div class="kopfzeile">${esc((GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1])}</div>`); }
@@ -302,12 +327,16 @@ class GlasEinstellungen extends HTMLElement {
         <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
         <span class="name"><b>${esc(x.name || st?.attributes.friendly_name || x.entity)}</b><span>${st ? esc(Geraet.zustand(h, st, Geraet.regler(st))) : "nicht gefunden"}</span></span>
         <span class="optionen"><span class="segment" role="group" aria-label="Größe">${GROESSEN.map(([id, k, t]) => `<button data-g="${id}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse || "breit") === id}">${k}</button>`).join("")}</span>
-        <select class="auswahl" aria-label="Anzeige">${ANZEIGEN.map(([id, t]) => `<option value="${id}" ${(x.zweite_zeile || "zustand") === id ? "selected" : ""}>${t}</option>`).join("")}</select>
+        <span class="menue-wrap"><button class="auswahl anzeige-knopf" data-anzeige aria-haspopup="true" aria-expanded="false">${esc(anzeigeText(anzeigeVon(x)))}<ha-icon data-i="mdi:chevron-down"></ha-icon></button></span>
         <button class="klein-knopf" data-mehr aria-expanded="${offen}" aria-label="Mehr Einstellungen"><ha-icon data-i="mdi:${offen ? "chevron-up" : "dots-horizontal"}"></ha-icon></button></span></div>`);
       const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); liste = l; this.speichern(); };
       z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
       z.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === b)); neu({ groesse: b.dataset.g }); }));
-      z.querySelector("select").addEventListener("change", (e) => neu({ zweite_zeile: e.target.value }));
+      z.querySelector("[data-anzeige]").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const knopf = e.currentTarget;
+        this.anzeigeMenue(knopf, anzeigeVon(liste[i]), (wahl) => { neu({ anzeige: wahl }); knopf.firstChild.textContent = anzeigeText(wahl); });
+      });
       z.querySelector("[data-mehr]").addEventListener("click", () => { const k = `${x.entity}|${i}`; this._offen.has(k) ? this._offen.delete(k) : this._offen.add(k); this.zeichnen(); });
       if (offen) {
         const ex = this.html(g, `<div class="extra"></div>`);
@@ -320,7 +349,7 @@ class GlasEinstellungen extends HTMLElement {
     ziehSortieren(g, (von, nach) => {
       const l = verschieben(liste, von, nach);
       // In eine andere Gruppe gezogen: Gerät übernimmt die Gruppe seines neuen Nachbarn
-      if (gruppen) { const n = l[nach - 1] || l[nach + 1]; if (n) l[nach] = { ...l[nach], gruppe: n.gruppe || gruppeVon(h, n.entity) }; }
+      if (gruppen && !l[nach].karte) { const n = [l[nach - 1], l[nach + 1]].find((y) => y?.entity); if (n) l[nach] = { ...l[nach], gruppe: n.gruppe || gruppeVon(h, n.entity) }; }
       setzen(l); this.speichern(); this.zeichnen();
     });
     const hinzu = this.html(g, `<div class="hinzu"></div>`);
@@ -329,6 +358,14 @@ class GlasEinstellungen extends HTMLElement {
       setzen([...liste, geraetVorschlag(h, v.entity)].map((y, k, a) => (k === a.length - 1 ? { ...y, an: true } : y)));
       this.speichern(); this.zeichnen();
     });
+    const freie = LISTEN_KARTEN.filter(([id]) => !liste.some((y) => y.karte === id));
+    if (freie.length) {
+      const kz = this.html(g, `<div class="hinzu karten-hinzu"><span class="leise">Karte hinzufügen</span>${freie.map(([id, n, ic]) =>
+        `<button class="knopf" data-karte="${id}"><ha-icon data-i="${ic}"></ha-icon>${n}</button>`).join("")}</div>`);
+      kz.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => {
+        setzen([...liste, { karte: b.dataset.karte, groesse: "breit", an: true }]); this.speichern(); this.zeichnen();
+      }));
+    }
     if (bereich) {
       const fehlen = raumGeraeteVorschlag(h, bereich).filter((v) => !liste.some((x) => x.entity === v.entity));
       if (fehlen.length) {
@@ -336,6 +373,64 @@ class GlasEinstellungen extends HTMLElement {
         a.querySelector("button").addEventListener("click", () => { setzen([...liste, ...fehlen]); this.speichern(); this.zeichnen(); });
       }
     }
+  }
+
+  // Zeile für eine ganze Karte (3D-Drucker, Robi): zeigen, verschieben, Größe, entfernen
+  kartenZeile(g, liste, i, setzen, merken) {
+    const x = liste[i], [id, titel, icon] = listenKarte(x.karte) || [x.karte, x.karte, "mdi:card-outline"];
+    const b = (this._d.bereiche || {})[id] || {};
+    const fertig = id === "drucker" ? !!(b.geraet || b.fortschritt) : !!b.entity;
+    const an = x.an !== false;
+    const z = this.html(g, `<div class="zeile geraet karte-zeile ${an ? "" : "aus"}" data-i="${i}">
+      <span class="griff" tabindex="0" role="button" aria-label="${esc(titel)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+      <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
+      <span class="name"><b><ha-icon data-i="${icon}"></ha-icon>${esc(titel)}-Karte</b><span>${fertig ? "Einstellungen unter Bereiche" : "Noch nicht eingerichtet: Bereiche öffnen"}</span></span>
+      <span class="optionen"><span class="segment" role="group" aria-label="Größe">${[["breit", "M", "Halbe Breite"], ["ganz", "▭", "Ganze Breite"]].map(([gid, k, t]) =>
+        `<button data-g="${gid}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse === "ganz" ? "ganz" : "breit") === gid}">${k}</button>`).join("")}</span>
+        <button class="klein-knopf" data-bereich aria-label="${esc(titel)} einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>
+        <button class="klein-knopf" data-weg aria-label="Entfernen"><ha-icon data-i="mdi:close"></ha-icon></button></span></div>`);
+    const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); merken(l); liste = l; this.speichern(); };
+    z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
+    z.querySelectorAll("[data-g]").forEach((bt) => bt.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === bt)); neu({ groesse: bt.dataset.g }); }));
+    z.querySelector("[data-bereich]").addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
+    z.querySelector("[data-weg]").addEventListener("click", () => { const l = [...liste]; l.splice(i, 1); setzen(l); this.speichern(); this.zeichnen(); });
+  }
+
+  // Kleines Menü mit Häkchen, schwebt unter dem Knopf
+  anzeigeMenue(knopf, wahl, fertig) {
+    this.$(".menue-pop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "menue-pop glas";
+    pop.setAttribute("role", "menu");
+    let aktuell = [...wahl];
+    const zeichnen = () => {
+      pop.innerHTML = ANZEIGE_TEILE.map(([id, t]) => `<button role="menuitemcheckbox" aria-checked="${aktuell.includes(id)}" data-t="${id}">
+        <ha-icon data-i="${aktuell.includes(id) ? "mdi:check-circle" : "mdi:circle-outline"}"></ha-icon>${t}</button>`).join("");
+      pop.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+      pop.querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = b.dataset.t;
+        aktuell = aktuell.includes(id) ? aktuell.filter((x) => x !== id) : ANZEIGE_TEILE.map(([k]) => k).filter((k) => k === id || aktuell.includes(k));
+        if (!aktuell.length) aktuell = ["symbol"];
+        fertig(aktuell);
+        zeichnen();
+      }));
+    };
+    zeichnen();
+    const r = knopf.getBoundingClientRect(), seite = this.$(".seite").getBoundingClientRect();
+    pop.style.top = `${r.bottom - seite.top + 6}px`;
+    pop.style.right = `${Math.max(8, seite.right - r.right)}px`;
+    this.$(".seite").appendChild(pop);
+    knopf.setAttribute("aria-expanded", "true");
+    pop.querySelector("button")?.focus();
+    const zu = (e) => {
+      if (e.type === "keydown" && e.key !== "Escape") return;
+      if (e.type === "pointerdown" && pop.contains(e.composedPath()[0])) return;
+      pop.remove(); knopf.setAttribute("aria-expanded", "false");
+      this.shadowRoot.removeEventListener("pointerdown", zu, true); this.shadowRoot.removeEventListener("keydown", zu, true);
+      if (e.type === "keydown") knopf.focus();
+    };
+    setTimeout(() => { this.shadowRoot.addEventListener("pointerdown", zu, true); this.shadowRoot.addEventListener("keydown", zu, true); }, 0);
   }
 
   // ---------------- Startseite ----------------

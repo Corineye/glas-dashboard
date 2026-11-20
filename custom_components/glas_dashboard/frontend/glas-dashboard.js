@@ -354,6 +354,13 @@ const ABSCHNITTE = [
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
   ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
 ];
+// Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann (eingestellt unter Bereiche)
+const LISTEN_KARTEN = [["drucker", "3D-Drucker", "mdi:printer-3d-nozzle", "glas-drucker-card"], ["robi", "Robi", "mdi:robot-vacuum", "glas-robi-card"]];
+const listenKarte = (id) => LISTEN_KARTEN.find(([k]) => k === id);
+function listenKarteCfg(x) {
+  const k = listenKarte(x.karte);
+  return k ? { type: `custom:${k[3]}`, ...((Glas.einst?.bereiche || {})[x.karte] || {}) } : null;
+}
 const GRUPPEN = [
   ["licht", "Licht"], ["klima", "Klima"], ["rollos", "Rollos"], ["schalter", "Steckdosen & Schalter"],
   ["medien", "Medien"], ["fenster", "Fenster & Türen"], ["sensoren", "Sensoren"], ["sonstiges", "Sonstiges"],
@@ -3224,7 +3231,10 @@ const KACHEL_CSS = `
 .kachel.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .kachel.weg{opacity:.5}
 .kachel.gross{flex-direction:column;align-items:flex-start;justify-content:space-between;min-height:calc(var(--g-kachel-h) * 2 + var(--g-a2))}
-.kachel.klein{justify-content:center;padding:0}
+.kachel.klein{flex-direction:column;justify-content:center;gap:4px;padding:var(--g-a1) 6px}
+.kachel.klein .symbol{width:36px;height:36px}
+.kname{position:relative;max-width:100%;font-size:var(--g-s-mini);font-weight:600;line-height:1.2;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.an .kname{color:var(--g-text-an)}
 .kachel.ganz .text{flex:1}
 .fuell{position:absolute;inset:0;background:var(--g-an);pointer-events:none;transform-origin:left;transition:transform .2s cubic-bezier(.23,1,.32,1)}
 .kachel.an .fuell{background:var(--g-an)}
@@ -3287,6 +3297,15 @@ class GlasKachelCard extends GlasKarte {
     else if (c.zweite_zeile === "attribut") zweite = attributText(h, st, c.attribut);
     else if (c.zweite_zeile === "text") zweite = c.text || "";
     else if (c.zweite_zeile === "zustand_zuletzt") zweite = st ? `${Geraet.zustand(h, st, reg)} · ${relativeZeit(st.last_changed)}` : "";
+    // Neue Anzeige-Auswahl (Häkchen): Name, Symbol, Zustand, Zuletzt geändert, Raum
+    const liste = Array.isArray(c.anzeige) ? c.anzeige : null;
+    if (liste) {
+      const raumId = bereichVon(h, c.entity), raum = raumId ? h.areas?.[raumId]?.name : "";
+      zweite = [liste.includes("zustand") && st ? Geraet.zustand(h, st, reg) : "", liste.includes("zuletzt") && st ? relativeZeit(st.last_changed) : "",
+        liste.includes("raum") ? raum : ""].filter(Boolean).join(" · ");
+    }
+    const nameZeigen = liste ? liste.includes("name") : c.name_zeigen !== false;
+    const symbolZeigen = liste ? liste.includes("symbol") : c.icon_zeigen !== false;
     const farbe = farbeAus(c.farbe, Geraet.farbe(st));
     const pct = v.regler && an ? klemmen(v.regler.pct, 0, 100) : 0;
     const hell = an && c.hell_wenn_an !== false;
@@ -3295,14 +3314,14 @@ class GlasKachelCard extends GlasKarte {
     const zusatz = (c.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     const klassen = ["kachel", "k", g, hell ? "an" : "glas", fuellen ? "regelbar" : "", warn ? "warn" : "", Geraet.verfuegbar(st) ? "" : "weg"].join(" ");
     const icon = c.icon ? `data-i="${esc(c.icon)}"` : "";
-    const klein = g === "klein" || c.name_zeigen === false && !zweite;
+    const klein = g === "klein" || !nameZeigen && !zweite;
     const druck = v.schalten && !v.anzeige ? `aria-pressed="${an}"` : "";
     return `<div class="${klassen}" style="--sf:${farbe};--warn:${warn ? FARBEN[warn] : "transparent"}">
       ${fuellen ? `<div class="fuell" style="transform:scaleX(${pct / 100})"></div>` : ""}
-      ${c.icon_zeigen === false ? "" : `<button class="symbol" data-zone="${klein ? "tap" : "icon"}" ${klein ? druck : ""} aria-label="${klein ? `${esc(name)}: ${esc(zweite)}` : `Steuerung ${esc(name)}`}"><ha-state-icon data-e="${esc(c.entity)}" ${icon}></ha-state-icon></button>`}
-      ${g === "klein" ? "" : `<button class="text" data-zone="tap" ${druck} aria-label="${esc(name)}: ${esc(zweite)}">
+      ${!symbolZeigen && g !== "klein" ? "" : `<button class="symbol" data-zone="${klein ? "tap" : "icon"}" ${klein ? druck : ""} aria-label="${klein ? `${esc(name)}: ${esc(zweite)}` : `Steuerung ${esc(name)}`}"><ha-state-icon data-e="${esc(c.entity)}" ${icon}></ha-state-icon></button>`}
+      ${g === "klein" ? (nameZeigen ? `<span class="kname" aria-hidden="true">${esc(name)}</span>` : "") : `<button class="text" data-zone="tap" ${druck} aria-label="${esc(name)}: ${esc(zweite)}">
         ${grossWert ? `<div class="grosswert">${esc(grossWert)}</div>` : ""}
-        ${c.name_zeigen === false ? "" : `<div class="name">${esc(name)}</div>`}
+        ${nameZeigen ? `<div class="name">${esc(name)}</div>` : ""}
         ${zweite && !grossWert ? `<div class="zustand">${esc(zweite)}</div>` : ""}
         ${zusatz.length ? `<div class="zusatz" aria-hidden="true">${zusatz.map((z) => `<span><ha-state-icon data-e="${esc(z.entity_id)}"></ha-state-icon>${esc(zustandText(h, z))}</span>`).join("")}</div>` : ""}
       </button>`}
@@ -4147,7 +4166,10 @@ class GlasRaumCard extends GlasKarte {
       const ziele = this.ausZiele();
       if (ziele.length) h.callService("homeassistant", "turn_off", { entity_id: ziele });
     });
-    k.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => mehrInfo(this, b.dataset.chip)));
+    k.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => {
+      const st = this._hass.states[b.dataset.chip];
+      if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else mehrInfo(this, b.dataset.chip);
+    }));
   }
   async oeffnen(ueberHash = false) {
     if (this._schicht) return;
@@ -4220,6 +4242,63 @@ class GlasRaumEditor extends GlasEditor {
   }
   set hass(h) { super.hass = h; if (this._stapel) this._stapel.hass = h; }
   get hass() { return this._hass; }
+}
+
+// ---------------------------------------------------------------------------
+// Fenster-Ansicht: alle Fenster und Türen, der aktuelle Raum zuerst
+// ---------------------------------------------------------------------------
+const FENSTER_KLASSEN = ["window", "door", "garage_door", "opening"];
+const istFenster = (st) => !!st && domainVon(st.entity_id) === "binary_sensor" && FENSTER_KLASSEN.includes(st.attributes.device_class);
+const FENSTER_CSS = `
+.gruppe-f{display:flex;flex-direction:column;border-radius:var(--g-r);overflow:hidden}
+.gruppe-titel{margin:var(--g-a2) var(--g-a2) 0;font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2)}
+.f-zeile{display:flex;align-items:center;gap:var(--g-a3);min-height:56px;padding:var(--g-a2) var(--g-a4);text-align:left;color:var(--g-text)}
+.f-zeile + .f-zeile{border-top:1px solid var(--g-trenn)}
+.f-sym{flex:none;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-fuell-text)}
+.f-zeile.offen .f-sym{background:var(--g-orange);color:#fff}
+.f-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.f-text b{font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.f-text span{font-size:var(--g-s-klein);color:var(--g-text2)}
+.f-wert{flex:none;font-size:var(--g-s-name);font-weight:600;color:var(--g-text2)}
+.offen .f-wert{color:var(--g-orange-text,#c93400)}
+.dunkel .offen .f-wert{color:#ffb35c}
+`;
+function fensterOeffnen(quelle, bereich, raumName) {
+  const s = new GlasSchicht({ quelle, hoch: true, titel: "Fenster und Türen", zu: () => Glas.hassHoerer.delete(neu) });
+  let letzt = "";
+  const zeichnen = () => {
+    const h = Glas.hass;
+    if (!h) return;
+    const alle = Object.values(h.states).filter((st) => istFenster(st) && !h.entities?.[st.entity_id]?.hidden);
+    const schluessel = alle.map((x) => x.entity_id + x.state + x.last_changed).join() + istDunkel(h);
+    if (schluessel === letzt) return;
+    letzt = schluessel;
+    s.dunkel(istDunkel(h));
+    const offen = alle.filter((x) => x.state === "on").length;
+    const raumVon = (st) => { const a = bereichVon(h, st.entity_id); return a ? h.areas?.[a]?.name || a : "Ohne Raum"; };
+    const zeile = (st) => {
+      const o = st.state === "on", tuer = st.attributes.device_class !== "window";
+      return `<button class="f-zeile ${o ? "offen" : ""}" data-e="${esc(st.entity_id)}"><span class="f-sym"><ha-state-icon data-e="${esc(st.entity_id)}"></ha-state-icon></span>
+        <span class="f-text"><b>${esc(st.attributes.friendly_name || st.entity_id)}</b><span>${o ? "offen" : tuer ? "zu" : "geschlossen"} seit ${esc(relativeZeit(st.last_changed).replace(/^vor /, ""))}</span></span>
+        <span class="f-wert">${o ? "Offen" : "Zu"}</span></button>`;
+    };
+    const hier = alle.filter((st) => bereich && bereichVon(h, st.entity_id) === bereich);
+    const rest = alle.filter((st) => !hier.includes(st));
+    const gruppen = {};
+    rest.sort((a, b) => (b.state === "on") - (a.state === "on")).forEach((st) => { (gruppen[raumVon(st)] = gruppen[raumVon(st)] || []).push(st); });
+    s.inhalt.innerHTML = `<style>${FENSTER_CSS}</style>${s.kopfHtml("Fenster und Türen", offen ? `${offen} offen` : "Alles zu")}
+      ${hier.length ? `<div class="gruppe-titel">${esc(raumName || "Dieser Raum")}</div><div class="gruppe-f glas">${hier.map(zeile).join("")}</div>` : ""}
+      ${Object.entries(gruppen).map(([r, l]) => `<div class="gruppe-titel">${esc(r)}</div><div class="gruppe-f glas">${l.map(zeile).join("")}</div>`).join("")}
+      ${alle.length ? "" : `<div class="leise">Keine Fenster- oder Türsensoren gefunden.</div>`}`;
+    s.kopfBinden();
+    s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.e]; });
+    s.inhalt.querySelectorAll(".f-zeile").forEach((b) => b.addEventListener("click", () => mehrInfo(quelle, b.dataset.e)));
+  };
+  const neu = () => zeichnen();
+  Glas.hassHoerer.add(neu);
+  zeichnen();
+  s.oeffnen();
+  return s;
 }
 // ---------------------------------------------------------------------------
 // Bereichs-Karten: kompakt auf der Startseite, Tippen öffnet ein Blatt mit allem
@@ -4867,13 +4946,14 @@ class GlasZuhauseCard extends HTMLElement {
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
       else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
-      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false)) {
+      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte)))) {
         const wrap = document.createElement("div");
         wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
         wrap.style.display = "contents";
         const fav = wrap.querySelector(".fav");
-        s.favoriten.filter((f) => f.an !== false && f.entity).forEach((f, i) => {
-          const k = this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
+        s.favoriten.filter((f) => f.an !== false && (f.entity || listenKarte(f.karte))).forEach((f, i) => {
+          const kk = f.karte && listenKarte(f.karte);
+          const k = kk ? this.kind(`fav${i}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
           z.appendChild(k);
@@ -4906,10 +4986,11 @@ function kachelCfg(g) {
   return { groesse: "breit", zweite_zeile: "zustand", ...rest };
 }
 function raumCfg(hass, r) {
-  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && g.entity);
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && (g.entity || g.karte));
   const cards = [];
   let gruppe = null;
   for (const g of geraete) {
+    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle" }, k); gruppe = null; } continue; }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
     if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle" }); }
     cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g) });
@@ -4983,6 +5064,9 @@ h2:first-child{margin-top:0}
 .hg-wahl .muster span{width:56%;height:38%;border-radius:10px;background:var(--g-glas);border:1px solid var(--g-glas-rand);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur)}
 .hg-wahl[aria-pressed="true"] .muster{outline:3px solid var(--g-akzent);outline-offset:2px}
 .hinzu{padding:var(--g-a2) var(--g-a4) var(--g-a3);background:var(--g-blatt);box-shadow:inset 0 1px 0 var(--g-trenn)}
+.karten-hinzu{display:flex;flex-wrap:wrap;align-items:center;gap:var(--g-a2)}
+.karten-hinzu .knopf ha-icon,.karte-zeile .name b ha-icon{--mdc-icon-size:18px}
+.karte-zeile .name b{display:inline-flex;align-items:center;gap:6px}
 .leise-zeile{padding:var(--g-a4);font-size:var(--g-s-klein);color:var(--g-text2);background:var(--g-blatt)}
 @media (max-width:560px){
   .zeile.geraet{flex-wrap:wrap}
@@ -4991,9 +5075,30 @@ h2:first-child{margin-top:0}
   .zeile.geraet .optionen .auswahl{flex:1;min-width:0}
 }
 .optionen{display:flex;gap:var(--g-a2);align-items:center}
+.seite{position:relative}
+.anzeige-knopf{display:inline-flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;max-width:170px;overflow:hidden;text-overflow:ellipsis}
+.anzeige-knopf ha-icon{--mdc-icon-size:16px;flex:none}
+.menue-pop{position:absolute;z-index:30;min-width:220px;padding:6px;border-radius:var(--g-r-klein);background:var(--g-blatt);border:1px solid var(--g-glas-rand);
+  box-shadow:0 12px 40px rgba(0,0,0,.2);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);animation:pop-auf .16s cubic-bezier(.23,1,.32,1)}
+@keyframes pop-auf{from{opacity:0;transform:scale(.96) translateY(-4px)}}
+.menue-pop button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;border-radius:9px;font-size:var(--g-s-name);color:var(--g-text);text-align:left}
+.menue-pop button:hover{background:var(--g-fuell)}
+.menue-pop button[aria-checked="true"] ha-icon{color:var(--g-akzent)}
+.menue-pop button[aria-checked="false"] ha-icon{color:var(--g-text2)}
 `;
 const GROESSEN = [["klein", "S", "Klein (1×1)"], ["breit", "M", "Breit (2×1)"], ["gross", "L", "Groß (2×2)"], ["ganz", "▭", "Ganze Breite"]];
 const ANZEIGEN = [["zustand", "Zustand"], ["zustand_zuletzt", "Zustand + Zeit"], ["zuletzt", "Zuletzt geändert"], ["aus", "Nur Name"]];
+const ANZEIGE_TEILE = [["name", "Name"], ["symbol", "Symbol"], ["zustand", "Zustand"], ["zuletzt", "Zuletzt geändert"], ["raum", "Raum / Bereich"]];
+// alte Einstellung (zweite_zeile, name_zeigen …) in die Häkchen-Liste übersetzen
+function anzeigeVon(x) {
+  if (Array.isArray(x.anzeige)) return x.anzeige;
+  const z = x.zweite_zeile || "zustand";
+  return [x.name_zeigen !== false && "name", x.icon_zeigen !== false && "symbol", (z === "zustand" || z === "zustand_zuletzt") && "zustand", (z === "zuletzt" || z === "zustand_zuletzt") && "zuletzt"].filter(Boolean);
+}
+function anzeigeText(l) {
+  const teile = ANZEIGE_TEILE.filter(([id]) => l.includes(id) && id !== "symbol" && id !== "name").map(([, t]) => (t === "Raum / Bereich" ? "Raum" : t === "Zuletzt geändert" ? "Zeit" : t));
+  return teile.length ? teile.join(" + ") : l.includes("name") ? "Nur Name" : "Nur Symbol";
+}
 const slug = (s) => String(s || "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "raum";
 const kopie = (o) => JSON.parse(JSON.stringify(o));
 
@@ -5220,6 +5325,7 @@ class GlasEinstellungen extends HTMLElement {
     if (!liste.length) g.innerHTML = `<div class="leise-zeile">Noch keine Geräte.</div>`;
     let letzte = null;
     liste.forEach((x, i) => {
+      if (x.karte) { this.kartenZeile(g, liste, i, setzen, (l) => { liste = l; }); if (gruppen) letzte = null; return; }
       const st = h.states[x.entity];
       const gr = x.gruppe || gruppeVon(h, x.entity);
       if (gruppen && gr !== letzte) { letzte = gr; this.html(g, `<div class="kopfzeile">${esc((GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1])}</div>`); }
@@ -5229,12 +5335,16 @@ class GlasEinstellungen extends HTMLElement {
         <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
         <span class="name"><b>${esc(x.name || st?.attributes.friendly_name || x.entity)}</b><span>${st ? esc(Geraet.zustand(h, st, Geraet.regler(st))) : "nicht gefunden"}</span></span>
         <span class="optionen"><span class="segment" role="group" aria-label="Größe">${GROESSEN.map(([id, k, t]) => `<button data-g="${id}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse || "breit") === id}">${k}</button>`).join("")}</span>
-        <select class="auswahl" aria-label="Anzeige">${ANZEIGEN.map(([id, t]) => `<option value="${id}" ${(x.zweite_zeile || "zustand") === id ? "selected" : ""}>${t}</option>`).join("")}</select>
+        <span class="menue-wrap"><button class="auswahl anzeige-knopf" data-anzeige aria-haspopup="true" aria-expanded="false">${esc(anzeigeText(anzeigeVon(x)))}<ha-icon data-i="mdi:chevron-down"></ha-icon></button></span>
         <button class="klein-knopf" data-mehr aria-expanded="${offen}" aria-label="Mehr Einstellungen"><ha-icon data-i="mdi:${offen ? "chevron-up" : "dots-horizontal"}"></ha-icon></button></span></div>`);
       const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); liste = l; this.speichern(); };
       z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
       z.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === b)); neu({ groesse: b.dataset.g }); }));
-      z.querySelector("select").addEventListener("change", (e) => neu({ zweite_zeile: e.target.value }));
+      z.querySelector("[data-anzeige]").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const knopf = e.currentTarget;
+        this.anzeigeMenue(knopf, anzeigeVon(liste[i]), (wahl) => { neu({ anzeige: wahl }); knopf.firstChild.textContent = anzeigeText(wahl); });
+      });
       z.querySelector("[data-mehr]").addEventListener("click", () => { const k = `${x.entity}|${i}`; this._offen.has(k) ? this._offen.delete(k) : this._offen.add(k); this.zeichnen(); });
       if (offen) {
         const ex = this.html(g, `<div class="extra"></div>`);
@@ -5247,7 +5357,7 @@ class GlasEinstellungen extends HTMLElement {
     ziehSortieren(g, (von, nach) => {
       const l = verschieben(liste, von, nach);
       // In eine andere Gruppe gezogen: Gerät übernimmt die Gruppe seines neuen Nachbarn
-      if (gruppen) { const n = l[nach - 1] || l[nach + 1]; if (n) l[nach] = { ...l[nach], gruppe: n.gruppe || gruppeVon(h, n.entity) }; }
+      if (gruppen && !l[nach].karte) { const n = [l[nach - 1], l[nach + 1]].find((y) => y?.entity); if (n) l[nach] = { ...l[nach], gruppe: n.gruppe || gruppeVon(h, n.entity) }; }
       setzen(l); this.speichern(); this.zeichnen();
     });
     const hinzu = this.html(g, `<div class="hinzu"></div>`);
@@ -5256,6 +5366,14 @@ class GlasEinstellungen extends HTMLElement {
       setzen([...liste, geraetVorschlag(h, v.entity)].map((y, k, a) => (k === a.length - 1 ? { ...y, an: true } : y)));
       this.speichern(); this.zeichnen();
     });
+    const freie = LISTEN_KARTEN.filter(([id]) => !liste.some((y) => y.karte === id));
+    if (freie.length) {
+      const kz = this.html(g, `<div class="hinzu karten-hinzu"><span class="leise">Karte hinzufügen</span>${freie.map(([id, n, ic]) =>
+        `<button class="knopf" data-karte="${id}"><ha-icon data-i="${ic}"></ha-icon>${n}</button>`).join("")}</div>`);
+      kz.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => {
+        setzen([...liste, { karte: b.dataset.karte, groesse: "breit", an: true }]); this.speichern(); this.zeichnen();
+      }));
+    }
     if (bereich) {
       const fehlen = raumGeraeteVorschlag(h, bereich).filter((v) => !liste.some((x) => x.entity === v.entity));
       if (fehlen.length) {
@@ -5263,6 +5381,64 @@ class GlasEinstellungen extends HTMLElement {
         a.querySelector("button").addEventListener("click", () => { setzen([...liste, ...fehlen]); this.speichern(); this.zeichnen(); });
       }
     }
+  }
+
+  // Zeile für eine ganze Karte (3D-Drucker, Robi): zeigen, verschieben, Größe, entfernen
+  kartenZeile(g, liste, i, setzen, merken) {
+    const x = liste[i], [id, titel, icon] = listenKarte(x.karte) || [x.karte, x.karte, "mdi:card-outline"];
+    const b = (this._d.bereiche || {})[id] || {};
+    const fertig = id === "drucker" ? !!(b.geraet || b.fortschritt) : !!b.entity;
+    const an = x.an !== false;
+    const z = this.html(g, `<div class="zeile geraet karte-zeile ${an ? "" : "aus"}" data-i="${i}">
+      <span class="griff" tabindex="0" role="button" aria-label="${esc(titel)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+      <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
+      <span class="name"><b><ha-icon data-i="${icon}"></ha-icon>${esc(titel)}-Karte</b><span>${fertig ? "Einstellungen unter Bereiche" : "Noch nicht eingerichtet: Bereiche öffnen"}</span></span>
+      <span class="optionen"><span class="segment" role="group" aria-label="Größe">${[["breit", "M", "Halbe Breite"], ["ganz", "▭", "Ganze Breite"]].map(([gid, k, t]) =>
+        `<button data-g="${gid}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse === "ganz" ? "ganz" : "breit") === gid}">${k}</button>`).join("")}</span>
+        <button class="klein-knopf" data-bereich aria-label="${esc(titel)} einstellen"><ha-icon data-i="mdi:cog-outline"></ha-icon></button>
+        <button class="klein-knopf" data-weg aria-label="Entfernen"><ha-icon data-i="mdi:close"></ha-icon></button></span></div>`);
+    const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); merken(l); liste = l; this.speichern(); };
+    z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
+    z.querySelectorAll("[data-g]").forEach((bt) => bt.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === bt)); neu({ groesse: bt.dataset.g }); }));
+    z.querySelector("[data-bereich]").addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
+    z.querySelector("[data-weg]").addEventListener("click", () => { const l = [...liste]; l.splice(i, 1); setzen(l); this.speichern(); this.zeichnen(); });
+  }
+
+  // Kleines Menü mit Häkchen, schwebt unter dem Knopf
+  anzeigeMenue(knopf, wahl, fertig) {
+    this.$(".menue-pop")?.remove();
+    const pop = document.createElement("div");
+    pop.className = "menue-pop glas";
+    pop.setAttribute("role", "menu");
+    let aktuell = [...wahl];
+    const zeichnen = () => {
+      pop.innerHTML = ANZEIGE_TEILE.map(([id, t]) => `<button role="menuitemcheckbox" aria-checked="${aktuell.includes(id)}" data-t="${id}">
+        <ha-icon data-i="${aktuell.includes(id) ? "mdi:check-circle" : "mdi:circle-outline"}"></ha-icon>${t}</button>`).join("");
+      pop.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+      pop.querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = b.dataset.t;
+        aktuell = aktuell.includes(id) ? aktuell.filter((x) => x !== id) : ANZEIGE_TEILE.map(([k]) => k).filter((k) => k === id || aktuell.includes(k));
+        if (!aktuell.length) aktuell = ["symbol"];
+        fertig(aktuell);
+        zeichnen();
+      }));
+    };
+    zeichnen();
+    const r = knopf.getBoundingClientRect(), seite = this.$(".seite").getBoundingClientRect();
+    pop.style.top = `${r.bottom - seite.top + 6}px`;
+    pop.style.right = `${Math.max(8, seite.right - r.right)}px`;
+    this.$(".seite").appendChild(pop);
+    knopf.setAttribute("aria-expanded", "true");
+    pop.querySelector("button")?.focus();
+    const zu = (e) => {
+      if (e.type === "keydown" && e.key !== "Escape") return;
+      if (e.type === "pointerdown" && pop.contains(e.composedPath()[0])) return;
+      pop.remove(); knopf.setAttribute("aria-expanded", "false");
+      this.shadowRoot.removeEventListener("pointerdown", zu, true); this.shadowRoot.removeEventListener("keydown", zu, true);
+      if (e.type === "keydown") knopf.focus();
+    };
+    setTimeout(() => { this.shadowRoot.addEventListener("pointerdown", zu, true); this.shadowRoot.addEventListener("keydown", zu, true); }, 0);
   }
 
   // ---------------- Startseite ----------------

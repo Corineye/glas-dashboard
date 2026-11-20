@@ -204,7 +204,10 @@ const KACHEL_CSS = `
 .kachel.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .kachel.weg{opacity:.5}
 .kachel.gross{flex-direction:column;align-items:flex-start;justify-content:space-between;min-height:calc(var(--g-kachel-h) * 2 + var(--g-a2))}
-.kachel.klein{justify-content:center;padding:0}
+.kachel.klein{flex-direction:column;justify-content:center;gap:4px;padding:var(--g-a1) 6px}
+.kachel.klein .symbol{width:36px;height:36px}
+.kname{position:relative;max-width:100%;font-size:var(--g-s-mini);font-weight:600;line-height:1.2;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.an .kname{color:var(--g-text-an)}
 .kachel.ganz .text{flex:1}
 .fuell{position:absolute;inset:0;background:var(--g-an);pointer-events:none;transform-origin:left;transition:transform .2s cubic-bezier(.23,1,.32,1)}
 .kachel.an .fuell{background:var(--g-an)}
@@ -267,6 +270,15 @@ class GlasKachelCard extends GlasKarte {
     else if (c.zweite_zeile === "attribut") zweite = attributText(h, st, c.attribut);
     else if (c.zweite_zeile === "text") zweite = c.text || "";
     else if (c.zweite_zeile === "zustand_zuletzt") zweite = st ? `${Geraet.zustand(h, st, reg)} · ${relativeZeit(st.last_changed)}` : "";
+    // Neue Anzeige-Auswahl (Häkchen): Name, Symbol, Zustand, Zuletzt geändert, Raum
+    const liste = Array.isArray(c.anzeige) ? c.anzeige : null;
+    if (liste) {
+      const raumId = bereichVon(h, c.entity), raum = raumId ? h.areas?.[raumId]?.name : "";
+      zweite = [liste.includes("zustand") && st ? Geraet.zustand(h, st, reg) : "", liste.includes("zuletzt") && st ? relativeZeit(st.last_changed) : "",
+        liste.includes("raum") ? raum : ""].filter(Boolean).join(" · ");
+    }
+    const nameZeigen = liste ? liste.includes("name") : c.name_zeigen !== false;
+    const symbolZeigen = liste ? liste.includes("symbol") : c.icon_zeigen !== false;
     const farbe = farbeAus(c.farbe, Geraet.farbe(st));
     const pct = v.regler && an ? klemmen(v.regler.pct, 0, 100) : 0;
     const hell = an && c.hell_wenn_an !== false;
@@ -275,14 +287,14 @@ class GlasKachelCard extends GlasKarte {
     const zusatz = (c.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     const klassen = ["kachel", "k", g, hell ? "an" : "glas", fuellen ? "regelbar" : "", warn ? "warn" : "", Geraet.verfuegbar(st) ? "" : "weg"].join(" ");
     const icon = c.icon ? `data-i="${esc(c.icon)}"` : "";
-    const klein = g === "klein" || c.name_zeigen === false && !zweite;
+    const klein = g === "klein" || !nameZeigen && !zweite;
     const druck = v.schalten && !v.anzeige ? `aria-pressed="${an}"` : "";
     return `<div class="${klassen}" style="--sf:${farbe};--warn:${warn ? FARBEN[warn] : "transparent"}">
       ${fuellen ? `<div class="fuell" style="transform:scaleX(${pct / 100})"></div>` : ""}
-      ${c.icon_zeigen === false ? "" : `<button class="symbol" data-zone="${klein ? "tap" : "icon"}" ${klein ? druck : ""} aria-label="${klein ? `${esc(name)}: ${esc(zweite)}` : `Steuerung ${esc(name)}`}"><ha-state-icon data-e="${esc(c.entity)}" ${icon}></ha-state-icon></button>`}
-      ${g === "klein" ? "" : `<button class="text" data-zone="tap" ${druck} aria-label="${esc(name)}: ${esc(zweite)}">
+      ${!symbolZeigen && g !== "klein" ? "" : `<button class="symbol" data-zone="${klein ? "tap" : "icon"}" ${klein ? druck : ""} aria-label="${klein ? `${esc(name)}: ${esc(zweite)}` : `Steuerung ${esc(name)}`}"><ha-state-icon data-e="${esc(c.entity)}" ${icon}></ha-state-icon></button>`}
+      ${g === "klein" ? (nameZeigen ? `<span class="kname" aria-hidden="true">${esc(name)}</span>` : "") : `<button class="text" data-zone="tap" ${druck} aria-label="${esc(name)}: ${esc(zweite)}">
         ${grossWert ? `<div class="grosswert">${esc(grossWert)}</div>` : ""}
-        ${c.name_zeigen === false ? "" : `<div class="name">${esc(name)}</div>`}
+        ${nameZeigen ? `<div class="name">${esc(name)}</div>` : ""}
         ${zweite && !grossWert ? `<div class="zustand">${esc(zweite)}</div>` : ""}
         ${zusatz.length ? `<div class="zusatz" aria-hidden="true">${zusatz.map((z) => `<span><ha-state-icon data-e="${esc(z.entity_id)}"></ha-state-icon>${esc(zustandText(h, z))}</span>`).join("")}</div>` : ""}
       </button>`}

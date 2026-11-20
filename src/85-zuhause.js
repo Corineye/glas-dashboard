@@ -124,13 +124,14 @@ class GlasZuhauseCard extends HTMLElement {
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
       else if (a.id === "robi" && b.robi?.entity) el = this.kind("robi", "glas-robi-card", b.robi);
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
-      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false)) {
+      else if (a.id === "favoriten" && (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte)))) {
         const wrap = document.createElement("div");
         wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
         wrap.style.display = "contents";
         const fav = wrap.querySelector(".fav");
-        s.favoriten.filter((f) => f.an !== false && f.entity).forEach((f, i) => {
-          const k = this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
+        s.favoriten.filter((f) => f.an !== false && (f.entity || listenKarte(f.karte))).forEach((f, i) => {
+          const kk = f.karte && listenKarte(f.karte);
+          const k = kk ? this.kind(`fav${i}-${f.karte}`, kk[3], (e.bereiche || {})[f.karte] || {}) : this.kind(`fav${i}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
           z.appendChild(k);
@@ -163,10 +164,11 @@ function kachelCfg(g) {
   return { groesse: "breit", zweite_zeile: "zustand", ...rest };
 }
 function raumCfg(hass, r) {
-  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && g.entity);
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).filter((g) => g.an !== false && (g.entity || g.karte));
   const cards = [];
   let gruppe = null;
   for (const g of geraete) {
+    if (g.karte) { const k = listenKarteCfg(g); if (k) { cards.push({ type: "heading", heading: listenKarte(g.karte)[1], heading_style: "subtitle" }, k); gruppe = null; } continue; }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
     if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: (GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1], heading_style: "subtitle" }); }
     cards.push({ type: "custom:glas-kachel-card", ...kachelCfg(g) });

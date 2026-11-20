@@ -204,7 +204,10 @@ class GlasRaumCard extends GlasKarte {
       const ziele = this.ausZiele();
       if (ziele.length) h.callService("homeassistant", "turn_off", { entity_id: ziele });
     });
-    k.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => mehrInfo(this, b.dataset.chip)));
+    k.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => {
+      const st = this._hass.states[b.dataset.chip];
+      if (istFenster(st)) fensterOeffnen(this, this._config.bereich, this._config.name); else mehrInfo(this, b.dataset.chip);
+    }));
   }
   async oeffnen(ueberHash = false) {
     if (this._schicht) return;
@@ -277,4 +280,61 @@ class GlasRaumEditor extends GlasEditor {
   }
   set hass(h) { super.hass = h; if (this._stapel) this._stapel.hass = h; }
   get hass() { return this._hass; }
+}
+
+// ---------------------------------------------------------------------------
+// Fenster-Ansicht: alle Fenster und Türen, der aktuelle Raum zuerst
+// ---------------------------------------------------------------------------
+const FENSTER_KLASSEN = ["window", "door", "garage_door", "opening"];
+const istFenster = (st) => !!st && domainVon(st.entity_id) === "binary_sensor" && FENSTER_KLASSEN.includes(st.attributes.device_class);
+const FENSTER_CSS = `
+.gruppe-f{display:flex;flex-direction:column;border-radius:var(--g-r);overflow:hidden}
+.gruppe-titel{margin:var(--g-a2) var(--g-a2) 0;font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2)}
+.f-zeile{display:flex;align-items:center;gap:var(--g-a3);min-height:56px;padding:var(--g-a2) var(--g-a4);text-align:left;color:var(--g-text)}
+.f-zeile + .f-zeile{border-top:1px solid var(--g-trenn)}
+.f-sym{flex:none;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-fuell-text)}
+.f-zeile.offen .f-sym{background:var(--g-orange);color:#fff}
+.f-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.f-text b{font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.f-text span{font-size:var(--g-s-klein);color:var(--g-text2)}
+.f-wert{flex:none;font-size:var(--g-s-name);font-weight:600;color:var(--g-text2)}
+.offen .f-wert{color:var(--g-orange-text,#c93400)}
+.dunkel .offen .f-wert{color:#ffb35c}
+`;
+function fensterOeffnen(quelle, bereich, raumName) {
+  const s = new GlasSchicht({ quelle, hoch: true, titel: "Fenster und Türen", zu: () => Glas.hassHoerer.delete(neu) });
+  let letzt = "";
+  const zeichnen = () => {
+    const h = Glas.hass;
+    if (!h) return;
+    const alle = Object.values(h.states).filter((st) => istFenster(st) && !h.entities?.[st.entity_id]?.hidden);
+    const schluessel = alle.map((x) => x.entity_id + x.state + x.last_changed).join() + istDunkel(h);
+    if (schluessel === letzt) return;
+    letzt = schluessel;
+    s.dunkel(istDunkel(h));
+    const offen = alle.filter((x) => x.state === "on").length;
+    const raumVon = (st) => { const a = bereichVon(h, st.entity_id); return a ? h.areas?.[a]?.name || a : "Ohne Raum"; };
+    const zeile = (st) => {
+      const o = st.state === "on", tuer = st.attributes.device_class !== "window";
+      return `<button class="f-zeile ${o ? "offen" : ""}" data-e="${esc(st.entity_id)}"><span class="f-sym"><ha-state-icon data-e="${esc(st.entity_id)}"></ha-state-icon></span>
+        <span class="f-text"><b>${esc(st.attributes.friendly_name || st.entity_id)}</b><span>${o ? "offen" : tuer ? "zu" : "geschlossen"} seit ${esc(relativeZeit(st.last_changed).replace(/^vor /, ""))}</span></span>
+        <span class="f-wert">${o ? "Offen" : "Zu"}</span></button>`;
+    };
+    const hier = alle.filter((st) => bereich && bereichVon(h, st.entity_id) === bereich);
+    const rest = alle.filter((st) => !hier.includes(st));
+    const gruppen = {};
+    rest.sort((a, b) => (b.state === "on") - (a.state === "on")).forEach((st) => { (gruppen[raumVon(st)] = gruppen[raumVon(st)] || []).push(st); });
+    s.inhalt.innerHTML = `<style>${FENSTER_CSS}</style>${s.kopfHtml("Fenster und Türen", offen ? `${offen} offen` : "Alles zu")}
+      ${hier.length ? `<div class="gruppe-titel">${esc(raumName || "Dieser Raum")}</div><div class="gruppe-f glas">${hier.map(zeile).join("")}</div>` : ""}
+      ${Object.entries(gruppen).map(([r, l]) => `<div class="gruppe-titel">${esc(r)}</div><div class="gruppe-f glas">${l.map(zeile).join("")}</div>`).join("")}
+      ${alle.length ? "" : `<div class="leise">Keine Fenster- oder Türsensoren gefunden.</div>`}`;
+    s.kopfBinden();
+    s.inhalt.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.e]; });
+    s.inhalt.querySelectorAll(".f-zeile").forEach((b) => b.addEventListener("click", () => mehrInfo(quelle, b.dataset.e)));
+  };
+  const neu = () => zeichnen();
+  Glas.hassHoerer.add(neu);
+  zeichnen();
+  s.oeffnen();
+  return s;
 }
