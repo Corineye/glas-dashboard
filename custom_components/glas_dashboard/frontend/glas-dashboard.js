@@ -363,7 +363,7 @@ const listenKarte = (id) => LISTEN_KARTEN.find(([k]) => k === id);
 function listenKarteCfg(x) {
   const k = listenKarte(x.karte);
   if (!k) return null;
-  return { type: `custom:${k[3]}`, ...(k[4] ? x.cfg || {} : (Glas.einst?.bereiche || {})[x.karte] || {}) };
+  return { type: `custom:${k[3]}`, ...(k[4] ? { ...(x.cfg || {}), groesse: x.groesse || "gross" } : (Glas.einst?.bereiche || {})[x.karte] || {}) };
 }
 // Anzeigename eines Karten-Eintrags
 function listenKarteName(x) {
@@ -4899,14 +4899,14 @@ async function kachelMenue(quelle, zugriff, i) {
     const name = karte ? (karte[4] ? listenKarteName(x) : `${karte[1]}-Karte`) : x.name || st?.attributes.friendly_name || x.entity;
     const an = x.an !== false;
     const raum = zugriff.raum();
-    const groessen = karte ? GROESSEN_M.filter(([g]) => g === "breit" || g === "ganz") : GROESSEN_M;
+    const groessen = karte ? GROESSEN_M.filter(([g]) => g === "breit" || g === "ganz" || (karte[4] && g === "gross")) : GROESSEN_M;
     const anzeige = anzeigeVon(x);
     const scroll = s.inhalt.scrollTop;
     s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(name, karte ? "Ganze Karte" : x.entity)}
       ${karte ? "" : `<div class="vorschau" aria-hidden="true"></div>`}
       ${karte ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:link-variant"></ha-icon>Gerät</div><div data-f="geraet"></div></div>`}
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Größe</div>
-        <div class="segment" role="group" aria-label="Größe">${groessen.map(([g, k, t]) => `<button data-g="${g}" aria-pressed="${(x.groesse || "breit") === g || (karte && g === "breit" && x.groesse !== "ganz")}">${k}<small>${t}</small></button>`).join("")}</div></div>
+        <div class="segment" role="group" aria-label="Größe">${groessen.map(([g, k, t]) => `<button data-g="${g}" aria-pressed="${(x.groesse || "breit") === g || (karte && !karte[4] && g === "breit" && x.groesse !== "ganz")}">${k}<small>${t}</small></button>`).join("")}</div></div>
       ${karte ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:tune-variant"></ha-icon>Einstellungen</div>
         ${karte[4] ? "" : `<div class="m-hinweis">Gilt für die ${esc(karte[1])}-Karte überall im Dashboard.</div>`}<div data-ked></div></div>` : `
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:eye-outline"></ha-icon>Anzeige in der Kachel</div>
@@ -5052,7 +5052,7 @@ async function neuMenue(quelle, zugriff) {
     if (!v.entity) return;
     fertig(zugriff.ort.art === "raum" ? { ...geraetVorschlag(h, v.entity), an: true } : { entity: v.entity, groesse: "breit" });
   });
-  s.inhalt.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => fertig({ karte: b.dataset.karte, groesse: "breit", an: true, ...(listenKarte(b.dataset.karte)[4] ? { cfg: {} } : {}) })));
+  s.inhalt.querySelectorAll("[data-karte]").forEach((b) => b.addEventListener("click", () => fertig({ karte: b.dataset.karte, groesse: listenKarte(b.dataset.karte)[4] ? "gross" : "breit", an: true, ...(listenKarte(b.dataset.karte)[4] ? { cfg: {} } : {}) })));
   s.oeffnen();
 }
 
@@ -6074,10 +6074,10 @@ async function bildHochladen(hass, datei) {
 }
 
 class GlasBildCard extends GlasBereichKarte {
-  static standard() { return { quelle: "qr", ansicht: "bild" }; }
+  static standard() { return { quelle: "qr" }; }
   static getConfigElement() { return document.createElement("glas-bild-card-editor"); }
   static getStubConfig() { return { titel: "Gäste-Login", quelle: "qr", text: "https://" }; }
-  getGridOptions() { return { columns: 6, rows: "auto", min_columns: 3 }; }
+  getGridOptions() { return { columns: this._config?.groesse === "ganz" ? 12 : 6, rows: "auto", min_columns: 3 }; }
   css() { return BEREICH_CSS + BILD_CSS; }
   entitaeten() { return this._config.quelle === "entitaet" && this._config.entity ? [this._config.entity] : []; }
   istQr() { const c = this._config; return c.quelle === "qr" || (c.scan ?? c.quelle === "hochladen"); }
@@ -6101,18 +6101,15 @@ class GlasBildCard extends GlasBereichKarte {
   html() {
     const c = this._config, innen = this.inhaltHtml(), qr = this.istQr();
     const leer = `<ha-icon data-i="${qr ? "mdi:qrcode" : "mdi:image-outline"}"></ha-icon>`;
-    if (c.ansicht === "zeile") {
-      return `<div class="kompakt k glas"><button class="oeffnen" aria-haspopup="dialog" aria-label="${esc(this.titel())} groß zeigen">
-        <span class="mini ${qr ? "" : "foto"}" aria-hidden="true">${innen || leer}</span>
-        <span class="texte"><span class="t1">${esc(this.titel())}</span>${c.unter ? `<span class="t2">${esc(c.unter)}</span>` : ""}</span></button></div>`;
-    }
+    // Klein (M): nur Symbol und Text wie die Gäste-Karte, Tippen zeigt das Bild groß
+    if (!["gross", "ganz"].includes(c.groesse)) return this.kompaktHtml({ icon: qr ? "mdi:qrcode" : "mdi:image-outline", farbe: "var(--g-akzent)", t1: this.titel(), t2: c.unter || (qr ? "Antippen zum Scannen" : "Antippen zum Ansehen") });
     return `<button class="bild-karte glas kompakt" aria-haspopup="dialog" aria-label="${esc(this.titel())} groß zeigen">
       <span class="${qr ? "qr-mini" : "foto"} ${innen ? "" : "leer"}" aria-hidden="true">${innen || leer}</span>
       <span class="texte"><span class="t1">${esc(this.titel())}</span>${c.unter ? `<span class="t2">${esc(c.unter)}</span>` : ""}</span></button>`;
   }
   binden() {
     this.iconsSetzen();
-    (this.$(".oeffnen") || this.$(".bild-karte"))?.addEventListener("click", () => this.blattOeffnen());
+    this.$(".kompakt")?.addEventListener("click", () => this.blattOeffnen());
   }
   blattHtml(s) {
     const c = this._config, innen = this.inhaltHtml(), qr = this.istQr();
@@ -6125,7 +6122,7 @@ class GlasBildCard extends GlasBereichKarte {
 }
 
 class GlasBildEditor extends GlasEditor {
-  setConfig(c) { super.setConfig({ quelle: "qr", ansicht: "bild", ...c }); }
+  setConfig(c) { super.setConfig({ quelle: "qr", ...c }); }
   schemaSchluessel(c) { return [c.quelle]; }
   schema() {
     const q = this._config.quelle || "qr";
@@ -6136,9 +6133,7 @@ class GlasBildEditor extends GlasEditor {
       ...(q === "qr" ? [{ name: "text", selector: { text: { multiline: true } } }] : []),
       ...(q === "entitaet" ? [{ name: "entity", selector: { entity: { filter: [{ domain: "image" }, { domain: "camera" }] } } }] : []),
       ...(q === "link" ? [{ name: "bild", selector: { text: {} } }] : []),
-      { type: "grid", name: "", schema: [
-        { name: "ansicht", selector: { select: { mode: "dropdown", options: [{ value: "bild", label: "Bild in der Karte" }, { value: "zeile", label: "Klein, als Zeile" }] } } },
-        ...(q === "qr" ? [] : [{ name: "scan", selector: { boolean: {} } }])] },
+      ...(q === "qr" ? [] : [{ name: "scan", selector: { boolean: {} } }]),
     ];
   }
   labels() { return { titel: "Titel", unter: "Untertitel", quelle: "Woher kommt das Bild?", text: "Link oder Text im QR-Code", entity: "Entität", bild: "Bild-Adresse",
@@ -6165,6 +6160,7 @@ class GlasKameraCard extends GlasBereichKarte {
   static getConfigElement() { return document.createElement("glas-kamera-card-editor"); }
   static getStubConfig(hass) { return { entity: Object.keys(hass.states).find((e) => e.startsWith("camera.")) || "" }; }
   css() { return BEREICH_CSS + BILD_CSS; }
+  getGridOptions() { return { columns: this._config?.groesse === "ganz" ? 12 : 6, rows: "auto", min_columns: 3 }; }
   // Keine Entität eingestellt: die einzige Kamera in HA nehmen
   eid() { const c = this._config; if (c.entity) return c.entity; const l = Object.keys(this._hass?.states || {}).filter((e) => e.startsWith("camera.")); return l.length === 1 ? l[0] : null; }
   entitaeten() { return [this.eid()].filter(Boolean); }
@@ -6186,11 +6182,12 @@ class GlasKameraCard extends GlasBereichKarte {
   html() {
     const st = this.st(), b = this.standbild();
     const weg = !st || st.state === "unavailable";
+    if (!["gross", "ganz"].includes(this._config.groesse)) return this.kompaktHtml({ icon: weg ? "mdi:cctv-off" : "mdi:cctv", farbe: weg ? "#8e8e93" : "var(--g-akzent)", t1: this.titel(), t2: weg ? "Nicht erreichbar" : "Antippen für Livebild" });
     return `<button class="kamera-karte" aria-haspopup="dialog" aria-label="${esc(this.titel())} live öffnen">
       ${b && !weg ? `<img alt="" src="${esc(b)}">` : `<span class="weg"><ha-icon data-i="mdi:cctv-off"></ha-icon></span>`}
       <span class="unten"><span>${esc(this.titel())}</span>${weg ? `<span class="zeit">Nicht erreichbar</span>` : ""}</span></button>`;
   }
-  binden() { this.iconsSetzen(); this.$(".kamera-karte")?.addEventListener("click", () => this.blattOeffnen()); }
+  binden() { this.iconsSetzen(); (this.$(".kamera-karte") || this.$(".kompakt"))?.addEventListener("click", () => this.blattOeffnen()); }
   blattHtml(s) {
     return `<style>${BILD_BLATT_CSS}</style>${s.kopfHtml(this.titel(), "Kamera")}<div class="kamera-platz"></div><button class="aktion glas mehr-ha" data-mehr>Mehr in Home Assistant<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
   }

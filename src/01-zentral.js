@@ -16,7 +16,7 @@ const listenKarte = (id) => LISTEN_KARTEN.find(([k]) => k === id);
 function listenKarteCfg(x) {
   const k = listenKarte(x.karte);
   if (!k) return null;
-  return { type: `custom:${k[3]}`, ...(k[4] ? x.cfg || {} : (Glas.einst?.bereiche || {})[x.karte] || {}) };
+  return { type: `custom:${k[3]}`, ...(k[4] ? { ...(x.cfg || {}), groesse: x.groesse || "gross" } : (Glas.einst?.bereiche || {})[x.karte] || {}) };
 }
 // Anzeigename eines Karten-Eintrags
 function listenKarteName(x) {
