@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Glas-Dashboard",
+        "description": "Lädt die Glas-Karten automatisch und fügt in der Seitenleiste „Glas“ hinzu. Dort stellst du Personen, Räume und die Startseite ein."
+      }
+    },
+    "abort": { "single_instance_allowed": "Glas-Dashboard ist schon eingerichtet." }
+  }
+}

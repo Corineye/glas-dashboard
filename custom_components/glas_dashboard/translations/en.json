@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Glas-Dashboard",
+        "description": "Loads the Glas cards automatically and adds “Glas” to the sidebar, where you set up people, rooms and the home page."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Glas-Dashboard is already set up."
+    }
+  }
+}

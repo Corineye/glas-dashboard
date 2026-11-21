@@ -7,41 +7,99 @@ const STEUER_CSS = `
 .saeule{position:relative;flex:none;width:96px;height:250px;border-radius:28px;overflow:hidden;touch-action:none;cursor:ns-resize;background:var(--g-fuell)}
 .saeule .fuell{position:absolute;inset:0;background:var(--f,#ff9f0a);transform-origin:bottom;will-change:transform}
 .wert{font-size:44px;font-weight:300;line-height:1;color:var(--g-text);text-align:center;font-variant-numeric:tabular-nums}
+.anzeige-gross{display:flex;flex-direction:column;align-items:center;gap:var(--g-a2);padding:var(--g-a2) 0}
+.gross-sym{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--g-fuell);color:var(--g-fuell-text);--mdc-icon-size:44px}
+.gross-sym.an{background:var(--sf);color:#fff;box-shadow:0 0 28px 2px color-mix(in srgb,var(--sf) 55%,transparent)}
+.gross-sym ha-state-icon{--mdc-icon-size:44px}
 .reihe{display:flex;gap:var(--g-a2);justify-content:center;flex-wrap:wrap}
-.farbe{width:40px;height:40px;border-radius:50%;border:3px solid transparent}
-.farbe[aria-pressed="true"]{border-color:var(--g-text)}
+.farben{display:flex;align-items:center;justify-content:center;gap:var(--g-a3)}
+.farbe{position:relative;width:48px;height:48px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.farbe[aria-pressed="true"]::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2.5px solid var(--g-text)}
+.farbe-trenn{width:1px;height:28px;background:var(--g-trenn)}
+.farbe.rad-knopf{background:conic-gradient(from 90deg,#ff3b30,#ffcc00,#34c759,#30b0c7,#0a84ff,#5e5ce6,#ff2d55,#ff3b30)}
+.farbe.rad-knopf span{position:absolute;inset:11px;border-radius:50%;background:var(--g-blatt);display:flex;align-items:center;justify-content:center;color:var(--g-text)}
+.farbe.rad-knopf ha-icon{--mdc-icon-size:16px}
+.rad-feld{display:flex;justify-content:center;padding:var(--g-a2) 0;animation:aufklappen .28s cubic-bezier(.32,.72,0,1)}
+@keyframes aufklappen{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 .schalter{position:relative;width:96px;height:58px;border-radius:29px;background:var(--g-fuell);transition:background-color .25s ease}
 .schalter[aria-pressed="true"]{background:var(--g-gruen)}
 .schalter span{position:absolute;top:4px;left:4px;width:50px;height:50px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.25);
   transition:transform .25s cubic-bezier(.32,.72,0,1)}
 .schalter[aria-pressed="true"] span{transform:translateX(38px)}
 .gross-rund{width:56px;height:56px;border-radius:50%;font-size:28px;background:var(--g-fuell);color:var(--g-text);display:flex;align-items:center;justify-content:center}
-.zeile-knopf{min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.zeile-knopf{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-height:48px;padding:0 var(--g-a4);border-radius:var(--g-r-klein);font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.raum-knopf{display:grid;place-items:center}
+.raum-knopf > span{grid-area:1/1;transition:opacity .25s ease,transform .25s cubic-bezier(.23,1,.32,1)}
+.raum-knopf.an .rk-aus,.raum-knopf.aus .rk-an{opacity:0;transform:translateY(6px)}
+@media (prefers-reduced-motion:reduce){.raum-knopf > span{transition:opacity .2s ease;transform:none!important}}
 .abschnitt{display:flex;flex-direction:column;gap:var(--g-a2)}
 .abschnitt-titel{font-size:var(--g-s-klein);font-weight:600;color:var(--g-text2);padding:0 var(--g-a1)}
 .werte{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:var(--g-a2)}
 .wertbox{display:flex;flex-direction:column;gap:2px;padding:10px var(--g-a3);border-radius:var(--g-r-klein)}
 .wertbox b{font-size:var(--g-s-text);color:var(--g-text)}
+.rad{position:relative;flex:none;width:170px;height:170px;border-radius:50%;touch-action:none;cursor:crosshair;
+  background:radial-gradient(circle closest-side,#fff,rgba(255,255,255,0)),conic-gradient(hsl(0,100%,50%),hsl(60,100%,50%),hsl(120,100%,50%),hsl(180,100%,50%),hsl(240,100%,50%),hsl(300,100%,50%),hsl(360,100%,50%))}
+.rad .marke,.rad .lupe{position:absolute;border-radius:50%;border:3px solid #fff;pointer-events:none;transform:translate(-50%,-50%)}
+.rad .marke{width:26px;height:26px;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.rad .lupe{width:64px;height:64px;border-width:4px;box-shadow:0 6px 18px rgba(0,0,0,.35);transform:translate(-50%,-125%);opacity:0;transition:opacity .15s ease}
+.rad.zieht .lupe{opacity:1}
+.karte-s{display:flex;flex-direction:column;gap:var(--g-a2);padding:var(--g-a3) var(--g-a4) var(--g-a4);border-radius:var(--g-r)}
+.karte-s .kopfz{display:flex;justify-content:space-between;align-items:baseline;gap:var(--g-a2)}
+.karte-s h3{margin:0;font-size:var(--g-s-name);font-weight:600;color:var(--g-text)}
+.reihe.links{justify-content:flex-start}
+
 `;
 
-const LICHT_FARBEN = [["Warmweiß", { color_temp_kelvin: 2700 }, "#ffb35c"], ["Neutral", { color_temp_kelvin: 4000 }, "#ffe2b8"],
-  ["Kaltweiß", { color_temp_kelvin: 6000 }, "#e6f0ff"], ["Rot", { rgb_color: [255, 59, 48] }, "#ff3b30"], ["Orange", { rgb_color: [255, 159, 10] }, "#ff9f0a"],
-  ["Grün", { rgb_color: [52, 199, 89] }, "#34c759"], ["Blau", { rgb_color: [10, 132, 255] }, "#0a84ff"], ["Lila", { rgb_color: [94, 92, 230] }, "#5e5ce6"],
-  ["Pink", { rgb_color: [255, 45, 85] }, "#ff2d55"]];
+// Vier ruhige Lichtstimmungen von warm bis kalt (statt bunter Punkte); bunte Farben über das Farbrad
+const LICHT_FARBEN = [["Gemütlich", 2200, [255, 147, 41], "#ffa24a"], ["Warmweiß", 2700, [255, 180, 107], "#ffc98f"],
+  ["Neutral", 4000, [255, 228, 206], "#fff0e0"], ["Tageslicht", 6000, [235, 242, 255], "#e4eeff"]];
+const lichtFarbeDaten = (st, f) => ((st.attributes.supported_color_modes || []).includes("color_temp") ? { color_temp_kelvin: f[1] } : { rgb_color: f[2] });
+// Welche Vorwahl gerade aktiv ist (Farbtemperatur ±250 K)
+const lichtFarbeAktiv = (st, f) => st.attributes.color_mode === "color_temp" && Math.abs(Number(st.attributes.color_temp_kelvin || 0) - f[1]) <= 250;
 const HVAC = { off: "Aus", heat: "Heizen", cool: "Kühlen", auto: "Auto", heat_cool: "Heizen/Kühlen", dry: "Trocknen", fan_only: "Lüften" };
 
+// Heizung mit eigenem Temperatur-/Feuchtesensor: Messwerte im Zustand ersetzen
+function mitSensoren(h, st, cfg) {
+  if (!st || domainVon(st.entity_id) !== "climate" || !(cfg?.temp_sensor || cfg?.feuchte_sensor)) return st;
+  const t = cfg.temp_sensor && h.states[cfg.temp_sensor], f = cfg.feuchte_sensor && h.states[cfg.feuchte_sensor];
+  const ok = (x) => x && !isNaN(Number(x.state)) && x.state !== "";
+  return { ...st, attributes: { ...st.attributes, ...(ok(t) ? { current_temperature: Number(t.state) } : {}), ...(ok(f) ? { current_humidity: Number(f.state) } : {}) } };
+}
+// Welche Verläufe die große Ansicht zeigt (cfg.verlauf === false schaltet ihn ab)
+// Einträge mit „@“ sind Attribute: climate.x@current_temperature = Raumtemperatur des Thermostats
+function verlaufIds(entityId, cfg) {
+  if (cfg.verlauf === false) return [];
+  const d = domainVon(entityId);
+  if (d === "climate") {
+    const st = Glas.hass?.states[entityId];
+    return [cfg.temp_sensor || (st?.attributes.current_temperature != null ? `${entityId}@current_temperature` : null), cfg.feuchte_sensor,
+      st?.attributes.hvac_action != null ? `${entityId}@hvac_action` : null].filter(Boolean);
+  }
+  if (["weather", "camera", "button", "scene", "script", "image", "update", "event"].includes(d)) return [];
+  return [entityId];
+}
+
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
-  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => Glas.hassHoerer.delete(neu) });
+  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
   let letzter = null;
   // nur neu zeichnen, wenn sich diese Entität geändert hat
-  const neu = () => { const st = Glas.hass?.states[entityId]; if (st !== letzter) zeichnen(); };
+  let letzterTimer = null;
+  const sig = () => [entityId, cfg.temp_sensor, cfg.feuchte_sensor].map((e) => (e && Glas.hass?.states[e]?.last_updated) || "").join("|");
+  const neu = () => { if (sig() !== letzter || Glas.timer?.[entityId] !== letzterTimer) zeichnen(); };
+  // Verlauf (wird einmal geladen, Zeitraum umschaltbar)
+  const vIds = verlaufIds(entityId, cfg);
+  const vZustand = { auf: cfg.verlauf_offen ?? ["sensor", "binary_sensor"].includes(domainVon(entityId)), stunden: cfg.verlauf_tage ? 168 : 24, daten: null };
+  let radAuf = false, letztePct = null;
+  const vLaden = async () => { vZustand.daten = null; zeichnen(); vZustand.daten = await verlaufHolen(Glas.hass, vIds, vZustand.stunden); zeichnen(); };
+  const takt = setInterval(() => { letzterTimer = undefined; neu(); }, 30e3);
   let ziehen = false;
   const zeichnen = () => {
     if (ziehen) return;
-    const h = Glas.hass, st = h?.states[entityId];
+    const h = Glas.hass, st = mitSensoren(h, h?.states[entityId], cfg);
     if (!st) return;
-    letzter = st;
-    s.dunkel(h.themes?.darkMode);
+    letzter = sig();
+    letzterTimer = Glas.timer?.[entityId];
+    s.dunkel(istDunkel(h));
     const d = domainVon(entityId), a = st.attributes, reg = Geraet.regler(st), an = Geraet.istAn(st);
     const bereich = bereichVon(h, entityId);
     const raum = (bereich && h.areas?.[bereich]?.name) || "";
@@ -53,25 +111,48 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     } else if (d === "climate") {
       const soll = a.temperature != null ? String(a.temperature).replace(".", ",") + "°" : "–";
       mitte = `<button class="gross-rund" data-t="-" aria-label="Kälter">−</button><div style="text-align:center"><div class="wert">${st.state === "off" ? "Aus" : soll}</div>
-        <div class="leise">Raum jetzt ${a.current_temperature != null ? String(a.current_temperature).replace(".", ",") + " °" : "–"}</div></div>
+        <div class="leise">Raum jetzt ${a.current_temperature != null ? String(a.current_temperature).replace(".", ",") + " °" : "–"}${a.current_humidity != null ? ` · ${Math.round(a.current_humidity)} % Luftfeuchte` : ""}</div></div>
         <button class="gross-rund" data-t="+" aria-label="Wärmer">+</button>`;
     } else if (Geraet.schaltbar(st) || Geraet.ausloesbar(st)) {
       mitte = `<button class="schalter" data-schalten aria-pressed="${an}" aria-label="${esc(name)} ${an ? "ausschalten" : "einschalten"}"><span></span></button>`;
     } else {
-      mitte = `<div class="wert">${esc(zustandText(h, st))}</div>`;
+      // Sensoren, Fenster, Bewegung: großes Symbol + Zustand, darunter der Verlauf
+      const warn = Geraet.istWarnung(st);
+      mitte = `<div class="anzeige-gross"><span class="gross-sym ${an || warn ? "an" : ""}" style="--sf:${warn ? FARBEN[warn] : Geraet.farbe(st)}"><ha-state-icon></ha-state-icon></span>
+        <div class="wert">${esc(zustandText(h, st))}</div><div class="leise">seit ${esc(relativeZeit(st.last_changed).replace(/^vor /, ""))}</div></div>`;
     }
     let extra = "";
-    if (d === "light" && st.state === "on") {
+    if (d === "light") { // Lichtstimmungen auch bei Aus zeigen: Antippen schaltet mit dieser Farbe ein
       const modes = a.supported_color_modes || [];
       const farbig = modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m));
       const temp = modes.includes("color_temp");
-      const liste = LICHT_FARBEN.filter(([, w]) => (w.rgb_color ? farbig : temp));
-      if (liste.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Farbe</div><div class="reihe">${liste.map(([n, , c], i) =>
-        `<button class="farbe" data-farbe="${i}" style="background:${c}" aria-label="${n}"></button>`).join("")}</div></div>`;
+      if (farbig || temp) {
+        extra += `<div class="farben">${LICHT_FARBEN.map((f, i) => {
+          const akt = st.state === "on" && lichtFarbeAktiv(st, f);
+          return `<button class="farbe" data-farbe="${i}" style="background:${f[3]}" aria-label="${f[0]}" title="${f[0]}" aria-pressed="${akt}"></button>`;
+        }).join("")}${farbig ? `<span class="farbe-trenn" aria-hidden="true"></span><button class="farbe rad-knopf" data-radauf aria-expanded="${radAuf}" aria-label="Eigene Farbe wählen" title="Eigene Farbe"><span><ha-icon data-i="mdi:${radAuf ? "chevron-up" : "palette-outline"}"></ha-icon></span></button>` : ""}</div>`;
+        if (farbig && radAuf) {
+          const [hu, sa] = a.hs_color || [30, 0];
+          const w = (hu - 90) * Math.PI / 180, r = klemmen(sa, 0, 100) / 2;
+          const farbeJetzt = a.hs_color ? `hsl(${hu},100%,${100 - sa / 2}%)` : "#fff";
+          const pos = `left:${50 + Math.cos(w) * r}%;top:${50 + Math.sin(w) * r}%;background:${farbeJetzt}`;
+          extra += `<div class="rad-feld"><div class="rad" aria-label="Farbe wählen" role="img"><span class="marke" style="${pos}"></span><span class="lupe" style="${pos}"></span></div></div>`;
+        }
+      }
+      if (bereich && entitaetenImBereich(h, bereich, ["light"]).length > 1) {
+        // ein Knopf, zwei Texte: blendet beim Ein-/Ausschalten weich über statt zu springen
+        const vorher = (Glas._raumKnopf ||= {})[entityId] ?? st.state;
+        extra += `<button class="zeile-knopf glas raum-knopf ${vorher === "on" ? "an" : "aus"}" data-raumfarbe data-soll="${st.state === "on" ? "an" : "aus"}">
+          <span class="rk-an">Diese Farbe für alle Lichter im Raum</span><span class="rk-aus">Alle Lichter im Raum ausschalten</span></button>`;
+        Glas._raumKnopf[entityId] = st.state;
+      }
     }
     if (d === "climate" && a.hvac_modes?.length) {
-      extra += `<div class="abschnitt"><div class="abschnitt-titel">Modus</div><div class="reihe">${a.hvac_modes.map((m) =>
-        `<button class="pille fuell ${st.state === m ? "aktiv" : ""}" data-hvac="${m}" aria-pressed="${st.state === m}">${HVAC[m] || m}</button>`).join("")}</div></div>`;
+      const eco = st.state !== "off" && Number(a.temperature) === 17;
+      extra += `<div class="abschnitt"><div class="abschnitt-titel">Modus</div><div class="reihe">${a.hvac_modes.map((m) => {
+        const akt = st.state === m && !(eco && m === "heat");
+        return `<button class="pille fuell ${akt ? "aktiv" : ""}" data-hvac="${m}" aria-pressed="${akt}">${HVAC[m] || m}</button>`;
+      }).join("")}${a.hvac_modes.includes("heat") ? `<button class="pille fuell ${eco ? "aktiv" : ""}" data-eco aria-pressed="${eco}">Eco 17°</button>` : ""}</div></div>`;
       if (a.preset_modes?.length) extra += `<div class="abschnitt"><div class="abschnitt-titel">Voreinstellung</div><div class="reihe">${a.preset_modes.map((m) =>
         `<button class="pille fuell ${a.preset_mode === m ? "aktiv" : ""}" data-preset="${esc(m)}">${esc(attributText(h, { ...st, attributes: { ...a, preset_mode: m } }, "preset_mode") || m)}</button>`).join("")}</div></div>`;
     }
@@ -81,18 +162,86 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       <button class="gross-rund" data-m="media_next_track" aria-label="Weiter"><ha-icon data-i="mdi:skip-next"></ha-icon></button></div>`;
     if (d === "vacuum") extra += `<div class="reihe"><button class="zeile-knopf glas" data-v="start">Starten</button><button class="zeile-knopf glas" data-v="pause">Pause</button><button class="zeile-knopf glas" data-v="return_to_base">Zur Station</button></div>`;
     if (reg && d !== "climate" && (Geraet.schaltbar(st))) extra = `<div class="reihe"><button class="zeile-knopf glas" data-schalten>${an ? "Ausschalten" : "Einschalten"}</button></div>` + extra;
+    // Ausschalten in … (Timer läuft in der Integration)
+    if (Glas.einst && ["light", "switch", "fan", "media_player", "climate", "input_boolean", "humidifier"].includes(d)) {
+      const rest = timerRest(entityId), aktiv = Glas.timer?.[entityId], gewaehlt = Number(Glas._timerWahl?.[entityId] || 0);
+      extra += `<div class="karte-s glas"><div class="kopfz"><h3>Ausschalten in</h3><span class="leise">${rest ? `Aus in ${rest}` : "Kein Timer"}</span></div>
+        <div class="reihe links">${[[15, "15 min"], [30, "30 min"], [60, "1 h"], [120, "2 h"]].map(([m, n]) => {
+          const an2 = !!aktiv && gewaehlt === m;
+          return `<button class="pille fuell ${an2 ? "aktiv" : ""}" data-timer="${m}" aria-pressed="${an2}">${n}</button>`;
+        }).join("")}${aktiv ? `<button class="pille fuell" data-timer="0">Abbrechen</button>` : ""}</div></div>`;
+    }
     // Zusatzwerte (Attribute, die Menschen interessieren)
     const zusatz = (cfg.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     if (zusatz.length) extra += `<div class="werte">${zusatz.map((z) => `<div class="wertbox glas"><span class="leise">${esc(z.attributes.friendly_name)}</span><b>${esc(zustandText(h, z))}</b></div>`).join("")}</div>`;
-    extra += `<button class="zeile-knopf glas" data-ha>Verlauf und Einstellungen ›</button>`;
-    s.inhalt.innerHTML = `<style>${STEUER_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
+    if (vIds.length) extra += verlaufKlappHtml(h, vIds, vZustand);
+    extra += `<button class="zeile-knopf glas" data-ha>Mehr in Home Assistant<ha-icon class="pfeil-r" data-i="mdi:chevron-right" aria-hidden="true"></ha-icon></button>`;
+    s.inhalt.innerHTML = `<style>${STEUER_CSS}${VERLAUF_CSS}</style>${s.kopfHtml(name, [raum, Geraet.zustand(h, st, reg)].filter(Boolean).join(" · "))}
       <div class="mitte">${mitte}</div>${extra}`;
     s.kopfBinden();
+    // Säule gleitet vom alten zum neuen Wert (Ein/Aus, Dimmen von außen)
+    const fuellEl = s.inhalt.querySelector(".saeule .fuell");
+    const pctJetzt = reg ? (Geraet.istAn(st) ? klemmen(reg.pct, 0, 100) : 0) : null;
+    if (fuellEl && letztePct != null && letztePct !== pctJetzt) {
+      fuellEl.style.transition = "none";
+      fuellEl.style.transform = `scaleY(${letztePct / 100})`;
+      fuellEl.getBoundingClientRect();
+      fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+      fuellEl.style.transform = `scaleY(${pctJetzt / 100})`;
+    }
+    letztePct = pctJetzt;
     const $ = (q) => s.inhalt.querySelector(q), $$ = (q) => [...s.inhalt.querySelectorAll(q)];
-    $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => Geraet.schalten(h, st)));
+    $$("[data-schalten]").forEach((b) => b.addEventListener("click", () => {
+      // sofort sichtbar: Säule läuft nach unten bzw. nach oben, HA bestätigt danach
+      if (fuellEl && reg) {
+        const ziel = an ? 0 : klemmen(reg.pct || 100, 1, 100);
+        fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+        fuellEl.style.transform = `scaleY(${ziel / 100})`;
+        letztePct = ziel;
+      }
+      Geraet.schalten(h, st);
+    }));
     $("[data-ha]").addEventListener("click", () => { s.schliessen(); mehrInfo(quelle, entityId); });
-    $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...LICHT_FARBEN[b.dataset.farbe][1] })));
+    verlaufKlappBinden(s.inhalt, vZustand, vLaden, zeichnen);
+    $$("[data-farbe]").forEach((b) => b.addEventListener("click", () => h.callService("light", "turn_on", { entity_id: entityId, ...lichtFarbeDaten(st, LICHT_FARBEN[b.dataset.farbe]) })));
+    $("[data-radauf]")?.addEventListener("click", () => { radAuf = !radAuf; zeichnen(); });
     $$("[data-hvac]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_hvac_mode", { entity_id: entityId, hvac_mode: b.dataset.hvac })));
+    $("[data-eco]")?.addEventListener("click", () => h.callService("climate", "set_temperature", { entity_id: entityId, temperature: 17, hvac_mode: "heat" }));
+    $$("[data-timer]").forEach((b) => b.addEventListener("click", () => {
+      const m = Number(b.dataset.timer), vorher = Number(Glas._timerWahl?.[entityId] || 0);
+      const neuM = m && vorher === m && Glas.timer?.[entityId] ? 0 : m; // gleicher Knopf nochmal = Timer aus
+      Glas._timerWahl = { ...(Glas._timerWahl || {}), [entityId]: neuM };
+      if (neuM && !an) Geraet.schalten(h, st);
+      Glas.timerSetzen(h, entityId, neuM).catch(() => {});
+    }));
+    const rk = $("[data-raumfarbe]");
+    if (rk) requestAnimationFrame(() => requestAnimationFrame(() => {
+      rk.classList.toggle("an", rk.dataset.soll === "an"); rk.classList.toggle("aus", rk.dataset.soll !== "an");
+      rk.querySelector(".rk-an").setAttribute("aria-hidden", rk.dataset.soll !== "an"); rk.querySelector(".rk-aus").setAttribute("aria-hidden", rk.dataset.soll === "an");
+    }));
+    rk?.addEventListener("click", () => {
+      const ziel = entitaetenImBereich(h, bereich, ["light"]);
+      if (rk.dataset.soll !== "an") { h.callService("light", "turn_off", { entity_id: ziel }); return; }
+      const farbe = a.hs_color && a.color_mode !== "color_temp" ? { hs_color: a.hs_color } : a.color_temp_kelvin ? { color_temp_kelvin: a.color_temp_kelvin } : {};
+      h.callService("light", "turn_on", { entity_id: ziel, ...farbe });
+    });
+    const rad = $(".rad");
+    if (rad) {
+      const marke = rad.querySelector(".marke"), lupe = rad.querySelector(".lupe");
+      let hs = null;
+      const setzeFarbe = (e) => {
+        const r = rad.getBoundingClientRect(), vx = e.clientX - (r.left + r.width / 2), vy = e.clientY - (r.top + r.height / 2);
+        const R = r.width / 2, abstand = Math.min(Math.hypot(vx, vy), R), w = Math.atan2(vy, vx);
+        const hu = Math.round((w * 180 / Math.PI + 90 + 360) % 360), sa = Math.round(abstand / R * 100);
+        const c = `hsl(${hu},100%,${100 - sa / 2}%)`;
+        [marke, lupe].forEach((el) => { el.style.left = `${50 + Math.cos(w) * abstand / R * 50}%`; el.style.top = `${50 + Math.sin(w) * abstand / R * 50}%`; el.style.background = c; });
+        hs = [hu, sa];
+      };
+      rad.addEventListener("pointerdown", (e) => { ziehen = true; rad.setPointerCapture(e.pointerId); rad.classList.add("zieht"); setzeFarbe(e); });
+      rad.addEventListener("pointermove", (e) => { if (ziehen) setzeFarbe(e); });
+      const radLos = () => { if (!ziehen) return; ziehen = false; rad.classList.remove("zieht"); if (hs) h.callService("light", "turn_on", { entity_id: entityId, hs_color: hs }); };
+      rad.addEventListener("pointerup", radLos); rad.addEventListener("pointercancel", radLos);
+    }
     $$("[data-preset]").forEach((b) => b.addEventListener("click", () => h.callService("climate", "set_preset_mode", { entity_id: entityId, preset_mode: b.dataset.preset })));
     $$("[data-t]").forEach((b) => b.addEventListener("click", () => {
       const schritt = Number(a.target_temp_step || 0.5) * (b.dataset.t === "+" ? 1 : -1);
@@ -102,6 +251,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
     $$("[data-m]").forEach((b) => b.addEventListener("click", () => h.callService("media_player", b.dataset.m, { entity_id: entityId })));
     $$("[data-v]").forEach((b) => b.addEventListener("click", () => h.callService("vacuum", b.dataset.v, { entity_id: entityId })));
     s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    s.inhalt.querySelectorAll(".gross-sym ha-state-icon").forEach((el) => { el.hass = h; el.stateObj = st; if (cfg.icon) el.icon = cfg.icon; });
     const saeule = $(".saeule");
     if (saeule && reg) {
       let p = reg.pct;
@@ -110,7 +260,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
         p = klemmen(((r.bottom - e.clientY) / r.height) * 100, 0, 100);
         saeule.firstElementChild.style.transform = `scaleY(${p / 100})`;
         saeule.setAttribute("aria-valuenow", Math.round(p)); saeule.setAttribute("aria-valuetext", reg.text(p));
-        s.inhalt.querySelector(".unter").textContent = [raum, reg.text(p)].filter(Boolean).join(" · ");
+        s.kopfPlatz.querySelector(".unter").textContent = [raum, reg.text(p)].filter(Boolean).join(" · ");
       };
       saeule.addEventListener("pointerdown", (e) => { ziehen = true; saeule.setPointerCapture(e.pointerId); setze(e); });
       saeule.addEventListener("pointermove", (e) => { if (ziehen) setze(e); });
@@ -125,6 +275,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
   };
   Glas.hassHoerer.add(neu);
   zeichnen();
+  if (vIds.length && vZustand.auf) vLaden();
   s.oeffnen();
   return s;
 }
@@ -140,14 +291,17 @@ const KACHEL_CSS = `
 .kachel.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .kachel.weg{opacity:.5}
 .kachel.gross{flex-direction:column;align-items:flex-start;justify-content:space-between;min-height:calc(var(--g-kachel-h) * 2 + var(--g-a2))}
-.kachel.klein{justify-content:center;padding:0}
+.kachel.klein{flex-direction:column;justify-content:center;gap:4px;padding:var(--g-a1) 6px}
+.kachel.klein .symbol{width:36px;height:36px}
+.kname{position:relative;max-width:100%;font-size:var(--g-s-mini);font-weight:600;line-height:1.2;color:var(--g-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.an .kname{color:var(--g-text-an)}
 .kachel.ganz .text{flex:1}
 .fuell{position:absolute;inset:0;background:var(--g-an);pointer-events:none;transform-origin:left;transition:transform .2s cubic-bezier(.23,1,.32,1)}
 .kachel.an .fuell{background:var(--g-an)}
 .kachel.an.regelbar{background:var(--g-an-gedimmt)}
 .symbol{position:relative;flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:var(--g-fuell);color:var(--g-fuell-text);transition:background-color .2s ease}
-.an .symbol{background:var(--sf);color:#fff}
+  background:var(--g-fuell);color:var(--g-fuell-text);transition:background-color .2s ease,box-shadow .35s ease}
+.an .symbol{background:var(--sf);color:#fff;box-shadow:0 0 16px 1px color-mix(in srgb,var(--sf) 60%,transparent)}
 .warn .symbol{background:var(--warn);color:#fff}
 .text{position:relative;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;flex:1;align-self:stretch;text-align:left;border-radius:var(--g-r-klein)}
 .gross .text{flex:none;width:100%;align-self:auto}
@@ -171,7 +325,7 @@ class GlasKachelCard extends GlasKarte {
     return { entity: e };
   }
   pruefen(c) { if (!c.entity) throw new Error("Bitte eine Entität wählen"); }
-  entitaeten() { return [this._config.entity, ...(this._config.zusatz || [])]; }
+  entitaeten() { return [this._config.entity, ...(this._config.zusatz || []), this._config.temp_sensor, this._config.feuchte_sensor].filter(Boolean); }
   getCardSize() { return this._config?.groesse === "gross" ? 3 : 1; }
   getGridOptions() {
     const g = this._config?.groesse;
@@ -191,7 +345,7 @@ class GlasKachelCard extends GlasKarte {
     };
   }
   html() {
-    const h = this._hass, c = this._config, st = h.states[c.entity];
+    const h = this._hass, c = this._config, st = mitSensoren(h, h.states[c.entity], c);
     const v = this.verhalten(st);
     const reg = Geraet.regler(st);
     const an = Geraet.istAn(st), warn = Geraet.istWarnung(st);
@@ -203,6 +357,15 @@ class GlasKachelCard extends GlasKarte {
     else if (c.zweite_zeile === "attribut") zweite = attributText(h, st, c.attribut);
     else if (c.zweite_zeile === "text") zweite = c.text || "";
     else if (c.zweite_zeile === "zustand_zuletzt") zweite = st ? `${Geraet.zustand(h, st, reg)} · ${relativeZeit(st.last_changed)}` : "";
+    // Neue Anzeige-Auswahl (Häkchen): Name, Symbol, Zustand, Zuletzt geändert, Raum
+    const liste = Array.isArray(c.anzeige) ? c.anzeige : null;
+    if (liste) {
+      const raumId = bereichVon(h, c.entity), raum = raumId ? h.areas?.[raumId]?.name : "";
+      zweite = [liste.includes("zustand") && st ? Geraet.zustand(h, st, reg) : "", liste.includes("zuletzt") && st ? relativeZeit(st.last_changed) : "",
+        liste.includes("raum") ? raum : ""].filter(Boolean).join(" · ");
+    }
+    const nameZeigen = liste ? liste.includes("name") : c.name_zeigen !== false;
+    const symbolZeigen = liste ? liste.includes("symbol") : c.icon_zeigen !== false;
     const farbe = farbeAus(c.farbe, Geraet.farbe(st));
     const pct = v.regler && an ? klemmen(v.regler.pct, 0, 100) : 0;
     const hell = an && c.hell_wenn_an !== false;
@@ -211,14 +374,14 @@ class GlasKachelCard extends GlasKarte {
     const zusatz = (c.zusatz || []).map((z) => h.states[z]).filter(Boolean);
     const klassen = ["kachel", "k", g, hell ? "an" : "glas", fuellen ? "regelbar" : "", warn ? "warn" : "", Geraet.verfuegbar(st) ? "" : "weg"].join(" ");
     const icon = c.icon ? `data-i="${esc(c.icon)}"` : "";
-    const klein = g === "klein" || c.name_zeigen === false && !zweite;
+    const klein = g === "klein" || !nameZeigen && !zweite;
     const druck = v.schalten && !v.anzeige ? `aria-pressed="${an}"` : "";
     return `<div class="${klassen}" style="--sf:${farbe};--warn:${warn ? FARBEN[warn] : "transparent"}">
       ${fuellen ? `<div class="fuell" style="transform:scaleX(${pct / 100})"></div>` : ""}
-      ${c.icon_zeigen === false ? "" : `<button class="symbol" data-zone="${klein ? "tap" : "icon"}" ${klein ? druck : ""} aria-label="${klein ? `${esc(name)}: ${esc(zweite)}` : `Steuerung ${esc(name)}`}"><ha-state-icon data-e="${esc(c.entity)}" ${icon}></ha-state-icon></button>`}
-      ${g === "klein" ? "" : `<button class="text" data-zone="tap" ${druck} aria-label="${esc(name)}: ${esc(zweite)}">
+      ${!symbolZeigen && g !== "klein" ? "" : `<button class="symbol" data-zone="${klein ? "tap" : "icon"}" ${klein ? druck : ""} aria-label="${klein ? `${esc(name)}: ${esc(zweite)}` : `Steuerung ${esc(name)}`}"><ha-state-icon data-e="${esc(c.entity)}" ${icon}></ha-state-icon></button>`}
+      ${g === "klein" ? (nameZeigen ? `<span class="kname" aria-hidden="true">${esc(name)}</span>` : "") : `<button class="text" data-zone="tap" ${druck} aria-label="${esc(name)}: ${esc(zweite)}">
         ${grossWert ? `<div class="grosswert">${esc(grossWert)}</div>` : ""}
-        ${c.name_zeigen === false ? "" : `<div class="name">${esc(name)}</div>`}
+        ${nameZeigen ? `<div class="name">${esc(name)}</div>` : ""}
         ${zweite && !grossWert ? `<div class="zustand">${esc(zweite)}</div>` : ""}
         ${zusatz.length ? `<div class="zusatz" aria-hidden="true">${zusatz.map((z) => `<span><ha-state-icon data-e="${esc(z.entity_id)}"></ha-state-icon>${esc(zustandText(h, z))}</span>`).join("")}</div>` : ""}
       </button>`}
@@ -235,7 +398,7 @@ class GlasKachelCard extends GlasKarte {
       const eigene = { tap: c.tap_action, icon: c.icon_tap_action, hold: c.hold_action, double: c.double_tap_action }[art];
       if (eigene && eigene.action) { aktion(this, { entity: c.entity, tap_action: eigene }, "tap"); return; }
       if (art === "tap" && v.schalten && !v.anzeige) { if (navigator.vibrate) navigator.vibrate(8); Geraet.schalten(this._hass, s); return; }
-      if (art === "tap" && v.anzeige) { mehrInfo(this, c.entity); return; }
+      if (art === "tap" && v.anzeige) { steuerungOeffnen(this, c.entity, c); return; } // eigene große Ansicht mit Verlauf
       steuerungOeffnen(this, c.entity, c); // Symbol / Halten: große Steuerung
     };
     el.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -325,6 +488,10 @@ class GlasKachelEditor extends GlasEditor {
           { name: "wischen", selector: { boolean: {} } },
         ] },
       ] },
+      ...(domainVon(c.entity || "") === "climate" ? [{ type: "expandable", flatten: true, name: "gruppe_klima", title: "Heizung: eigene Sensoren", icon: "mdi:thermometer", schema: [
+        { type: "grid", name: "", schema: [
+          { name: "temp_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
+          { name: "feuchte_sensor", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] }] }] : []),
       { type: "expandable", flatten: true, name: "gruppe2", title: "Zusatzinfos in der Kachel", icon: "mdi:information-outline", schema: [
         { name: "zusatz", selector: { entity: { multiple: true } } },
       ] },
@@ -340,7 +507,7 @@ class GlasKachelEditor extends GlasEditor {
     return { entity: "Entität", name: "Name (leer = aus HA)", icon: "Symbol (leer = automatisch)", groesse: "Größe", typ: "Verhalten",
       zweite_zeile: "Zweite Zeile", attribut: "Attribut", text: "Text", farbe: "Farbe, wenn aktiv",
       name_zeigen: "Name zeigen", icon_zeigen: "Symbol zeigen", hell_wenn_an: "Kachel hell, wenn an", wischen: "Seitlich wischen regelt",
-      zusatz: "Weitere Entitäten (kleine Chips)", ...AKTIONEN_LABELS };
+      zusatz: "Weitere Entitäten (kleine Chips)", temp_sensor: "Temperatursensor (statt Thermostat)", feuchte_sensor: "Luftfeuchtesensor", ...AKTIONEN_LABELS };
   }
   hilfen() {
     return { typ: "Automatisch: Lampen, Rollos, Heizungen lassen sich wischen; Sensoren zeigen nur an.",
