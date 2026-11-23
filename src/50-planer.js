@@ -328,8 +328,24 @@ class GlasPlanerCard extends GlasKarte {
         clearTimeout(t); t = setTimeout(() => { this._seite = i; }, 120);
       }, { passive: true });
       this.$$("[data-seite]").forEach((b) => b.addEventListener("click", () => {
-        this._seite = Number(b.dataset.seite);
-        bahn.scrollTo({ left: this._seite * breite(), behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        const ziel = Number(b.dataset.seite), von = this._seiteAnzeige ?? 0;
+        this._seite = ziel;
+        if (ziel === von) return;
+        const ruhig = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        // Nachbarseite: normal hinüberwischen. Weiter weg: nicht durch alle Seiten rauschen,
+        // sondern kurz ausblenden, direkt springen und die Zielseite weich einblenden.
+        if (Math.abs(ziel - von) === 1 && !ruhig) return bahn.scrollTo({ left: ziel * breite(), behavior: "smooth" });
+        if (ruhig || !bahn.animate) { bahn.scrollLeft = ziel * breite(); return; }
+        this._sprung?.cancel();
+        const aus = (this._sprung = bahn.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: "ease-in", fill: "forwards" }));
+        aus.onfinish = () => {
+          if (this._sprung !== aus) return;
+          bahn.scrollLeft = ziel * breite();
+          aus.cancel();
+          // nur verkleinert einblenden (kein Verschieben, sonst wächst die Bahn und ruckelt nach)
+          this._sprung = bahn.children[ziel]?.animate([{ opacity: 0, transform: "scale(.97)" }, { opacity: 1, transform: "none" }],
+            { duration: 280, easing: "cubic-bezier(.32,.72,0,1)" });
+        };
       }));
     }
     this.$$("[data-tag]").forEach((b) => b.addEventListener("click", () => { this._tagWahl = b.dataset.tag; this._seite = this._seiteAnzeige; this.render(); }));
