@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 const PLANER_CSS = `
 :host{display:block}
-.karte{display:flex;flex-direction:column;gap:var(--g-a3)}
+.karte{display:flex;flex-direction:column;gap:var(--g-a3);overflow:clip}
 .oben{display:flex;align-items:center;justify-content:space-between;gap:var(--g-a3)}
 .datum{margin:0;font-size:var(--g-s-h2);font-weight:800;letter-spacing:-.3px;color:var(--g-akzent)}
 .schicht{align-self:flex-start;display:inline-flex;align-items:center;gap:var(--g-a2);min-height:32px;padding:4px 12px 4px 4px;border-radius:var(--g-r-pille);
@@ -331,21 +331,16 @@ class GlasPlanerCard extends GlasKarte {
         const ziel = Number(b.dataset.seite), von = this._seiteAnzeige ?? 0;
         this._seite = ziel;
         if (ziel === von) return;
-        const ruhig = matchMedia("(prefers-reduced-motion: reduce)").matches;
-        // Nachbarseite: normal hinüberwischen. Weiter weg: nicht durch alle Seiten rauschen,
-        // sondern kurz ausblenden, direkt springen und die Zielseite weich einblenden.
-        if (Math.abs(ziel - von) === 1 && !ruhig) return bahn.scrollTo({ left: ziel * breite(), behavior: "smooth" });
-        if (ruhig || !bahn.animate) { bahn.scrollLeft = ziel * breite(); return; }
-        this._sprung?.cancel();
-        const aus = (this._sprung = bahn.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: "ease-in", fill: "forwards" }));
-        aus.onfinish = () => {
-          if (this._sprung !== aus) return;
-          bahn.scrollLeft = ziel * breite();
-          aus.cancel();
-          // nur verkleinert einblenden (kein Verschieben, sonst wächst die Bahn und ruckelt nach)
-          this._sprung = bahn.children[ziel]?.animate([{ opacity: 0, transform: "scale(.97)" }, { opacity: 1, transform: "none" }],
-            { duration: 280, easing: "cubic-bezier(.32,.72,0,1)" });
-        };
+        // Nicht durch alle Seiten rauschen: direkt springen und die Zielseite aus der Richtung
+        // hereinfedern lassen, aus der sie kommt (wie ein Segment-Wechsel bei iOS).
+        bahn.scrollLeft = ziel * breite();
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches || !bahn.animate) return;
+        this._sprung?.forEach((x) => x.cancel());
+        const r = ziel > von ? 1 : -1, { werte, dauer } = federVerlauf(0, { antwort: 0.34, daempfung: 0.92 });
+        this._sprung = [
+          bahn.animate(werte.map((p) => ({ translate: `${(1 - p) * 40 * r}px 0` })), { duration: dauer, easing: "linear" }),
+          bahn.animate([{ opacity: 0.2 }, { opacity: 1 }], { duration: 200, easing: "cubic-bezier(.23,1,.32,1)" }),
+        ];
       }));
     }
     this.$$("[data-tag]").forEach((b) => b.addEventListener("click", () => { this._tagWahl = b.dataset.tag; this._seite = this._seiteAnzeige; this.render(); }));
