@@ -80,7 +80,7 @@ function verlaufIds(entityId, cfg) {
 }
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
-  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
+  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, stern: { entity: entityId }, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
   let letzter = null;
   // nur neu zeichnen, wenn sich diese Entität geändert hat
   let letzterTimer = null;

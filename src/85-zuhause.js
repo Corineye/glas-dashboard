@@ -248,7 +248,7 @@ function raumCfg(hass, r, alle = false) {
       .forEach((g) => cards.push({ type: "heading", heading: gruppenName(r, g), heading_style: "subtitle", _gruppe: g, _leer: true }));
   }
   return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
-    fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: [...(r.fenster || []), ...(r.bewegung || []), ...(r.chips || [])],
+    fenster_auto: r.fenster_auto !== false, fenster_aus: r.fenster_aus || [], alles_aus: r.alles_aus !== false, chips: [...(r.fenster || []), ...(r.bewegung || []), ...(r.chips || [])],
     verlauf_chip: r.verlauf_chip !== false, spalten: r.spalten || 1, cards };
 }
 

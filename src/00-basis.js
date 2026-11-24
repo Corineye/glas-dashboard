@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.9.0";
+const VERSION = "0.9.1";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -41,7 +41,9 @@ const TOKENS = `
 *{box-sizing:border-box}
 button{font:inherit;color:inherit;border:0;margin:0;padding:0;background:none;cursor:pointer;touch-action:manipulation;
   -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--g-akzent);outline-offset:2px}
+:focus:not(:focus-visible){outline:none}
+@media (pointer:fine){button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--g-akzent);outline-offset:2px}}
+@media (pointer:coarse){:focus{outline:none}}
 .glas{background:var(--g-glas);border:1px solid var(--g-glas-rand);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur)}
 .karte{border-radius:var(--g-r);padding:var(--g-a4)}
 .pille{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border-radius:var(--g-r-pille);

@@ -100,7 +100,7 @@ class GlasBereichKarte extends GlasKarte {
   get hass() { return this._hass; }
   blattOeffnen() {
     if (this._blatt) return;
-    this._blatt = new GlasSchicht({ quelle: this, hoch: this.blattHoch?.() ?? false, titel: this.blattTitel(), zu: () => { this._blatt = null; } });
+    this._blatt = new GlasSchicht({ quelle: this, hoch: this.blattHoch?.() ?? false, titel: this.blattTitel(), stern: ({ "glas-drucker-card": { karte: "drucker" }, "glas-robi-card": { karte: "robi" } })[this.localName] || null, zu: () => { this._blatt = null; } });
     this._vz = { auf: false, stunden: 24, daten: null };
     this.blattZeichnen();
     this._blatt.oeffnen();

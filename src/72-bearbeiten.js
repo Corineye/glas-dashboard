@@ -513,7 +513,8 @@ async function raumMenue(quelle, hash) {
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
-    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Chips</div><div data-f="chips"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Fenster und Türen</div><div data-f="fenster"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:motion-sensor"></ha-icon>Kopfzeile: weitere Chips</div><div data-f="chips"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:view-grid-outline"></ha-icon>Anordnung</div>
       <div class="segment" role="group" aria-label="Anordnung">${[[1, "Untereinander"], [2, "Nebeneinander"]].map(([n, l]) => `<button data-sp="${n}" aria-pressed="${(r.spalten || 1) === n}">${l}<small>${n === 1 ? "eine Spalte" : "Abschnitte versetzt"}</small></button>`).join("")}</div>
       <div class="m-hinweis">Nebeneinander gilt auf breiten Bildschirmen (PC, Tablet quer). Am Handy bleibt es eine Spalte.</div></div>
@@ -531,16 +532,29 @@ async function raumMenue(quelle, hash) {
     { name: "temperatur", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
     { name: "feuchte", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } },
   ], { temperatur: "Temperatursensor (leer = automatisch)", feuchte: "Luftfeuchtesensor (leer = automatisch)" }, nimm);
-  haForm($("[data-f=chips]"), { fenster_auto: r.fenster_auto !== false, fenster: r.fenster, bewegung: r.bewegung, chips: r.chips, verlauf_chip: r.verlauf_chip !== false, alles_aus: r.alles_aus !== false }, [
-    { name: "fenster_auto", selector: { boolean: {} } },
-    { name: "fenster", selector: { entity: { multiple: true, filter: { domain: "binary_sensor", device_class: ["window", "door", "opening", "garage_door"] } } } },
+  const fensterForm = () => {
+    const box = $("[data-f=fenster]");
+    box.replaceChildren();
+    const alle = raumFensterAlle(h, r);
+    haForm(box, { fenster_zeigen: raumFensterGezeigt(h, r) }, [
+      ...(alle.length ? [{ name: "fenster_zeigen", selector: { select: { multiple: true, mode: "list", options: alle.map((e) => ({ value: e, label: `${h.states[e]?.attributes.friendly_name || e}${raumFensterAuto(h, r.bereich).includes(e) ? "" : " (hinzugefügt)"}` })) } } }] : []),
+      { name: "fenster_neu", selector: { entity: { filter: { domain: "binary_sensor", device_class: CHIP_KLASSEN } } } },
+    ], { fenster_zeigen: "Oben anzeigen", fenster_neu: "Weiteren Sensor hinzufügen" }, (v) => {
+      const gezeigt = [...(v.fenster_zeigen || []), ...(v.fenster_neu && !(v.fenster_zeigen || []).includes(v.fenster_neu) ? [v.fenster_neu] : [])];
+      raumFensterSetzen(h, r, gezeigt);
+      speichern();
+      if (v.fenster_neu) fensterForm();
+    }, alle.length ? {} : { fenster_neu: "Im Bereich gibt es keine Fenster- oder Türsensoren." });
+  };
+  fensterForm();
+  haForm($("[data-f=chips]"), { bewegung: r.bewegung, chips: r.chips, verlauf_chip: r.verlauf_chip !== false, alles_aus: r.alles_aus !== false }, [
     { name: "bewegung", selector: { entity: { multiple: true, filter: { domain: "binary_sensor", device_class: ["motion", "occupancy", "presence"] } } } },
     { name: "chips", selector: { entity: { multiple: true } } },
     { type: "grid", name: "", schema: [{ name: "verlauf_chip", selector: { boolean: {} } }, { name: "alles_aus", selector: { boolean: {} } }] },
-  ], { fenster_auto: "Fenster/Türen des Bereichs automatisch", fenster: "Weitere Fenster-/Türsensoren", bewegung: "Bewegungsmelder", chips: "Weitere Chips (beliebige Entitäten)",
+  ], { bewegung: "Bewegungsmelder", chips: "Weitere Chips (beliebige Entitäten)",
     verlauf_chip: "Chip „Verlauf“", alles_aus: "Knopf „Alles aus“" }, (v, f) => {
     nimm(v, f);
-    ["fenster_auto", "verlauf_chip", "alles_aus"].forEach((k) => { if (r[k] === true) delete r[k]; });
+    ["verlauf_chip", "alles_aus"].forEach((k) => { if (r[k] === true) delete r[k]; });
   });
   const namenZeichnen = () => {
     const genutzt = benutzt();
