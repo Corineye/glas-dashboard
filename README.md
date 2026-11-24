@@ -7,8 +7,7 @@ Karten im ruhigen Glas-Look für Home Assistant: hell und dunkel automatisch, ei
 1. HACS › ⋮ › **Benutzerdefinierte Repositories** › `https://github.com/Corineye/glas-dashboard`, Typ **Integration**.
 2. „Glas-Dashboard“ herunterladen, Home Assistant **neu starten**.
 3. Einstellungen › Geräte & Dienste › **Integration hinzufügen** › „Glas-Dashboard“.
-4. In der Seitenleiste erscheint **Glas**. Dort Räume, Startseite, Personen, Bereiche und Aussehen einstellen.
-5. Unter Glas › Aussehen › Dashboard auf **Anlegen** tippen: Das Dashboard „Zuhause“ baut sich aus den Einstellungen selbst auf.
+4. In der Seitenleiste erscheint **Glas**. Beim ersten Öffnen startet der **Einrichtungs-Assistent**: Räume, Personen, Karten und Favoriten sind aus Home Assistant vorausgefüllt, du hakst nur ab. Am Ende legt er das Dashboard „Zuhause“ an.
 
 Die Karten werden automatisch geladen (keine Ressource, kein Thema nötig). Einzelne Glas-Karten lassen sich weiterhin in jedes Dashboard legen.
 
@@ -18,13 +17,15 @@ HACS › Glas-Dashboard › ⋮ › **Entfernen**, dann unter Einstellungen › 
 
 ## Einstellungsseite „Glas“
 
-| Reiter | Was |
+Aufgebaut wie die iOS-Einstellungen: eine Übersicht, jede Zeile öffnet eine eigene Seite.
+
+| Teil | Was |
 |---|---|
-| **Räume** | Räume aus HA-Bereichen übernehmen. Geräte werden vorgeschlagen; an-/abwählen, am Griff verschieben, Größe S/M/L/ganz, Anzeige (Zustand, Zeit, nur Name), ⋯ für alles Weitere (Name, Symbol, Farbe, Aktionen) |
-| **Startseite** | Für alle oder pro Person: Abschnitte an/aus, Reihenfolge, halbe/ganze Breite, Favoriten, Schnellzugriff |
-| **Personen** | Wer wählbar ist (C · L · Tablet), Begrüßung |
-| **Bereiche** | Wetter, Planer, Sicherheit, Drucker & Werkstatt, Robi, Gäste |
-| **Aussehen** | Hell/Dunkel/Automatisch, Hintergrund (Aurora, Morgenrot, See, Wald, Ruhig, nach Tageszeit), Dashboard anlegen |
+| **Neu gefunden** | Neue HA-Bereiche, neue Geräte in deinen Räumen, neue Personen, erkannte Karten (Wetter, Drucker, Robi …): mit einem Tipp übernehmen oder dauerhaft ausblenden |
+| **Zuhause** | Räume (Geräte an-/abwählen, verschieben, Größe, Anzeige, ⋯ für alles Weitere), Startseite & Favoriten (für alle oder pro Person), Personen |
+| **Karten auf der Startseite** | Warnungen, Wetter, Planer, Sicherheit, Drucker & Werkstatt, Robi, Gäste: je eine Seite mit an/aus, „Automatisch gefunden“ und allen Einstellungen |
+| **Darstellung** | Aussehen (Hell/Dunkel, Hintergrund), Dashboard „Zuhause“ anlegen |
+| **Assistent erneut durchgehen** | Behält alles Eingestellte und schlägt nur Neues vor |
 
 Alles wird auf dem Home-Assistant-Server gespeichert und gilt auf allen Geräten.
 

@@ -10,10 +10,6 @@ const EINST_CSS = `
 .status{font-size:var(--g-s-klein);color:var(--g-text2);transition:opacity .3s ease}
 .menue{display:none}
 :host([schmal]) .menue{display:flex}
-.reiter{display:flex;gap:2px;padding:3px;border-radius:var(--g-r-pille);margin:var(--g-a2) 0 var(--g-a5);overflow-x:auto;scrollbar-width:none}
-.reiter::-webkit-scrollbar{display:none}
-.reiter button{flex:1 0 auto;min-height:36px;padding:0 var(--g-a4);border-radius:var(--g-r-pille);font-size:var(--g-s-klein);font-weight:600;color:var(--g-text);white-space:nowrap}
-.reiter button[aria-selected="true"]{background:var(--g-aktiv);color:var(--g-aktiv-text)}
 h2{margin:var(--g-a5) var(--g-a3) var(--g-a2);font-size:var(--g-s-klein);font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--g-text2)}
 h2:first-child{margin-top:0}
 .gruppe{border-radius:var(--g-r-klein);overflow:hidden;background:var(--g-blatt);border:1px solid var(--g-glas-rand)}
@@ -74,7 +70,7 @@ h2:first-child{margin-top:0}
   box-shadow:0 12px 40px rgba(0,0,0,.2);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);animation:pop-auf .16s cubic-bezier(.23,1,.32,1)}
 @keyframes pop-auf{from{opacity:0;transform:scale(.96) translateY(-4px)}}
 .menue-pop button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;border-radius:9px;font-size:var(--g-s-name);color:var(--g-text);text-align:left}
-.menue-pop button:hover{background:var(--g-fuell)}
+@media (hover:hover) and (pointer:fine){.menue-pop button:hover,.zeile:has(> button.weiter):hover{background:var(--g-fuell)}}
 .menue-pop button[aria-checked="true"] ha-icon{color:var(--g-akzent)}
 .menue-pop button[aria-checked="false"] ha-icon{color:var(--g-text2)}
 `;
@@ -146,7 +142,7 @@ class GlasEinstellungen extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._tab = "raeume";
+    this._seite = null; // null = Übersicht, sonst "raeume", "start", "personen", "aussehen", "dashboard", "karte:<id>", "assistent"
     this._raum = null; // geöffneter Raum (Index)
     this._fuer = "alle";
     this._offen = new Set(); // aufgeklappte Geräte-Zeilen
@@ -167,16 +163,19 @@ class GlasEinstellungen extends HTMLElement {
   }
   get hass() { return this._hass; }
   async start() {
-    this.shadowRoot.innerHTML = `<style>${TOKENS}${EINST_CSS}</style><div class="hg"></div><div class="seite"><div class="leise">Lädt …</div></div>`;
+    this.shadowRoot.innerHTML = `<style>${TOKENS}${EINST_CSS}${EINR_CSS}</style><div class="hg"></div><div class="seite"><div class="leise">Lädt …</div></div>`;
     this.hintergrund();
     // HA lädt Formular-Bausteine erst bei Bedarf: einmal einen Karten-Editor anfordern
-    try {
-      const hf = await window.loadCardHelpers();
-      for (const cfg of [{ type: "entities", entities: [] }, { type: "tile", entity: "sun.sun" }]) {
-        const k = await hf.createCardElement(cfg);
-        await k.constructor.getConfigElement?.();
-      }
-    } catch (_) { /* geht auch ohne */ }
+    // … parallel zu den Einstellungen, damit die Seite sofort steht
+    const bausteine = (async () => {
+      try {
+        const hf = await window.loadCardHelpers();
+        await Promise.all([{ type: "entities", entities: [] }, { type: "tile", entity: "sun.sun" }].map(async (cfg) => {
+          const k = await hf.createCardElement(cfg);
+          await k.constructor.getConfigElement?.();
+        }));
+      } catch (_) { /* geht auch ohne */ }
+    })();
     const e = await Glas.einstLaden(this._hass);
     if (!e) {
       this.$(".seite").innerHTML = `<div class="gruppe leise-zeile">${Glas.einstFehler === "fehlt" ? "Die Integration „Glas-Dashboard“ ist nicht eingerichtet: Einstellungen › Geräte &amp; Dienste › Integration hinzufügen." : esc(Glas.einstFehler)}</div>`;
@@ -185,7 +184,11 @@ class GlasEinstellungen extends HTMLElement {
     this._d = kopie(e);
     this._d.bereiche = this._d.bereiche || {};
     this._d.startseiten = this._d.startseiten || { alle: startseiteStandard() };
+    // Erster Besuch: gleich der Assistent, der durch alles führt
+    if (!this._d.eingerichtet && !(this._d.raeume || []).length && !(this._d.personen || []).length) this.assistentStarten();
     this.zeichnen();
+    // Formular-Bausteine sind da: Seiten mit Formularen neu zeichnen
+    bausteine.then(() => { if (this._seite && this._seite !== "assistent") this.zeichnen(); });
   }
   $(s) { return this.shadowRoot.querySelector(s); }
   $$(s) { return [...this.shadowRoot.querySelectorAll(s)]; }
@@ -222,28 +225,11 @@ class GlasEinstellungen extends HTMLElement {
     box.appendChild(ed);
     return ed;
   }
-  zeichnen() {
-    const tabs = [["raeume", "Räume"], ["start", "Startseite"], ["personen", "Personen"], ["bereiche", "Bereiche"], ["aussehen", "Aussehen"]];
-    const scroll = window.scrollY;
-    this.$(".seite").innerHTML = `<div class="oben"><button class="klein-knopf menue" aria-label="Seitenleiste"><ha-icon data-i="mdi:menu"></ha-icon></button>
-      <h1>Glas</h1><span class="status" aria-live="polite"></span></div>
-      <div class="reiter glas" role="tablist">${tabs.map(([id, n]) => `<button role="tab" data-tab="${id}" aria-selected="${this._tab === id}">${n}</button>`).join("")}</div>
-      <div class="inhalt"></div>`;
-    this.$(".menue").addEventListener("click", () => fire(this, "hass-toggle-menu"));
-    this.$$("[data-tab]").forEach((b) => b.addEventListener("click", () => { this._tab = b.dataset.tab; this._raum = null; this.zeichnen(); window.scrollTo(0, 0); }));
-    const box = this.$(".inhalt");
-    ({ raeume: () => (this._raum === null ? this.raeumeListe(box) : this.raumDetail(box)), start: () => this.startseite(box), personen: () => this.personen(box),
-      bereiche: () => this.bereiche(box), aussehen: () => this.aussehen(box) })[this._tab]();
-    this.$$("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
-    this.$$("ha-state-icon[data-e]").forEach((el) => { el.hass = this._hass; el.stateObj = this._hass.states[el.dataset.e]; });
-    window.scrollTo(0, scroll);
-  }
   html(box, s) { box.insertAdjacentHTML("beforeend", s); return box.lastElementChild; }
 
   // ---------------- Räume ----------------
   raeumeListe(box) {
     const r = this._d.raeume || [];
-    this.html(box, `<h2>Räume</h2>`);
     const g = this.html(box, `<div class="gruppe"></div>`);
     if (!r.length) g.innerHTML = `<div class="leise-zeile">Noch keine Räume. Übernimm sie aus Home Assistant oder füge einzeln hinzu.</div>`;
     r.forEach((raum, i) => {
@@ -271,18 +257,12 @@ class GlasEinstellungen extends HTMLElement {
     this.html(box, `<div class="fuss">Die Geräte jedes Raums werden aus dem HA-Bereich vorgeschlagen. Im Raum kannst du sie an- und abwählen, verschieben und die Größe einstellen.</div>`);
   }
   raumNeu(bereich) {
-    const a = this._hass.areas?.[bereich] || {};
-    let hash = slug(a.name || bereich);
-    while ((this._d.raeume || []).some((r) => r.hash === hash)) hash += "-2";
-    this._d.raeume = [...(this._d.raeume || []), { name: a.name || bereich, icon: a.icon || "mdi:door", bereich, hash, geraete: raumGeraeteVorschlag(this._hass, bereich) }];
+    this._d.raeume = [...(this._d.raeume || []), raumAusBereich(this._hass, bereich, this._d.raeume || [])];
   }
   raumDetail(box) {
     const i = this._raum, raum = this._d.raeume[i];
     if (!raum) { this._raum = null; this.raeumeListe(box); return; }
     if (!raum.geraete) raum.geraete = raumGeraeteVorschlag(this._hass, raum.bereich);
-    const z = this.html(box, `<button class="zurueck"><ha-icon data-i="mdi:chevron-left"></ha-icon>Räume</button>`);
-    z.addEventListener("click", () => { this._raum = null; this.zeichnen(); });
-    this.html(box, `<h2>${esc(raum.name)}</h2>`);
     const g = this.html(box, `<div class="gruppe form"></div>`);
     const { geraete, ...rest } = raum;
     this.form(g, { fenster_auto: true, alles_aus: true, ...rest }, [
@@ -393,7 +373,7 @@ class GlasEinstellungen extends HTMLElement {
     const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); merken(l); liste = l; this.speichern(); };
     z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
     z.querySelectorAll("[data-g]").forEach((bt) => bt.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === bt)); neu({ groesse: bt.dataset.g }); }));
-    z.querySelector("[data-bereich]")?.addEventListener("click", () => { this._tab = "bereiche"; this._raum = null; this.zeichnen(); });
+    z.querySelector("[data-bereich]")?.addEventListener("click", () => this.gehe(`karte:${id}`));
     z.querySelector("[data-weg]").addEventListener("click", () => { const l = [...liste]; l.splice(i, 1); setzen(l); this.speichern(); this.zeichnen(); });
   }
 
@@ -477,7 +457,6 @@ class GlasEinstellungen extends HTMLElement {
 
   // ---------------- Personen ----------------
   personen(box) {
-    this.html(box, `<h2>Personen und Begrüßung</h2>`);
     const g = this.html(box, `<div class="gruppe form"></div>`);
     this.editor(g, "glas-personen-editor", { gruss_modus: this._d.gruss_modus || "name", gruss_text: this._d.gruss_text, untertitel: this._d.untertitel, personen: this._d.personen || [] }, (cfg) => {
       Object.assign(this._d, { gruss_modus: cfg.gruss_modus, gruss_text: cfg.gruss_text, untertitel: cfg.untertitel, personen: cfg.personen || [] });
@@ -496,17 +475,6 @@ class GlasEinstellungen extends HTMLElement {
     this.html(box, `<div class="fuss">Jede Person kann unter „Startseite“ eine eigene Startseite bekommen. Welche Person ein Gerät zeigt, merkt sich jedes Gerät selbst (das Tablet bleibt Tablet).</div>`);
   }
 
-  // ---------------- Bereiche ----------------
-  bereiche(box) {
-    const B = this._d.bereiche;
-    [["hinweise", "Warnungen", "glas-hinweise-card-editor"], ["wetter", "Wetter", "glas-wetter-card-editor"], ["planer", "Planer & Kalender", "glas-planer-card-editor"], ["sicherheit", "Sicherheit", "glas-sicherheit-card-editor"],
-      ["drucker", "Drucker & Werkstatt", "glas-drucker-card-editor"], ["robi", "Robi", "glas-robi-card-editor"], ["gaeste", "Gäste", "glas-gaeste-card-editor"]].forEach(([id, titel, tag]) => {
-      this.html(box, `<h2>${titel}</h2>`);
-      const g = this.html(box, `<div class="gruppe form"></div>`);
-      this.editor(g, tag, B[id] || {}, (cfg) => { B[id] = cfg; this.speichern(); });
-    });
-  }
-
   // ---------------- Aussehen ----------------
   aussehen(box) {
     const A = (this._d.aussehen = { modus: "auto", hintergrund: "klassisch", ...(this._d.aussehen || {}) });
@@ -520,10 +488,8 @@ class GlasEinstellungen extends HTMLElement {
       .map(([id, n]) => `<button class="hg-wahl" data-hg="${id}" aria-pressed="${A.hintergrund === id}"><span class="muster" style="background:${hintergrundCss(id, d)}"><span></span></span>${esc(n)}</button>`).join("")}</div></div>`);
     hg.querySelectorAll("[data-hg]").forEach((b) => b.addEventListener("click", () => { A.hintergrund = b.dataset.hg; this.speichern(); this.hintergrund(); this.zeichnen(); }));
     this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber wie bisher, abends See, nachts ruhig.</div>`);
-    this.dashboardBlock(box);
   }
   async dashboardBlock(box) {
-    this.html(box, `<h2>Dashboard</h2>`);
     const g = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Dashboard „Zuhause“</b><span class="info">Prüfe …</span></span><span class="knopf-platz"></span></div></div>`);
     this.html(box, `<div class="fuss">Baut sich komplett aus diesen Einstellungen auf. Du kannst die Glas-Karten aber auch weiterhin einzeln in jedes andere Dashboard legen.</div>`);
     const info = g.querySelector(".info"), platz = g.querySelector(".knopf-platz");
