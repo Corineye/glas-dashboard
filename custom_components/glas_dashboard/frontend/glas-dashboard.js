@@ -3354,7 +3354,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       fuellEl.style.transition = "none";
       fuellEl.style.transform = `scaleY(${letztePct / 100})`;
       fuellEl.getBoundingClientRect();
-      fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+      fuellEl.style.transition = "transform .32s cubic-bezier(.23,1,.32,1)";
       fuellEl.style.transform = `scaleY(${pctJetzt / 100})`;
     }
     letztePct = pctJetzt;
@@ -3363,7 +3363,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       // sofort sichtbar: Säule läuft nach unten bzw. nach oben, HA bestätigt danach
       if (fuellEl && reg) {
         const ziel = an ? 0 : klemmen(reg.pct || 100, 1, 100);
-        fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+        fuellEl.style.transition = "transform .32s cubic-bezier(.23,1,.32,1)";
         fuellEl.style.transform = `scaleY(${ziel / 100})`;
         letztePct = ziel;
       }
@@ -3716,7 +3716,7 @@ h1{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;colo
   transform-origin:0 50%;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,-6px,0) scale(.72);
   transition:transform .32s cubic-bezier(.32,.72,0,1),opacity .16s ease,visibility 0s linear .32s}
 .blase.zu{opacity:1;visibility:visible;pointer-events:auto;transform:none;
-  transition:transform .55s cubic-bezier(.34,1.45,.64,1),opacity .2s ease,visibility 0s}
+  transition:transform .42s cubic-bezier(.34,1.3,.64,1),opacity .16s ease,visibility 0s}
 @supports (transition-timing-function:linear(0,1)){
   /* echte Feder (leichtes Nachschwingen wie iOS) */
   .blase.zu{transition-timing-function:linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.6%,1.067 22.4%,1.088 25.4%,1.084 28.6%,1.064 32.1%,1.017 40.5%,.998 47.5%,.995 54.5%,1 70%,1),ease,linear}
@@ -6827,7 +6827,7 @@ h2:first-child{margin-top:0}
   box-shadow:0 12px 40px rgba(0,0,0,.2);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);animation:pop-auf .16s cubic-bezier(.23,1,.32,1)}
 @keyframes pop-auf{from{opacity:0;transform:scale(.96) translateY(-4px)}}
 .menue-pop button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;border-radius:9px;font-size:var(--g-s-name);color:var(--g-text);text-align:left}
-.menue-pop button:hover{background:var(--g-fuell)}
+@media (hover:hover) and (pointer:fine){.menue-pop button:hover,.zeile:has(> button.weiter):hover{background:var(--g-fuell)}}
 .menue-pop button[aria-checked="true"] ha-icon{color:var(--g-akzent)}
 .menue-pop button[aria-checked="false"] ha-icon{color:var(--g-text2)}
 `;
@@ -7282,7 +7282,7 @@ class GlasStrategie extends HTMLElement {
 const EINR_CSS = `
 .oben .zurueck{margin-left:-6px}
 .oben .luft{flex:1}
-.gross-titel{margin:var(--g-a1) 0 var(--g-a4);font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
+.gross-titel{text-wrap:balance;margin:var(--g-a1) 0 var(--g-a4);font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
 .zeile.weiter-zeile{cursor:pointer}
 .zeile:has(> button.weiter) > :is(.name,.sym,.pfeil,.wert,.punkt){pointer-events:none}
 .zeile:has(> button.weiter):active{background:var(--g-fuell)}
@@ -7298,14 +7298,14 @@ const EINR_CSS = `
 .neu .knopf.haupt{flex:none}
 .karte-info{margin:0 var(--g-a3) var(--g-a3);font-size:var(--g-s-text);color:var(--g-text2);line-height:1.4}
 /* Assistent */
-.as{display:flex;flex-direction:column;min-height:calc(100vh - 140px)}
+.as{display:flex;flex-direction:column;min-height:calc(100vh - 140px);min-height:calc(100dvh - 140px)}
 .as-kopf{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:var(--g-a3);min-height:52px;padding-top:env(safe-area-inset-top)}
 .fortschritt{flex:1;display:flex;gap:6px}
 .fortschritt span{flex:1;height:4px;border-radius:2px;background:var(--g-fuell);transition:background-color .3s ease}
 .fortschritt span.an{background:var(--g-akzent-voll)}
 .as-schritt{font-size:var(--g-s-klein);color:var(--g-text2);white-space:nowrap}
 .text-knopf{min-height:44px;padding:0 var(--g-a2);font-size:var(--g-s-text);color:var(--g-akzent)}
-.as-inhalt{flex:1;animation:as-rein .32s cubic-bezier(.23,1,.32,1)}
+.as-inhalt{flex:1;animation:as-rein .26s cubic-bezier(.23,1,.32,1)}
 .as-inhalt.rueck{animation-name:as-zurueck}
 @keyframes as-rein{from{opacity:0;transform:translateX(28px)}}
 @keyframes as-zurueck{from{opacity:0;transform:translateX(-28px)}}
@@ -7313,8 +7313,8 @@ const EINR_CSS = `
 .as-sym{width:64px;height:64px;margin:var(--g-a5) auto var(--g-a3);border-radius:18px;display:flex;align-items:center;justify-content:center;background:var(--g-akzent-voll);color:#fff;--mdc-icon-size:34px;box-shadow:0 8px 24px rgba(0,0,0,.15)}
 .as-sym ha-icon,.held .as-sym ha-icon{--mdc-icon-size:34px}
 .as-sym.gruen{background:var(--g-gruen-voll)}.as-sym.orange{background:#c25e00}.as-sym.lila{background:var(--g-lila-voll)}
-.as h1{margin:0;text-align:center;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
-.as-text{max-width:520px;margin:var(--g-a2) auto var(--g-a5);text-align:center;font-size:var(--g-s-text);line-height:1.45;color:var(--g-text2)}
+.as h1{margin:0;text-align:center;text-wrap:balance;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
+.as-text{text-wrap:pretty;max-width:520px;margin:var(--g-a2) auto var(--g-a5);text-align:center;font-size:var(--g-s-text);line-height:1.45;color:var(--g-text2)}
 .as-gruppe-kopf{display:flex;align-items:baseline;justify-content:space-between;margin:var(--g-a4) var(--g-a3) var(--g-a2)}
 .as-gruppe-kopf h2{margin:0}
 .as-gruppe-kopf button{font-size:var(--g-s-klein);color:var(--g-akzent);min-height:32px}
@@ -7479,7 +7479,7 @@ Object.assign(GlasEinstellungen.prototype, {
     const leer = !(d.raeume || []).length && !(d.personen || []).length;
     if (leer) {
       const held = this.html(box, `<div class="held glas"><div class="as-sym"><ha-icon data-i="mdi:home-heart"></ha-icon></div>
-        <h3>Los geht's</h3><p>Der Assistent führt dich in vier kurzen Schritten durch alles. Räume, Personen und Geräte sind aus Home Assistant schon vorausgefüllt.</p>
+        <h3>Los geht’s</h3><p>Der Assistent führt dich in vier kurzen Schritten durch alles. Räume, Personen und Geräte sind aus Home Assistant schon vorausgefüllt.</p>
         <button class="knopf haupt">Einrichtung starten</button></div>`);
       held.querySelector("button").addEventListener("click", () => { this.assistentStarten(); this.zeichnen(); });
     }
@@ -7636,7 +7636,7 @@ Object.assign(GlasEinstellungen.prototype, {
       [["mdi:sofa-outline", "blau", "Räume", "Deine Bereiche mit Lichtern, Heizung, Rollos"], ["mdi:account-multiple-outline", "gruen", "Personen", "Wer hier wohnt, mit eigener Begrüßung"],
         ["mdi:view-grid-outline", "orange", "Karten", "Wetter, Planer, Drucker, Robi … was es bei dir gibt"], ["mdi:star-outline", "lila", "Favoriten", "Die wichtigsten Geräte ganz oben"]]
         .forEach(([ic, f, t, x], i) => this.html(g, `<div class="zeile"><span class="sym ${f}"><ha-icon data-i="${ic}"></ha-icon></span><span class="name"><b>${i + 1}. ${t}</b><span>${x}</span></span></div>`));
-      knoepfe(() => this.asWeiter(1), "Los geht's", false);
+      knoepfe(() => this.asWeiter(1), "Los geht’s", false);
       const z = this.html(box, `<div class="as-zweit"><button class="text-knopf">Alles automatisch einrichten</button></div>`);
       z.querySelector("button").addEventListener("click", () => this.asAnwenden());
     } else if (schritt === "raeume") {
@@ -7680,7 +7680,7 @@ Object.assign(GlasEinstellungen.prototype, {
         if (id === "gaeste" && A.karten.gaeste) {
           const f = document.createElement("div");
           f.className = "felder";
-          f.innerHTML = `<input placeholder="WLAN-Name" aria-label="WLAN-Name" autocomplete="off" value="${esc(A.gaeste.ssid)}"><input placeholder="Passwort" aria-label="WLAN-Passwort" type="password" autocomplete="off" value="${esc(A.gaeste.passwort)}">`;
+          f.innerHTML = `<input placeholder="z. B. Gäste-WLAN…" aria-label="WLAN-Name" autocomplete="off" value="${esc(A.gaeste.ssid)}"><input placeholder="Passwort…" aria-label="WLAN-Passwort" type="password" autocomplete="off" value="${esc(A.gaeste.passwort)}">`;
           const [ssid, pw] = f.querySelectorAll("input");
           ssid.addEventListener("input", () => { A.gaeste.ssid = ssid.value; });
           pw.addEventListener("input", () => { A.gaeste.passwort = pw.value; });

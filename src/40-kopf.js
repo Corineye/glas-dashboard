@@ -31,7 +31,7 @@ h1{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;colo
   transform-origin:0 50%;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,-6px,0) scale(.72);
   transition:transform .32s cubic-bezier(.32,.72,0,1),opacity .16s ease,visibility 0s linear .32s}
 .blase.zu{opacity:1;visibility:visible;pointer-events:auto;transform:none;
-  transition:transform .55s cubic-bezier(.34,1.45,.64,1),opacity .2s ease,visibility 0s}
+  transition:transform .42s cubic-bezier(.34,1.3,.64,1),opacity .16s ease,visibility 0s}
 @supports (transition-timing-function:linear(0,1)){
   /* echte Feder (leichtes Nachschwingen wie iOS) */
   .blase.zu{transition-timing-function:linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.6%,1.067 22.4%,1.088 25.4%,1.084 28.6%,1.064 32.1%,1.017 40.5%,.998 47.5%,.995 54.5%,1 70%,1),ease,linear}

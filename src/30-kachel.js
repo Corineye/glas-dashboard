@@ -186,7 +186,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       fuellEl.style.transition = "none";
       fuellEl.style.transform = `scaleY(${letztePct / 100})`;
       fuellEl.getBoundingClientRect();
-      fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+      fuellEl.style.transition = "transform .32s cubic-bezier(.23,1,.32,1)";
       fuellEl.style.transform = `scaleY(${pctJetzt / 100})`;
     }
     letztePct = pctJetzt;
@@ -195,7 +195,7 @@ function steuerungOeffnen(quelle, entityId, cfg = {}) {
       // sofort sichtbar: Säule läuft nach unten bzw. nach oben, HA bestätigt danach
       if (fuellEl && reg) {
         const ziel = an ? 0 : klemmen(reg.pct || 100, 1, 100);
-        fuellEl.style.transition = "transform .5s cubic-bezier(.32,.72,0,1)";
+        fuellEl.style.transition = "transform .32s cubic-bezier(.23,1,.32,1)";
         fuellEl.style.transform = `scaleY(${ziel / 100})`;
         letztePct = ziel;
       }

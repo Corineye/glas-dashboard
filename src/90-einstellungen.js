@@ -70,7 +70,7 @@ h2:first-child{margin-top:0}
   box-shadow:0 12px 40px rgba(0,0,0,.2);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);animation:pop-auf .16s cubic-bezier(.23,1,.32,1)}
 @keyframes pop-auf{from{opacity:0;transform:scale(.96) translateY(-4px)}}
 .menue-pop button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;border-radius:9px;font-size:var(--g-s-name);color:var(--g-text);text-align:left}
-.menue-pop button:hover{background:var(--g-fuell)}
+@media (hover:hover) and (pointer:fine){.menue-pop button:hover,.zeile:has(> button.weiter):hover{background:var(--g-fuell)}}
 .menue-pop button[aria-checked="true"] ha-icon{color:var(--g-akzent)}
 .menue-pop button[aria-checked="false"] ha-icon{color:var(--g-text2)}
 `;

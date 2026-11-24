@@ -5,7 +5,7 @@
 const EINR_CSS = `
 .oben .zurueck{margin-left:-6px}
 .oben .luft{flex:1}
-.gross-titel{margin:var(--g-a1) 0 var(--g-a4);font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
+.gross-titel{text-wrap:balance;margin:var(--g-a1) 0 var(--g-a4);font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
 .zeile.weiter-zeile{cursor:pointer}
 .zeile:has(> button.weiter) > :is(.name,.sym,.pfeil,.wert,.punkt){pointer-events:none}
 .zeile:has(> button.weiter):active{background:var(--g-fuell)}
@@ -21,14 +21,14 @@ const EINR_CSS = `
 .neu .knopf.haupt{flex:none}
 .karte-info{margin:0 var(--g-a3) var(--g-a3);font-size:var(--g-s-text);color:var(--g-text2);line-height:1.4}
 /* Assistent */
-.as{display:flex;flex-direction:column;min-height:calc(100vh - 140px)}
+.as{display:flex;flex-direction:column;min-height:calc(100vh - 140px);min-height:calc(100dvh - 140px)}
 .as-kopf{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:var(--g-a3);min-height:52px;padding-top:env(safe-area-inset-top)}
 .fortschritt{flex:1;display:flex;gap:6px}
 .fortschritt span{flex:1;height:4px;border-radius:2px;background:var(--g-fuell);transition:background-color .3s ease}
 .fortschritt span.an{background:var(--g-akzent-voll)}
 .as-schritt{font-size:var(--g-s-klein);color:var(--g-text2);white-space:nowrap}
 .text-knopf{min-height:44px;padding:0 var(--g-a2);font-size:var(--g-s-text);color:var(--g-akzent)}
-.as-inhalt{flex:1;animation:as-rein .32s cubic-bezier(.23,1,.32,1)}
+.as-inhalt{flex:1;animation:as-rein .26s cubic-bezier(.23,1,.32,1)}
 .as-inhalt.rueck{animation-name:as-zurueck}
 @keyframes as-rein{from{opacity:0;transform:translateX(28px)}}
 @keyframes as-zurueck{from{opacity:0;transform:translateX(-28px)}}
@@ -36,8 +36,8 @@ const EINR_CSS = `
 .as-sym{width:64px;height:64px;margin:var(--g-a5) auto var(--g-a3);border-radius:18px;display:flex;align-items:center;justify-content:center;background:var(--g-akzent-voll);color:#fff;--mdc-icon-size:34px;box-shadow:0 8px 24px rgba(0,0,0,.15)}
 .as-sym ha-icon,.held .as-sym ha-icon{--mdc-icon-size:34px}
 .as-sym.gruen{background:var(--g-gruen-voll)}.as-sym.orange{background:#c25e00}.as-sym.lila{background:var(--g-lila-voll)}
-.as h1{margin:0;text-align:center;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
-.as-text{max-width:520px;margin:var(--g-a2) auto var(--g-a5);text-align:center;font-size:var(--g-s-text);line-height:1.45;color:var(--g-text2)}
+.as h1{margin:0;text-align:center;text-wrap:balance;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px}
+.as-text{text-wrap:pretty;max-width:520px;margin:var(--g-a2) auto var(--g-a5);text-align:center;font-size:var(--g-s-text);line-height:1.45;color:var(--g-text2)}
 .as-gruppe-kopf{display:flex;align-items:baseline;justify-content:space-between;margin:var(--g-a4) var(--g-a3) var(--g-a2)}
 .as-gruppe-kopf h2{margin:0}
 .as-gruppe-kopf button{font-size:var(--g-s-klein);color:var(--g-akzent);min-height:32px}
@@ -202,7 +202,7 @@ Object.assign(GlasEinstellungen.prototype, {
     const leer = !(d.raeume || []).length && !(d.personen || []).length;
     if (leer) {
       const held = this.html(box, `<div class="held glas"><div class="as-sym"><ha-icon data-i="mdi:home-heart"></ha-icon></div>
-        <h3>Los geht's</h3><p>Der Assistent führt dich in vier kurzen Schritten durch alles. Räume, Personen und Geräte sind aus Home Assistant schon vorausgefüllt.</p>
+        <h3>Los geht’s</h3><p>Der Assistent führt dich in vier kurzen Schritten durch alles. Räume, Personen und Geräte sind aus Home Assistant schon vorausgefüllt.</p>
         <button class="knopf haupt">Einrichtung starten</button></div>`);
       held.querySelector("button").addEventListener("click", () => { this.assistentStarten(); this.zeichnen(); });
     }
@@ -359,7 +359,7 @@ Object.assign(GlasEinstellungen.prototype, {
       [["mdi:sofa-outline", "blau", "Räume", "Deine Bereiche mit Lichtern, Heizung, Rollos"], ["mdi:account-multiple-outline", "gruen", "Personen", "Wer hier wohnt, mit eigener Begrüßung"],
         ["mdi:view-grid-outline", "orange", "Karten", "Wetter, Planer, Drucker, Robi … was es bei dir gibt"], ["mdi:star-outline", "lila", "Favoriten", "Die wichtigsten Geräte ganz oben"]]
         .forEach(([ic, f, t, x], i) => this.html(g, `<div class="zeile"><span class="sym ${f}"><ha-icon data-i="${ic}"></ha-icon></span><span class="name"><b>${i + 1}. ${t}</b><span>${x}</span></span></div>`));
-      knoepfe(() => this.asWeiter(1), "Los geht's", false);
+      knoepfe(() => this.asWeiter(1), "Los geht’s", false);
       const z = this.html(box, `<div class="as-zweit"><button class="text-knopf">Alles automatisch einrichten</button></div>`);
       z.querySelector("button").addEventListener("click", () => this.asAnwenden());
     } else if (schritt === "raeume") {
@@ -403,7 +403,7 @@ Object.assign(GlasEinstellungen.prototype, {
         if (id === "gaeste" && A.karten.gaeste) {
           const f = document.createElement("div");
           f.className = "felder";
-          f.innerHTML = `<input placeholder="WLAN-Name" aria-label="WLAN-Name" autocomplete="off" value="${esc(A.gaeste.ssid)}"><input placeholder="Passwort" aria-label="WLAN-Passwort" type="password" autocomplete="off" value="${esc(A.gaeste.passwort)}">`;
+          f.innerHTML = `<input placeholder="z. B. Gäste-WLAN…" aria-label="WLAN-Name" autocomplete="off" value="${esc(A.gaeste.ssid)}"><input placeholder="Passwort…" aria-label="WLAN-Passwort" type="password" autocomplete="off" value="${esc(A.gaeste.passwort)}">`;
           const [ssid, pw] = f.querySelectorAll("input");
           ssid.addEventListener("input", () => { A.gaeste.ssid = ssid.value; });
           pw.addEventListener("input", () => { A.gaeste.passwort = pw.value; });
