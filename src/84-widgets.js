@@ -149,8 +149,8 @@ class GlasWidgetCard extends GlasKarte {
       : da.length ? `${da.map((p) => p.name).join(", ")} zu Hause` : "Keiner zu Hause";
     const alarmE = e.bereiche?.sicherheit?.alarm || Object.keys(h.states).find((x) => x.startsWith("alarm_control_panel."));
     const al = alarmE && h.states[alarmE];
-    const fenster = Object.keys(h.states).filter((x) => x.startsWith("binary_sensor.") && ["window", "door"].includes(h.states[x].attributes.device_class) && h.states[x].state === "on").length;
-    const unter = [al ? (al.state === "disarmed" ? "Alarm aus" : "Alarm scharf") : "", fenster ? `${fenster} ${fenster === 1 ? "Fenster offen" : "Fenster offen"}` : "Alles zu"].filter(Boolean).join(" · ");
+    const fenster = Object.keys(h.states).filter((x) => x.startsWith("binary_sensor.") && ["window", "door", "garage_door", "opening"].includes(h.states[x].attributes.device_class) && h.states[x].state === "on" && !(e.bereiche?.sicherheit?.ausgeblendet || []).includes(x)).length;
+    const unter = [al ? (al.state === "disarmed" ? "Alarm aus" : "Alarm scharf") : "", fenster ? `${fenster} offen` : "Alles zu"].filter(Boolean).join(" · ");
     return [`<span class="avas" aria-hidden="true">${leute.slice(0, 3).map((p, i) => `<span class="ava ${da.includes(p) ? "" : "weg"}" style="--af:${PERSON_FARBEN[i % PERSON_FARBEN.length]}">${esc((p.kurz || p.name || "?").slice(0, 1))}</span>`).join("")}</span>
       <span class="unten"><b>${esc(text)}</b><small>${esc(unter)}</small></span>`, da.length ? "" : "weg", `${text}, ${unter}`];
   }

@@ -6387,33 +6387,83 @@ class GlasBereichKarte extends GlasKarte {
 }
 
 // ---------------------------------------------------------------------------
-// Sicherheit: Alarm (scharf/unscharf), letzter Tasterdruck, Fenster, Kamera, Verlauf
+// Sicherheit: Alarm (scharf/unscharf), Taster zum Ein- und Ausschalten, Kameras,
+// Fenster und Türen. Was angezeigt wird, lässt sich im Blatt per „Auswählen“ festlegen.
 // ---------------------------------------------------------------------------
 const ALARM_TEXT = { disarmed: "Unscharf", armed_home: "Scharf (zu Hause)", armed_away: "Scharf", armed_night: "Scharf (Nacht)",
-  armed_vacation: "Scharf (Urlaub)", arming: "Wird scharf geschaltet", pending: "Gleich Alarm", triggered: "ALARM", disarming: "Wird unscharf" };
+  armed_vacation: "Scharf (Urlaub)", arming: "Wird scharf geschaltet", pending: "Gleich Alarm", triggered: "ALARM", disarming: "Wird unscharf", on: "Scharf", off: "Unscharf" };
+const SICHER_CSS = `
+.taster{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--g-a2)}
+.taster .wertbox{flex-direction:row;align-items:center;gap:var(--g-a2)}
+.taster .wertbox ha-icon{--mdc-icon-size:22px;flex:none;color:var(--tf)}
+.taster .wertbox span{display:flex;flex-direction:column;min-width:0}
+.taster .wertbox small{font-size:var(--g-s-klein);color:var(--g-text2)}
+.taster .wertbox.frisch{box-shadow:inset 0 0 0 2px var(--tf)}
+.kameras{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:var(--g-a2)}
+.kam{position:relative;display:block;padding:0;border:0}
+.kam .name{position:absolute;left:12px;bottom:10px;max-width:calc(100% - 24px);padding:3px 10px;border-radius:var(--g-r-pille);font-size:var(--g-s-klein);font-weight:600;
+  color:#fff;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kam .leer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.6)}
+.kam .leer ha-icon{--mdc-icon-size:40px}
+.wahl{display:none}
+.waehlen .wahl{display:flex;flex:none;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;border:2px solid var(--g-text3,#aeaeb2);color:#fff}
+.waehlen .wahl ha-icon{--mdc-icon-size:18px}
+.waehlen [aria-pressed="true"] .wahl{background:var(--g-akzent-voll);border-color:transparent}
+.waehlen .zeile[data-wahl]{width:100%;text-align:left;cursor:pointer}
+.waehlen [data-wahl][aria-pressed="false"]>:not(.wahl){opacity:.4}
+.kam .wahl{position:absolute;right:12px;top:12px;z-index:1;background:rgba(0,0,0,.3);border-color:#fff}
+.hinweis-w{margin:0;padding:0 var(--g-a1);font-size:var(--g-s-klein);color:var(--g-text2)}
+.kopf-knoepfe .text{min-height:36px;padding:0 var(--g-a3);border-radius:var(--g-r-pille);font-size:var(--g-s-name);font-weight:600;color:var(--g-akzent);background:var(--g-fuell)}
+`;
+const TUER_KLASSEN = ["door", "garage_door"];
 
 class GlasSicherheitCard extends GlasBereichKarte {
-  static standard() { return { fenster_auto: true, scharf_modus: "away", verlauf: 6 }; }
+  static standard() { return { fenster_auto: true, kamera_auto: true, scharf_modus: "away", verlauf: 6 }; }
   static getConfigElement() { return document.createElement("glas-sicherheit-card-editor"); }
   static getStubConfig(hass) { return { alarm: Object.keys(hass.states).find((e) => e.startsWith("alarm_control_panel.")) || "" }; }
-  fenster() {
+  // Ausgeblendete Entitäten: aus der Karte und aus den gespeicherten Glas-Einstellungen
+  aus() { return new Set([...(this._config.ausgeblendet || []), ...(Glas.einst?.bereiche?.sicherheit?.ausgeblendet || [])]); }
+  sichtbar(e) { return this._waehlen || !this.aus().has(e); }
+  versteckt(e) { const r = this._hass.entities?.[e]; return !!(r?.hidden || r?.hidden_by || r?.entity_category); }
+  alleFenster() {
     const h = this._hass, c = this._config;
-    const auto = c.fenster_auto ? Object.keys(h.states).filter((e) => e.startsWith("binary_sensor.") && ["window", "door", "garage_door"].includes(h.states[e].attributes.device_class)
-      && !h.entities?.[e]?.hidden) : [];
+    const auto = c.fenster_auto !== false ? Object.keys(h.states).filter((e) => e.startsWith("binary_sensor.")
+      && FENSTER_KLASSEN.includes(h.states[e].attributes.device_class) && !this.versteckt(e)) : [];
     return [...new Set([...(c.fenster || []), ...auto])].map((e) => h.states[e]).filter(Boolean);
+  }
+  fenster() { return this.alleFenster().filter((s) => !this.aus().has(s.entity_id)); }
+  alleKameras() {
+    const h = this._hass, c = this._config;
+    const druckerGeraet = Glas.einst?.bereiche?.drucker?.geraet;
+    const auto = c.kamera_auto !== false ? Object.keys(h.states).filter((e) => e.startsWith("camera.") && !this.versteckt(e)
+      && !(druckerGeraet && h.entities?.[e]?.device_id === druckerGeraet)) : [];
+    return [...new Set([c.kamera, ...(c.kameras || []), ...auto].filter(Boolean))].filter((e) => h.states[e]);
+  }
+  tasterListe() {
+    const c = this._config;
+    return [["an", c.taster_an || c.taster, "Einschalten", "mdi:shield-lock", "var(--g-rot-voll)"], ["aus", c.taster_aus, "Ausschalten", "mdi:shield-off-outline", "var(--g-gruen-voll,var(--g-gruen))"]]
+      .filter(([, e]) => e && this._hass.states[e]);
+  }
+  // Wann wurde der Taster zuletzt gedrückt? event.* hat den Zeitpunkt als Zustand
+  gedrueckt(eid) {
+    const st = this._hass.states[eid];
+    if (eid.startsWith("event.") && st.state && !isNaN(Date.parse(st.state))) return st.state;
+    return st.last_changed;
   }
   mitRaum(st) {
     const n = st.attributes.friendly_name || st.entity_id, a = bereichVon(this._hass, st.entity_id), r = a && this._hass.areas?.[a]?.name;
     return r && !n.toLowerCase().includes(r.toLowerCase()) ? `${r} · ${n}` : n;
   }
-  entitaeten() { return [this._config.alarm, this._config.taster, this._config.kamera, ...this.fenster().map((s) => s.entity_id)].filter(Boolean); }
+  entitaeten() { return [this._config.alarm, ...this.tasterListe().map((t) => t[1]), ...this.alleKameras(), ...this.alleFenster().map((s) => s.entity_id)].filter(Boolean); }
   blattTitel() { return "Sicherheit"; }
   blattHoch() { return true; }
+  istScharf(st) { return !!st && !["disarmed", "off", "unavailable", "unknown"].includes(st.state); }
   zustand() {
     const st = this._hass.states[this._config.alarm];
     const offen = this.fenster().filter((s) => s.state === "on");
-    return { st, scharf: st && st.state !== "disarmed", offen,
-      fensterText: offen.length === 0 ? "Alle Fenster zu" : offen.length === 1 ? `Offen: ${this.mitRaum(offen[0])}` : `${offen.length} Fenster offen` };
+    const wort = (s) => (TUER_KLASSEN.includes(s.attributes.device_class) ? "Tür" : "Fenster");
+    return { st, scharf: this.istScharf(st), offen,
+      fensterText: offen.length === 0 ? "Alles zu" : offen.length === 1 ? `Offen: ${this.mitRaum(offen[0])}` : `${offen.length} ${offen.every((s) => wort(s) === "Tür") ? "Türen" : "Fenster/Türen"} offen` };
   }
   html() {
     const z = this.zustand();
@@ -6425,12 +6475,14 @@ class GlasSicherheitCard extends GlasBereichKarte {
   knopf() {
     const st = this._hass.states[this._config.alarm];
     if (!st) return;
+    const dom = st.entity_id.split(".")[0];
+    if (dom !== "alarm_control_panel") return this.dienst(dom === "switch" ? "switch" : "input_boolean", this.istScharf(st) ? "turn_off" : "turn_on", { entity_id: st.entity_id });
     if (st.attributes.code_format && (st.state === "disarmed" ? st.attributes.code_arm_required !== false : true)) return mehrInfo(this, st.entity_id); // Code nötig → HA-Dialog
     const dienst = st.state === "disarmed" ? `alarm_arm_${this._config.scharf_modus || "away"}` : "alarm_disarm";
     this.dienst("alarm_control_panel", dienst, { entity_id: st.entity_id });
   }
   async verlaufLaden() {
-    const c = this._config, ids = [c.alarm, c.taster, ...this.fenster().map((s) => s.entity_id), c.bewegung].filter(Boolean);
+    const c = this._config, ids = [c.alarm, ...this.tasterListe().map((t) => t[1]), ...this.fenster().map((s) => s.entity_id), c.bewegung].filter(Boolean);
     if (!ids.length || !c.verlauf) return;
     try {
       const start = new Date(Date.now() - 24 * 3600e3).toISOString();
@@ -6439,46 +6491,103 @@ class GlasSicherheitCard extends GlasBereichKarte {
     } catch (_) { this._verlauf = []; }
     this.blattZeichnen();
   }
-  blattOeffnen() { super.blattOeffnen(); this.verlaufLaden(); }
+  blattOeffnen() { this._waehlen = false; super.blattOeffnen(); this.verlaufLaden(); }
+  wahlHtml(eid) { return `<span class="wahl" aria-hidden="true"><ha-icon data-i="mdi:check"></ha-icon></span>`; }
+  wahlAttr(eid) { return this._waehlen ? `data-wahl="${esc(eid)}" aria-pressed="${!this.aus().has(eid)}"` : ""; }
+  zeileHtml(f) {
+    const h = this._hass, inner = `${this.wahlHtml()}<span class="punkt" style="background:${f.state === "on" ? "var(--g-orange)" : "var(--g-gruen)"}"></span>${esc(this.mitRaum(f))}
+      <span class="rechts ${f.state === "on" ? "warn" : ""}">${esc(zustandText(h, f))}</span>`;
+    return this._waehlen ? `<button class="zeile" ${this.wahlAttr(f.entity_id)}>${inner}</button>` : `<div class="zeile">${inner}</div>`;
+  }
+  gruppeHtml(titel, liste) {
+    if (!liste.length) return "";
+    const offen = liste.filter((f) => f.state === "on").length;
+    liste = [...liste].sort((a, b) => (b.state === "on") - (a.state === "on") || this.mitRaum(a).localeCompare(this.mitRaum(b), "de"));
+    return `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">${titel}</h3><span class="karte-titel">${offen ? `${offen} offen` : "alle zu"}</span></div>
+      ${liste.map((f) => this.zeileHtml(f)).join("")}</div>`;
+  }
+  kamerasHtml(ids) {
+    if (!ids.length) return "";
+    return `<div class="kameras">${ids.map((eid) => {
+      const st = this._hass.states[eid], name = st.attributes.friendly_name || eid;
+      const bild = st.attributes.entity_picture && st.state !== "unavailable" ? `<img alt="" loading="lazy" src="${esc(st.attributes.entity_picture)}">` : `<span class="leer"><ha-icon data-i="mdi:cctv-off"></ha-icon></span>`;
+      return `<button class="bild kam" ${this._waehlen ? this.wahlAttr(eid) : `data-kamera="${esc(eid)}"`} aria-label="${esc(name)}${this._waehlen ? "" : " groß öffnen"}">${this.wahlHtml()}${bild}
+        ${this._waehlen ? "" : `<span class="live">LIVE</span>`}<span class="name">${esc(name)}</span></button>`; }).join("")}</div>`;
+  }
   blattHtml(s) {
-    const h = this._hass, c = this._config, z = this.zustand();
-    const taster = c.taster && h.states[c.taster];
-    const alarm = z.st ? `<div class="alarm ${z.scharf ? "scharf" : "glas"}"><span class="kreis" style="--kf:${z.scharf ? "var(--g-rot)" : "var(--g-gruen)"}"><ha-icon data-i="mdi:shield-home-outline"></ha-icon></span>
+    const h = this._hass, c = this._config, z = this.zustand(), w = this._waehlen;
+    const taster = this.tasterListe();
+    const alarm = z.st ? `<div class="alarm ${z.scharf ? "scharf" : "glas"}"><span class="kreis" style="--kf:${z.scharf ? "var(--g-rot)" : "var(--g-gruen)"}"><ha-icon data-i="${z.scharf ? "mdi:shield-lock" : "mdi:shield-home-outline"}"></ha-icon></span>
       <span class="texte"><span class="t1">${esc(ALARM_TEXT[z.st.state] || z.st.state)}</span>
-      <span class="t2">${taster ? `Taster zuletzt ${relativeZeit(taster.last_changed)}` : `Geändert ${relativeZeit(z.st.last_changed)}`}</span></span>
+      <span class="t2">Seit ${relativeZeit(z.st.last_changed)}</span></span>
       <button class="knopf" data-alarm style="--bk:${z.scharf ? "var(--g-aktiv)" : "var(--g-rot-voll)"}">${z.scharf ? "Unscharf" : "Scharf schalten"}</button></div>` : "";
-    const fenster = this.fenster();
-    return `${s.kopfHtml("Sicherheit", z.fensterText)}${alarm}
-      ${fenster.length ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Fenster und Türen</h3></div>${fenster.map((f) =>
-        `<div class="zeile"><span class="punkt" style="background:${f.state === "on" ? "var(--g-orange)" : "var(--g-gruen)"}"></span>${esc(this.mitRaum(f))}
-        <span class="rechts ${f.state === "on" ? "warn" : ""}">${esc(zustandText(h, f))}</span></div>`).join("")}</div>` : ""}
-      ${this.kameraHtml(c.kamera)}
-      ${c.verlauf ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Verlauf (24 Std.)</h3></div>${(this._verlauf || []).map((e) =>
+    const tasterHtml = taster.length ? `<div class="taster">${taster.map(([, eid, titel, icon, farbe]) => {
+      const zeit = this.gedrueckt(eid), frisch = Date.now() - Date.parse(zeit) < 120e3;
+      return `<div class="wertbox glas ${frisch ? "frisch" : ""}" style="--tf:${farbe}"><ha-icon data-i="${icon}"></ha-icon><span><small>Taster ${titel}</small><b>${esc(relativeZeit(zeit))}</b></span></div>`; }).join("")}</div>` : "";
+    const alleF = this.alleFenster(), sicht = alleF.filter((f) => this.sichtbar(f.entity_id));
+    const tueren = sicht.filter((f) => TUER_KLASSEN.includes(f.attributes.device_class)), fenster = sicht.filter((f) => !TUER_KLASSEN.includes(f.attributes.device_class));
+    const kameras = this.alleKameras().filter((e) => this.sichtbar(e));
+    const knoepfe = alleF.length || this.alleKameras().length ? `<button class="text" data-waehlen>${w ? "Fertig" : "Auswählen"}</button>` : "";
+    return `${s.kopfHtml("Sicherheit", w ? "Was soll angezeigt werden?" : z.fensterText, knoepfe)}<style>${SICHER_CSS}</style>
+      <div class="${w ? "waehlen" : ""}" style="display:flex;flex-direction:column;gap:var(--g-a3)">
+      ${w ? `<p class="hinweis-w">Tippe an, was du in der Sicherheit sehen willst. Ausgeblendetes zählt auch nicht für „offen“.</p>` : `${alarm}${tasterHtml}`}
+      ${this.kamerasHtml(kameras)}
+      ${this.gruppeHtml("Türen", tueren)}${this.gruppeHtml("Fenster", fenster)}
+      ${!w && c.verlauf ? `<div class="karte glas"><div class="karte-kopf"><h3 class="karte-titel">Verlauf (24 Std.)</h3></div>${(this._verlauf || []).map((e) =>
         `<div class="zeile"><span class="zeit">${uhr(new Date(e.when * 1000))}</span><span>${esc(e.name || h.states[e.entity_id]?.attributes.friendly_name || "")} ${esc(e.message || (e.state ? zustandText(h, { ...h.states[e.entity_id], state: e.state }) : ""))}</span></div>`).join("")
-        || `<div class="zeile leise">${this._verlauf ? "Nichts passiert." : "Lade …"}</div>`}</div>` : ""}`;
+        || `<div class="zeile leise">${this._verlauf ? "Nichts passiert." : "Lade …"}</div>`}</div>` : ""}</div>`;
+  }
+  ausSetzen(eid, zeigen) {
+    const b = { ...(Glas.einst?.bereiche?.sicherheit || {}) };
+    const aus = new Set(b.ausgeblendet || []);
+    if (zeigen) aus.delete(eid); else aus.add(eid);
+    if (this._config.ausgeblendet?.includes(eid) && zeigen) this._config = { ...this._config, ausgeblendet: this._config.ausgeblendet.filter((x) => x !== eid) };
+    b.ausgeblendet = [...aus];
+    if (Glas.einst) { Glas.einst.bereiche = { ...(Glas.einst.bereiche || {}), sicherheit: b }; }
+    clearTimeout(this._ausT);
+    this._ausT = setTimeout(() => bereichSpeichern("sicherheit", { ...(Glas.einst?.bereiche?.sicherheit || b) }), 500);
   }
   blattBinden(s, $, $$) {
     $("[data-alarm]")?.addEventListener("click", () => this.knopf());
     $$("[data-kamera]").forEach((b) => b.addEventListener("click", () => mehrInfo(this, b.dataset.kamera)));
+    s.kopfPlatz.querySelector("[data-waehlen]")?.addEventListener("click", () => { this._waehlen = !this._waehlen; s._letztesHtml = null; this.blattZeichnen(); if (!this._waehlen) this.verlaufLaden(); });
+    $$("[data-wahl]").forEach((b) => b.addEventListener("click", () => {
+      const zeigen = b.getAttribute("aria-pressed") !== "true";
+      b.setAttribute("aria-pressed", zeigen); vibrieren(8);
+      this.ausSetzen(b.dataset.wahl, zeigen);
+    }));
   }
 }
 class GlasSicherheitEditor extends GlasEditor {
   schema() {
     return [
-      { name: "alarm", selector: { entity: { filter: { domain: "alarm_control_panel" } } } },
+      { name: "alarm", selector: { entity: { filter: [{ domain: "alarm_control_panel" }, { domain: "input_boolean" }, { domain: "switch" }] } } },
       { name: "scharf_modus", selector: { select: { mode: "dropdown", options: [{ value: "away", label: "Abwesend" }, { value: "home", label: "Zu Hause" }, { value: "night", label: "Nacht" }] } } },
-      { name: "taster", selector: { entity: { filter: [{ domain: "event" }, { domain: "binary_sensor" }, { domain: "sensor" }] } } },
+      { name: "taster_an", selector: { entity: { filter: [{ domain: "event" }, { domain: "binary_sensor" }, { domain: "sensor" }, { domain: "button" }, { domain: "input_button" }] } } },
+      { name: "taster_aus", selector: { entity: { filter: [{ domain: "event" }, { domain: "binary_sensor" }, { domain: "sensor" }, { domain: "button" }, { domain: "input_button" }] } } },
+      { name: "kamera_auto", selector: { boolean: {} } },
+      { name: "kameras", selector: { entity: { multiple: true, filter: { domain: "camera" } } } },
       { name: "fenster_auto", selector: { boolean: {} } },
       { name: "fenster", selector: { entity: { multiple: true, filter: { domain: "binary_sensor" } } } },
-      { name: "kamera", selector: { entity: { filter: { domain: "camera" } } } },
+      { name: "ausgeblendet", selector: { entity: { multiple: true } } },
       { name: "verlauf", selector: { number: { min: 0, max: 20, mode: "box" } } },
       { name: "breite", selector: { select: { mode: "dropdown", options: [{ value: "ganz", label: "Ganze Breite" }, { value: "halb", label: "Halbe Breite" }] } } },
     ];
   }
-  render() { if (this._config.fenster_auto === undefined) this._config.fenster_auto = true; super.render(); }
-  labels() { return { alarm: "Alarmanlage", scharf_modus: "„Scharf schalten“ bedeutet", taster: "Taster (für „zuletzt gedrückt“)", fenster_auto: "Alle Fenster/Türen automatisch",
-    fenster: "Weitere Fenster/Türen", kamera: "Kamera", verlauf: "Einträge im Verlauf (0 = aus)", breite: "Breite auf der Startseite" }; }
-  hilfen() { return { alarm: "Wenn die Anlage einen Code verlangt, öffnet der Knopf den HA-Dialog zur Code-Eingabe." }; }
+  render() {
+    const c = this._config;
+    if (c.fenster_auto === undefined) c.fenster_auto = true;
+    if (c.kamera_auto === undefined) c.kamera_auto = true;
+    if (c.taster && !c.taster_an) { c.taster_an = c.taster; delete c.taster; }
+    if (c.kamera && !c.kameras) { c.kameras = [c.kamera]; delete c.kamera; }
+    super.render();
+  }
+  labels() { return { alarm: "Alarmanlage (oder Schalter/Helfer)", scharf_modus: "„Scharf schalten“ bedeutet", taster_an: "Taster zum Einschalten", taster_aus: "Taster zum Ausschalten",
+    kamera_auto: "Alle Kameras automatisch", kameras: "Weitere Kameras", fenster_auto: "Alle Fenster/Türen automatisch",
+    fenster: "Weitere Fenster/Türen", ausgeblendet: "Ausgeblendet", verlauf: "Einträge im Verlauf (0 = aus)", breite: "Breite auf der Startseite" }; }
+  hilfen() { return { alarm: "Wenn die Anlage einen Code verlangt, öffnet der Knopf den HA-Dialog zur Code-Eingabe.",
+    taster_an: "Die Taster schalten die Anlage über deine Automation. Hier wird nur angezeigt, wann sie zuletzt gedrückt wurden.",
+    ausgeblendet: "Einfacher: im Sicherheits-Fenster oben auf „Auswählen“ tippen." }; }
 }
 
 // ---------------------------------------------------------------------------
@@ -7219,8 +7328,8 @@ class GlasWidgetCard extends GlasKarte {
       : da.length ? `${da.map((p) => p.name).join(", ")} zu Hause` : "Keiner zu Hause";
     const alarmE = e.bereiche?.sicherheit?.alarm || Object.keys(h.states).find((x) => x.startsWith("alarm_control_panel."));
     const al = alarmE && h.states[alarmE];
-    const fenster = Object.keys(h.states).filter((x) => x.startsWith("binary_sensor.") && ["window", "door"].includes(h.states[x].attributes.device_class) && h.states[x].state === "on").length;
-    const unter = [al ? (al.state === "disarmed" ? "Alarm aus" : "Alarm scharf") : "", fenster ? `${fenster} ${fenster === 1 ? "Fenster offen" : "Fenster offen"}` : "Alles zu"].filter(Boolean).join(" · ");
+    const fenster = Object.keys(h.states).filter((x) => x.startsWith("binary_sensor.") && ["window", "door", "garage_door", "opening"].includes(h.states[x].attributes.device_class) && h.states[x].state === "on" && !(e.bereiche?.sicherheit?.ausgeblendet || []).includes(x)).length;
+    const unter = [al ? (al.state === "disarmed" ? "Alarm aus" : "Alarm scharf") : "", fenster ? `${fenster} offen` : "Alles zu"].filter(Boolean).join(" · ");
     return [`<span class="avas" aria-hidden="true">${leute.slice(0, 3).map((p, i) => `<span class="ava ${da.includes(p) ? "" : "weg"}" style="--af:${PERSON_FARBEN[i % PERSON_FARBEN.length]}">${esc((p.kurz || p.name || "?").slice(0, 1))}</span>`).join("")}</span>
       <span class="unten"><b>${esc(text)}</b><small>${esc(unter)}</small></span>`, da.length ? "" : "weg", `${text}, ${unter}`];
   }
@@ -7562,7 +7671,7 @@ class GlasHinweiseCard extends GlasKarte {
   fenster() {
     const h = this._hass, k = this._config.fenster_klassen;
     return Object.values(h.states).filter((st) => st.entity_id.startsWith("binary_sensor.") && k.includes(st.attributes.device_class)
-      && st.state === "on" && !h.entities?.[st.entity_id]?.hidden);
+      && st.state === "on" && !h.entities?.[st.entity_id]?.hidden && !(Glas.einst?.bereiche?.sicherheit?.ausgeblendet || []).includes(st.entity_id));
   }
   entitaeten() {
     const h = this._hass;

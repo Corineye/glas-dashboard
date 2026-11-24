@@ -56,6 +56,7 @@ Alles wird auf dem Home-Assistant-Server gespeichert und gilt auf allen Geräten
 | **Kontrollzentrum** | An der Raumleiste unten hochziehen (oder den kleinen Griff antippen). Knöpfe im 2×2-Block, Medien, hohe Schieber, Modus, Einzelknöpfe. Einstellbar unter Glas › Kontrollzentrum & Insel |
 | **Dynamic Island** | Schwarze Pille oben, solange etwas läuft: Druck, Robi, Licht-Timer, Alarm scharf, Waschmaschine. Antippen klappt sie auf (Fortschritt, Pause, Licht, Öffnen) |
 | **Widgets** | Startseiten-Abschnitt auf „Widget“ stellen: quadratisch in eigener Farbe wie auf dem Homescreen (Wetter, Planer, Drucker, Zuhause, Robi) |
+| **Sicherheit** | Zwei Taster (Ein/Aus) zeigen, wann sie zuletzt gedrückt wurden; das Schalten selbst macht deine HA-Automation. Alle Kameras, Türen und Fenster automatisch (Drucker-Kamera nicht). Oben „Auswählen“ tippen und abhaken, was du sehen willst; Ausgeblendetes löst auch keine Warnung aus |
 
 ### Kachel: was sie erkennt
 
