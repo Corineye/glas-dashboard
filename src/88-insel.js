@@ -4,8 +4,15 @@
 // ---------------------------------------------------------------------------
 const INSEL_CSS = `
 :host{display:contents}
-.insel{position:fixed;z-index:5;top:calc(var(--header-height,0px) + env(safe-area-inset-top,0px) + var(--g-a2));left:50%;
-  transform:translateX(calc(-50% + var(--ix,0px)));transition:transform .45s cubic-bezier(.32,.72,0,1);color:#fff}
+.insel{position:fixed;z-index:5;color:#fff;visibility:hidden}
+/* In der Kopfleiste von HA (mittig, wie die echte Insel in der Statusleiste) */
+.insel[data-modus=leiste]{visibility:visible;top:calc(env(safe-area-inset-top,0px) + (var(--header-height,56px) - 36px) / 2);left:50%;transform:translateX(-50%)}
+/* Ohne HA-Kopfleiste: in der freien Fläche neben „Hallo …“, scrollt mit */
+.insel[data-modus=kopf]{visibility:visible;position:absolute;top:var(--iy);left:var(--ixx);transform:translate(-50%,-50%)}
+/* Weggescrollt: oben rechts neben der Titel-Blase */
+.insel[data-modus=oben]{visibility:visible;top:calc(env(safe-area-inset-top,0px) + var(--g-a2) + 4px);right:var(--g-a4)}
+.eng .t,.mini .t,.mini .w,.mini .mehr{display:none}
+.mini .ipille{padding:4px}
 .ipille{display:flex;align-items:center;gap:10px;min-height:36px;max-width:calc(100vw - 32px);padding:4px 14px 4px 8px;border-radius:var(--g-r-pille);
   background:#000;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:var(--g-s-klein);font-weight:600;white-space:nowrap;transition:transform .16s cubic-bezier(.23,1,.32,1)}
 .ipille:active{transform:scale(.96)}
@@ -100,7 +107,7 @@ class GlasInselCard extends GlasKarte {
   constructor() {
     super();
     this._helfer = new Map();
-    this._blase = (e) => this.verschieben(e.detail);
+    this._blase = () => this.platzieren();
     this._aussen = (e) => { if (this._auf && !e.composedPath().includes(this.$(".gross"))) this.zuklappen(); };
     this._taste = (e) => { if (e.key === "Escape" && this._auf) { e.stopPropagation(); this.zuklappen(); } };
   }
@@ -110,14 +117,18 @@ class GlasInselCard extends GlasKarte {
     super.connectedCallback();
     addEventListener("glas-blase", this._blase);
     addEventListener("resize", this._blase);
+    addEventListener("glas-insel-platz", this._blase);
     this._takt = setInterval(() => { if (this._hass) this.render(); }, 30e3); // Restzeit der Timer
   }
   disconnectedCallback() {
     super.disconnectedCallback();
     removeEventListener("glas-blase", this._blase);
     removeEventListener("resize", this._blase);
+    removeEventListener("glas-insel-platz", this._blase);
     clearInterval(this._takt);
     this.zuklappen(true);
+    Glas.inselAktiv = false; this._anzahl = undefined;
+    window.dispatchEvent(new CustomEvent("glas-insel-aktiv"));
   }
   // Hilfskarten (unsichtbar) für Drucker/Robi: gleiche Logik und gleiches Blatt wie die großen Karten
   helfer(tag, cfg) {
@@ -140,7 +151,11 @@ class GlasInselCard extends GlasKarte {
   html() {
     const a = this.aktivitaeten();
     this._akt = a;
-    if (a.length !== this._anzahl) { this._anzahl = a.length; fire(this, "glas-insel", { anzahl: a.length }); }
+    if (a.length !== this._anzahl) {
+      this._anzahl = a.length;
+      Glas.inselAktiv = a.length > 0;
+      queueMicrotask(() => window.dispatchEvent(new CustomEvent("glas-insel-aktiv")));
+    }
     if (!a.length) { if (this._auf) queueMicrotask(() => this.zuklappen(true)); return ""; }
     const x = a[0];
     const ring = x.pct != null ? `<svg class="ring" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9" stroke="rgba(255,255,255,.2)"/>
@@ -156,7 +171,7 @@ class GlasInselCard extends GlasKarte {
   }
   binden() {
     this.iconsSetzen();
-    this.verschieben(Glas.blaseZu);
+    this.platzieren();
     this.$("[data-auf]")?.addEventListener("click", () => (this._auf ? this.zuklappen() : this.aufklappen()));
     this.$$("[data-k]").forEach((b) => b.addEventListener("click", () => {
       const [i, j] = b.dataset.k.split("-").map(Number);
@@ -165,12 +180,30 @@ class GlasInselCard extends GlasKarte {
       if (k) { Promise.resolve(k.tun()).catch(() => {}); if (/Öffnen|Entschärfen/.test(k.text)) this.zuklappen(); }
     }));
   }
-  // Wenn oben links die Titel-Blase erscheint, rückt die Insel nach rechts (sie sollen sich nicht überdecken)
-  verschieben(zu) {
+  // Platz suchen: HA-Kopfleiste (falls da), sonst freie Fläche im Kopf, weggescrollt oben rechts.
+  // Passt die volle Pille nicht, erst ohne Titel, dann nur das Symbol.
+  platzieren() {
     const el = this.$(".insel");
     if (!el) return;
-    const rechts = (typeof zu === "boolean" ? zu : Glas.blaseZu) && innerWidth < 700 && !this._auf;
-    el.style.setProperty("--ix", rechts ? `${Math.max(0, innerWidth / 2 - el.offsetWidth / 2 - 16)}px` : "0px");
+    const kopfH = parseFloat(getComputedStyle(this).getPropertyValue("--header-height")) || 0;
+    const P = Glas.inselPlatz, seite = this.parentNode instanceof HTMLElement ? this.parentNode : null;
+    let modus = kopfH > 0 ? "leiste" : !Glas.blaseZu && P && seite ? "kopf" : "oben";
+    let platz = modus === "leiste" ? innerWidth - 240 : modus === "kopf" ? P.w - 8 : innerWidth * 0.42;
+    if (modus === "kopf") {
+      const r = seite.getBoundingClientRect();
+      el.style.setProperty("--iy", `${P.y - (r.top + scrollY)}px`);
+      el.style.setProperty("--ixx", `${P.x - (r.left + scrollX)}px`);
+    }
+    el.classList.remove("eng", "mini");
+    const breite = () => el.querySelector(".ipille")?.offsetWidth || 0;
+    el.dataset.modus = modus;
+    if (breite() > platz) el.classList.add("eng");
+    if (breite() > platz) { el.classList.remove("eng"); el.classList.add("mini"); }
+    if (modus !== this._modus) {
+      const neu = this._modus !== undefined;
+      this._modus = modus;
+      if (neu) federAnim(el, (p) => ({ opacity: String(klemmen(p, 0, 1)), scale: String(0.8 + 0.2 * p) }), { antwort: 0.34, daempfung: 0.8 });
+    }
   }
   aufklappen() {
     this._auf = true; this._letztesHtml = null;

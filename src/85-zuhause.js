@@ -7,8 +7,7 @@ const ZUHAUSE_CSS = `
 .hg{position:fixed;inset:0;z-index:0;pointer-events:none}
 .seite{position:relative;z-index:1;max-width:1320px;margin:0 auto;
   padding:var(--g-a4) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
-.seite{transition:padding-top .35s cubic-bezier(.32,.72,0,1)}
-.seite.mit-insel{padding-top:60px}
+
 .raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);margin-top:var(--g-a3);align-items:start}
 .raster > *{grid-column:span 12;min-width:0}
 .raster > .halb{grid-column:span 6}
@@ -35,8 +34,6 @@ class GlasZuhauseCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._kinder = new Map(); // Schlüssel → Element (wird wiederverwendet, damit nichts flackert)
     this._hoerer = () => this.aufbauen();
-    // Platz oben für die Insel, solange etwas läuft
-    this.shadowRoot.addEventListener("glas-insel", (e) => this.shadowRoot.querySelector(".seite")?.classList.toggle("mit-insel", e.detail.anzahl > 0 && !Glas.bearbeiten));
   }
   setConfig(c) { this._config = c || {}; this.aufbauen(); }
   getCardSize() { return 12; }
@@ -217,7 +214,6 @@ class GlasZuhauseCard extends HTMLElement {
     teile.push(raster);
     if (bearb) bearbeitRaster(raster, abZugriff, this, { mitNeu: false, menue: (i) => abschnittMenue(this, abZugriff, i) });
     seite.replaceChildren(...teile);
-    seite.classList.toggle("mit-insel", (this._kinder.get("insel") || this._neu.get("insel"))?._anzahl > 0 && !Glas.bearbeiten);
     // Räume: Leiste + Blätter (leben unsichtbar, öffnen über #raum)
     const raeume = (e.raeume || []).filter((r) => r.hash);
     const unten = [];
