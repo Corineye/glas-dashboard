@@ -298,6 +298,25 @@ class GlasEinstellungen extends HTMLElement {
     let letzte = null;
     liste.forEach((x, i) => {
       if (x.karte) { this.kartenZeile(g, liste, i, setzen, (l) => { liste = l; }); if (gruppen) letzte = null; return; }
+      if (x.ordner) {
+        // Ordner: zeigen, Größe, auflösen (Inhalt bearbeitest du im Dashboard: Bearbeiten › Ordner antippen)
+        const an = x.an !== false;
+        const z = this.html(g, `<div class="zeile geraet ${an ? "" : "aus"}" data-i="${i}">
+          <span class="griff" tabindex="0" role="button" aria-label="Ordner ${esc(x.name)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+          <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
+          <span class="name"><b>${esc(x.name || "Ordner")}</b><span>Ordner · ${esc((x.eintraege || []).map((y) => y.name || h.states[y.entity]?.attributes.friendly_name || y.entity).join(", "))}</span></span>
+          <span class="optionen"><span class="segment" role="group" aria-label="Größe">${GROESSEN.map(([id, k, t]) => `<button data-g="${id}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse || "breit") === id}">${k}</button>`).join("")}</span>
+          <button class="klein-knopf" data-aufloesen aria-label="Ordner auflösen" title="Ordner auflösen"><ha-icon data-i="mdi:folder-remove-outline"></ha-icon></button></span></div>`);
+        const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); liste = l; this.speichern(); };
+        z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
+        z.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === b)); neu({ groesse: b.dataset.g }); }));
+        z.querySelector("[data-aufloesen]").addEventListener("click", () => {
+          const l = [...liste.slice(0, i), ...(x.eintraege || []).map((y) => ({ ...(gruppen ? geraetVorschlag(h, y.entity) : { groesse: "breit" }), ...y, an: true })), ...liste.slice(i + 1)];
+          setzen(l); this.speichern(); this.zeichnen();
+        });
+        if (gruppen) letzte = null;
+        return;
+      }
       const st = h.states[x.entity];
       const gr = x.gruppe || gruppeVon(h, x.entity);
       if (gruppen && gr !== letzte) { letzte = gr; this.html(g, `<div class="kopfzeile">${esc((GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1])}</div>`); }
@@ -442,12 +461,12 @@ class GlasEinstellungen extends HTMLElement {
         <span class="griff" tabindex="0" role="button" aria-label="${esc(name)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
         <button class="schalter" role="switch" aria-checked="${!!a.an}" aria-label="${esc(name)} zeigen"></button>
         <span class="sym"><ha-icon data-i="${icon}"></ha-icon></span><span class="name"><b>${esc(name)}</b></span>
-        <span class="segment" role="group" aria-label="Breite"><button data-b="halb" aria-pressed="${a.breite === "halb"}" title="Halbe Breite (am PC)">½</button><button data-b="ganz" aria-pressed="${a.breite !== "halb"}" title="Ganze Breite">Ganz</button></span></div>`);
+        <span class="segment" role="group" aria-label="Darstellung">${a.id === "zuhause" ? `<button aria-pressed="true" disabled>Widget</button>` : `<button data-b="halb" aria-pressed="${!a.widget && a.breite === "halb"}" title="Halbe Breite (am PC)">½</button><button data-b="ganz" aria-pressed="${!a.widget && a.breite !== "halb"}" title="Ganze Breite">Ganz</button>${WIDGET_ARTEN.includes(a.id) ? `<button data-b="widget" aria-pressed="${!!a.widget}" title="Quadratisches Widget wie am iPhone">Widget</button>` : ""}`}</span></div>`);
       z.querySelector(".schalter").addEventListener("click", (e) => { a.an = !a.an; e.currentTarget.setAttribute("aria-checked", a.an); z.classList.toggle("aus", !a.an); this.speichern(); });
-      z.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => { a.breite = b.dataset.b; z.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b)); this.speichern(); }));
+      z.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.b === "widget") a.widget = true; else { a.breite = b.dataset.b; delete a.widget; } z.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b)); this.speichern(); }));
     });
     ziehSortieren(g, (von, nach) => { s.abschnitte = verschieben(s.abschnitte, von, nach); this.speichern(); this.zeichnen(); });
-    this.html(box, `<div class="fuss">Abschnitte ohne Einstellung (z. B. kein Saugroboter gewählt) bleiben automatisch weg. „½“ stellt am PC zwei nebeneinander.</div>`);
+    this.html(box, `<div class="fuss">Abschnitte ohne Einstellung (z. B. kein Saugroboter gewählt) bleiben automatisch weg. „½“ stellt am PC zwei nebeneinander. „Widget“ zeigt die Karte quadratisch wie auf dem iPhone-Homescreen.</div>`);
     this.html(box, `<h2>Favoriten</h2>`);
     this.geraeteListe(box, s.favoriten || [], (neu) => { s.favoriten = neu; });
     this.html(box, `<h2>Schnellzugriff</h2>`);
@@ -488,6 +507,48 @@ class GlasEinstellungen extends HTMLElement {
       .map(([id, n]) => `<button class="hg-wahl" data-hg="${id}" aria-pressed="${A.hintergrund === id}"><span class="muster" style="background:${hintergrundCss(id, d)}"><span></span></span>${esc(n)}</button>`).join("")}</div></div>`);
     hg.querySelectorAll("[data-hg]").forEach((b) => b.addEventListener("click", () => { A.hintergrund = b.dataset.hg; this.speichern(); this.hintergrund(); this.zeichnen(); }));
     this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber wie bisher, abends See, nachts ruhig.</div>`);
+  }
+  // ---------------- Kontrollzentrum & Dynamic Island ----------------
+  kontrollSeite(box) {
+    const d = this._d, h = this._hass;
+    const K = (d.kontrollzentrum = { ...(d.kontrollzentrum || {}) });
+    const I = (d.insel = { ...(d.insel || {}) });
+    const vor = kzInhalt(h, { ...d, kontrollzentrum: {} });
+    const name = (x) => (x === "lichter" ? "Alle Lichter aus" : x === "gaeste" ? "Gäste-WLAN" : h.states[x]?.attributes.friendly_name || x);
+    const schalter = (g, titel, text, an, setzen) => {
+      const z = this.html(g, `<div class="zeile"><span class="name"><b>${esc(titel)}</b><span>${esc(text)}</span></span><button class="schalter" role="switch" aria-checked="${an}" aria-label="${esc(titel)}"></button></div>`);
+      z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); setzen(a); this.speichern(); });
+    };
+    this.html(box, `<h2>Kontrollzentrum</h2>`);
+    schalter(this.html(box, `<div class="gruppe"></div>`), "Kontrollzentrum", "An der Raumleiste unten hochziehen", K.an !== false, (a) => { if (a) delete K.an; else K.an = false; });
+    const f = this.html(box, `<div class="gruppe form"></div>`);
+    this.form(f, { knoepfe: (K.knoepfe || []).filter((x) => h.states[x]), lichter: (K.knoepfe || vor.knoepfe).includes("lichter"), medien: K.medien === "-" ? "" : K.medien || vor.medien || "", regler: K.regler, modus: K.modus === "-" ? "" : K.modus, rund: (K.rund || []).filter((x) => h.states[x]), gaeste: (K.rund || vor.rund).includes("gaeste") }, [
+      { name: "lichter", selector: { boolean: {} } },
+      { name: "knoepfe", selector: { entity: { multiple: true } } },
+      { name: "regler", selector: { entity: { multiple: true, filter: [{ domain: "light" }, { domain: "cover" }, { domain: "fan" }, { domain: "media_player" }, { domain: "climate" }] } } },
+      { name: "medien", selector: { entity: { filter: { domain: "media_player" } } } },
+      { name: "modus", selector: { entity: { filter: [{ domain: "input_select" }, { domain: "select" }, { domain: "scene" }, { domain: "input_boolean" }, { domain: "script" }] } } },
+      { name: "rund", selector: { entity: { multiple: true } } },
+      { name: "gaeste", selector: { boolean: {} } },
+    ], { lichter: "Knopf „Alle Lichter aus“", knoepfe: "Runde Knöpfe im 2×2-Block (bis 4)", regler: "Hohe Schieber (bis 2)", medien: "Medien-Kachel", modus: "Breite Modus-Kachel (z. B. Heizung Tag/Nacht)",
+      rund: "Einzelknöpfe unten (Szenen, Steckdosen, Kamera)", gaeste: "Knopf für den Gäste-QR-Code" }, (v) => {
+      const kn = [...(v.lichter ? ["lichter"] : []), ...(v.knoepfe || [])].slice(0, 4);
+      K.knoepfe = kn;
+      K.regler = (v.regler || []).slice(0, 2); if (!K.regler.length) delete K.regler;
+      K.medien = v.medien || "-"; K.modus = v.modus || "-";
+      K.rund = [...(v.rund || []), ...(v.gaeste ? ["gaeste"] : [])].slice(0, 4);
+      this.speichern();
+    }, { knoepfe: `Leer = automatisch: ${vor.knoepfe.map(name).join(", ") || "nichts gefunden"}`, regler: `Leer = automatisch: ${vor.regler.map(name).join(", ") || "nichts gefunden"}`,
+      medien: "Leer = keine Medien-Kachel", modus: "Antippen springt zur nächsten Auswahl" });
+    this.html(box, `<div class="fuss">Lange auf einen Knopf drücken öffnet die große Steuerung. Die Schieber regeln mit dem Finger von unten nach oben, Tippen schaltet.</div>`);
+    this.html(box, `<h2>Dynamic Island</h2>`);
+    const gi = this.html(box, `<div class="gruppe"></div>`);
+    schalter(gi, "Insel oben", "Zeigt, was gerade läuft: Druck, Robi, Licht-Timer, Alarm, Waschmaschine", I.an !== false, (a) => { if (a) delete I.an; else I.an = false; });
+    const fi = this.html(box, `<div class="gruppe form"></div>`);
+    this.form(fi, { weitere: I.weitere || [] }, [{ name: "weitere", selector: { entity: { multiple: true } } }], { weitere: "Weitere Geräte (z. B. Waschmaschine)" }, (v) => {
+      if ((v.weitere || []).length) I.weitere = v.weitere; else delete I.weitere;
+      this.speichern();
+    }, { weitere: "Erscheinen, solange sie an sind oder laufen. Leer = Waschmaschine, Spülmaschine und Trockner werden am Namen erkannt." });
   }
   async dashboardBlock(box) {
     const g = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Dashboard „Zuhause“</b><span class="info">Prüfe …</span></span><span class="knopf-platz"></span></div></div>`);

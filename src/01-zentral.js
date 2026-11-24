@@ -6,7 +6,7 @@ const ABSCHNITTE = [
   ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer & Kalender", "mdi:calendar-check", "ganz"],
   ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "ganz"],
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
-  ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
+  ["gaeste", "Gäste", "mdi:qrcode", "ganz"], ["zuhause", "Zuhause-Status (Widget)", "mdi:home-heart", "halb"],
 ];
 // Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann.
 // [id, Name, Symbol, Element, eigen]: eigen = Einstellungen im Eintrag selbst (mehrfach möglich), sonst gemeinsam unter Bereiche
@@ -76,7 +76,7 @@ function einstStandard() {
     aussehen: { modus: "auto", hintergrund: "klassisch" } };
 }
 function startseiteStandard() {
-  return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: true, breite })), favoriten: [], chips: [] };
+  return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: id !== "zuhause", breite, ...(id === "zuhause" ? { widget: true } : {}) })), favoriten: [], chips: [] };
 }
 // Startseite der gerade gewählten Person (eigene, sonst „Für alle“)
 function startseiteVon(einst, person) {

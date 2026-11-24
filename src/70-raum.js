@@ -48,26 +48,29 @@ class GlasRaumleisteCard extends GlasKarte {
   disconnectedCallback() {
     super.disconnectedCallback();
     ["location-changed", "hashchange", "popstate"].forEach((t) => window.removeEventListener(t, this._ort));
-    this._portal?.remove(); this._portal = null;
+    this._portal?.remove(); this._portal = null; this._kz = null;
   }
   entitaeten() { return Object.keys(this._hass?.states || {}).filter((e) => ["light", "switch", "media_player", "fan"].includes(domainVon(e))); }
   css() { return LEISTE_CSS; }
   inhalt(fest) {
+    return `<nav class="leiste glas ${fest ? "fest" : ""}" aria-label="Räume">${this.knoepfeHtml()}</nav>`;
+  }
+  knoepfeHtml() {
     const h = this._hass, c = this._config, jetzt = hashJetzt();
     const raeume = [...(c.zuhause_zeigen ? [{ name: "Zuhause", icon: "mdi:home-outline", hash: "" }] : []), ...(c.raeume || [])];
-    return `<nav class="leiste glas ${fest ? "fest" : ""}" aria-label="Räume">${raeume.map((r) => {
+    return `${raeume.map((r) => {
       const an = r.bereich && entitaetenImBereich(h, r.bereich, ["light", "switch", "media_player", "fan"]).some((e) => Geraet.istAn(h.states[e]));
       const akt = (r.hash || "") === jetzt;
       return `<button class="raum" data-h="${esc(r.hash || "")}" aria-label="${esc(r.name)}" aria-current="${akt ? "page" : "false"}">
         <ha-icon data-i="${esc(r.icon || "mdi:door")}"></ha-icon>${an ? `<span class="punkt" aria-hidden="true"></span>` : ""}</button>`;
-    }).join("")}</nav>`;
+    }).join("")}`;
   }
   render() {
     if (!this._config || !this._hass) return;
     const bearbeiten = istBearbeiten();
     karteVerstecken(this, !bearbeiten);
     if (bearbeiten) {
-      this._portal?.remove(); this._portal = null;
+      this._portal?.remove(); this._portal = null; this._kz = null;
       this.shadowRoot.innerHTML = `<style>${TOKENS}${LEISTE_CSS}</style>${this.inhalt(false)}<div class="leise hinweis">Raumleiste · schwebt außerhalb des Bearbeitens unten über dem Dashboard</div>`;
       this.verdrahten(this.shadowRoot);
       return;
@@ -78,14 +81,28 @@ class GlasRaumleisteCard extends GlasKarte {
       portalWurzel().appendChild(this._portal);
     }
     const r = this._portal.shadowRoot;
-    r.innerHTML = `<style>${TOKENS.replace(":host{", ".w{").replace(":host([dunkel]){", ".w.dunkel{")}${LEISTE_CSS}</style>
-      <div class="w ${istDunkel(this._hass) ? "dunkel" : ""}">${this.inhalt(true)}</div>`;
-    this.verdrahten(r);
+    // Gerüst einmal bauen (Kontrollzentrum bleibt dabei offen), danach nur die Raumknöpfe neu
+    if (!r.querySelector(".fest")) {
+      const kz = this._config.kontrollzentrum !== false && Glas.einst?.kontrollzentrum?.an !== false;
+      let gesehen = false;
+      try { gesehen = !!localStorage.getItem("glas-kz-gesehen"); } catch (_) { gesehen = true; }
+      r.innerHTML = `<style>${TOKENS.replace(":host{", ".w{").replace(":host([dunkel]){", ".w.dunkel{")}${LEISTE_CSS}${KZ_CSS}</style>
+        <div class="w"><div class="kz-dimm"></div><div class="fest">
+        ${kz ? `<div class="kz-clip"><div class="kz-panel" role="dialog" aria-label="Kontrollzentrum"><div class="kz-griff-oben" aria-hidden="true"><span></span></div><div class="kz-raster"></div></div></div>
+        <button class="kz-griff" aria-label="Kontrollzentrum öffnen" aria-expanded="false"><span></span></button>
+        ${gesehen ? "" : `<div class="kz-tipp glas" aria-hidden="true">Hochziehen für Schnellzugriff</div>`}` : ""}
+        <nav class="leiste glas" aria-label="Räume"></nav></div></div>`;
+      this._kz = kz ? new Kontrollzentrum(this, r) : null;
+    }
+    r.querySelector(".w").classList.toggle("dunkel", istDunkel(this._hass));
+    const nav = r.querySelector("nav.leiste"), neu = this.knoepfeHtml();
+    if (nav._html !== neu) { nav._html = neu; nav.innerHTML = neu; this.verdrahten(nav); }
   }
   verdrahten(r) {
     r.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
     r.querySelectorAll("[data-h]").forEach((b) => b.addEventListener("click", () => {
       const ziel = b.dataset.h;
+      if (this._kz?.offen) this._kz.zu();
       if (!ziel || ziel === hashJetzt()) hashSchliessen(); else hashOeffnen(ziel);
     }));
   }
@@ -291,7 +308,7 @@ class GlasRaumCard extends GlasKarte {
       else if (!box) neueBox(undefined);
       if (raum && cfg._i != null) {
         z.dataset.i = cfg._i;
-        z.dataset.name = cfg.titel || cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
+        z.dataset.name = cfg.type === "custom:glas-ordner-card" ? `Ordner ${cfg.name || ""}` : cfg.titel || cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
         if (cfg._aus) z.classList.add("aus");
       }
       z.appendChild(el);

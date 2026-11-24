@@ -90,7 +90,7 @@ class GlasKopfCard extends GlasKarte {
     if (x !== this._x) { this._x = x; b.style.setProperty("--blase-x", x + "px"); }
     // Kleiner Abstand (Hysterese), damit die Blase am Umschaltpunkt nicht flackert
     const zu = this._zu ? p > 0.4 : p > 0.6;
-    if (zu !== this._zu) { this._zu = zu; b.classList.toggle("zu", zu); b.setAttribute("aria-hidden", String(!zu)); b.tabIndex = zu ? 0 : -1; }
+    if (zu !== this._zu) { this._zu = zu; Glas.blaseZu = zu; window.dispatchEvent(new CustomEvent("glas-blase", { detail: zu })); b.classList.toggle("zu", zu); b.setAttribute("aria-hidden", String(!zu)); b.tabIndex = zu ? 0 : -1; }
   }
   css() { return KOPF_CSS; }
   chipSichtbar(ch, st) {

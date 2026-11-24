@@ -42,7 +42,20 @@ Alles wird auf dem Home-Assistant-Server gespeichert und gilt auf allen Geräten
 | **Glas · Drucker & Werkstatt** | Drucker-Gerät wählen, Rest wird gefunden: Fortschritt, Restzeit, Kamera, Pause/Licht/Strom, geladene Rolle, Warteschlange (+ hinzufügen), knappes Filament |
 | **Glas · Robi** | Akku, alles saugen, einzelne Räume, Saugstärke, Auswahlen (Wasser, Modus), Stationsknöpfe |
 | **Glas · Gäste** | WLAN-QR-Code (Text oder Helfer), optional zweiter Code |
+| **Glas · Ordner** | Mehrere Kacheln in einem Ordner (wie am iPhone) |
+| **Glas · Widget** | Quadratisches Widget: Wetter, Planer, Drucker, Zuhause, Robi |
+| **Glas · Dynamic Island** | Pille oben mit allem, was gerade läuft |
 | **Glas · Raum-Blatt** | Blatt von unten mit beliebigen Karten, Kopf bleibt beim Scrollen stehen, Temperatur/Feuchte, Fenster-Chips, „Alles aus“ |
+
+## Wie am iPhone (ab 0.10)
+
+| Was | Wie |
+|---|---|
+| **Ordner** | Im Bearbeiten-Modus eine Kachel auf die Mitte einer anderen ziehen und kurz halten, oder Kachel antippen › „In Ordner legen“. Die Ordner-Kachel zeigt vier Mini-Symbole; Antippen lässt sie zum großen Glas-Feld wachsen, darin bedienst du alles normal. Größe L = Stapel mit den ersten vier Geräten direkt bedienbar |
+| **Vorschau** | Lange auf eine Kachel drücken: Kachel hebt sich, Hintergrund wird unscharf, darunter Zustand, Verlauf 24 Std., Schnellknöpfe (Lichtstimmungen, 30-Min-Timer, Auf/Zu …) und ein Menü (Große Ansicht, Favoriten, Bearbeiten). Finger auf einen Punkt ziehen und loslassen wählt ihn |
+| **Kontrollzentrum** | An der Raumleiste unten hochziehen (oder den kleinen Griff antippen). Knöpfe im 2×2-Block, Medien, hohe Schieber, Modus, Einzelknöpfe. Einstellbar unter Glas › Kontrollzentrum & Insel |
+| **Dynamic Island** | Schwarze Pille oben, solange etwas läuft: Druck, Robi, Licht-Timer, Alarm scharf, Waschmaschine. Antippen klappt sie auf (Fortschritt, Pause, Licht, Öffnen) |
+| **Widgets** | Startseiten-Abschnitt auf „Widget“ stellen: quadratisch in eigener Farbe wie auf dem Homescreen (Wetter, Planer, Drucker, Zuhause, Robi) |
 
 ### Kachel: was sie erkennt
 

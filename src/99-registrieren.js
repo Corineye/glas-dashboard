@@ -15,6 +15,9 @@ const KARTEN = [
   ["glas-kamera-card", GlasKameraCard, GlasKameraEditor, "Glas · Kamera", "Standbild einer Kamera, Tippen zeigt das Livebild groß."],
   ["glas-hinweise-card", GlasHinweiseCard, GlasHinweiseEditor, "Glas · Warnungen", "Fenster offen und Regen kommt / keiner zu Hause – nur sichtbar, wenn es zutrifft."],
   ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
+  ["glas-ordner-card", GlasOrdnerCard, GlasOrdnerEditor, "Glas · Ordner", "Mehrere Kacheln in einem Ordner: zeigt vier Mini-Symbole, Antippen öffnet ihn groß (wie am iPhone). Größe L = Stapel mit vier Geräten direkt bedienbar."],
+  ["glas-insel-card", GlasInselCard, GlasInselEditor, "Glas · Dynamic Island", "Schwarze Pille oben: zeigt, was gerade läuft (Druck, Robi, Timer, Alarm, Waschmaschine). Antippen klappt sie auf."],
+  ["glas-widget-card", GlasWidgetCard, GlasWidgetEditor, "Glas · Widget", "Quadratisches Widget wie auf dem iPhone: Wetter, Planer, 3D-Drucker, Zuhause oder Robi. Antippen öffnet die große Ansicht."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
 ];
 window.customCards = window.customCards || [];

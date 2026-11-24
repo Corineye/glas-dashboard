@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.9.1";
+const VERSION = "0.10.0";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -355,7 +355,7 @@ const ABSCHNITTE = [
   ["wetter", "Wetter", "mdi:weather-partly-cloudy", "ganz"], ["planer", "Planer & Kalender", "mdi:calendar-check", "ganz"],
   ["favoriten", "Favoriten", "mdi:star-outline", "ganz"], ["sicherheit", "Sicherheit", "mdi:shield-home-outline", "ganz"],
   ["drucker", "Drucker & Werkstatt", "mdi:printer-3d-nozzle", "halb"], ["robi", "Robi", "mdi:robot-vacuum", "halb"],
-  ["gaeste", "Gäste", "mdi:qrcode", "ganz"],
+  ["gaeste", "Gäste", "mdi:qrcode", "ganz"], ["zuhause", "Zuhause-Status (Widget)", "mdi:home-heart", "halb"],
 ];
 // Ganze Karten, die man wie ein Gerät in Räume und Favoriten legen kann.
 // [id, Name, Symbol, Element, eigen]: eigen = Einstellungen im Eintrag selbst (mehrfach möglich), sonst gemeinsam unter Bereiche
@@ -425,7 +425,7 @@ function einstStandard() {
     aussehen: { modus: "auto", hintergrund: "klassisch" } };
 }
 function startseiteStandard() {
-  return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: true, breite })), favoriten: [], chips: [] };
+  return { abschnitte: ABSCHNITTE.map(([id, , , breite]) => ({ id, an: id !== "zuhause", breite, ...(id === "zuhause" ? { widget: true } : {}) })), favoriten: [], chips: [] };
 }
 // Startseite der gerade gewählten Person (eigene, sonst „Für alle“)
 function startseiteVon(einst, person) {
@@ -3623,6 +3623,8 @@ class GlasKachelCard extends GlasKarte {
       if (eigene && eigene.action) { aktion(this, { entity: c.entity, tap_action: eigene }, "tap"); return; }
       if (art === "tap" && v.schalten && !v.anzeige) { if (navigator.vibrate) navigator.vibrate(8); Geraet.schalten(this._hass, s); return; }
       if (art === "tap" && v.anzeige) { steuerungOeffnen(this, c.entity, c); return; } // eigene große Ansicht mit Verlauf
+      // Langes Drücken: Vorschau wie iOS (abschaltbar mit vorschau: false)
+      if (art === "hold" && c.vorschau !== false && typeof vorschauOeffnen === "function") { this._vorschau = vorschauOeffnen(this, c); if (this._vorschau) return; }
       steuerungOeffnen(this, c.entity, c); // Symbol / Halten: große Steuerung
     };
     el.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -3643,10 +3645,11 @@ class GlasKachelCard extends GlasKarte {
         start: regler && Geraet.istAn(s) ? regler.pct : 0, regler, zieh: false, lang: false, weg: false };
       try { el.setPointerCapture(e.pointerId); } catch (_) { /* */ }
       clearTimeout(timer);
-      timer = setTimeout(() => { if (ges && !ges.zieh && !ges.weg) { ges.lang = true; if (navigator.vibrate) navigator.vibrate(12); ausfuehren("hold"); } }, 480);
+      timer = setTimeout(() => { if (ges && !ges.zieh && !ges.weg) { ges.lang = true; this._vorschau = null; ausfuehren("hold"); } }, 480);
     });
     el.addEventListener("pointermove", (e) => {
-      if (!ges || ges.lang) return;
+      if (ges?.lang) { this._vorschau?.ziehen(e.clientX, e.clientY); return; }
+      if (!ges) return;
       const dx = e.clientX - ges.x, dy = e.clientY - ges.y;
       if (!ges.zieh && !ges.weg) {
         if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) && ges.regler && c.wischen !== false && c.groesse !== "klein") { ges.zieh = true; clearTimeout(timer); this._sperre = true; }
@@ -3666,7 +3669,8 @@ class GlasKachelCard extends GlasKarte {
       const g = ges; ges = null;
       if (!g) return;
       if (g.zieh) { this._sperre = false; if (!abbruch) g.regler.setzen(this._hass, g.p ?? g.start); else this.render(); return; }
-      if (abbruch || g.lang || g.weg) return;
+      if (g.lang) { if (!abbruch) this._vorschau?.loslassen(); this._vorschau = null; return; }
+      if (abbruch || g.weg) return;
       const art = g.zone === "icon" ? "icon" : "tap";
       if (c.double_tap_action?.action && art === "tap") {
         const jetzt = Date.now();
@@ -3675,6 +3679,8 @@ class GlasKachelCard extends GlasKarte {
       }
       ausfuehren(art);
     };
+    // Nach dem langen Drücken scrollt der Finger nicht mehr, sondern wählt in der Vorschau
+    el.addEventListener("touchmove", (e) => { if (ges?.lang && e.cancelable) e.preventDefault(); }, { passive: false });
     el.addEventListener("pointerup", () => los(false));
     el.addEventListener("pointercancel", () => los(true));
   }
@@ -3831,7 +3837,7 @@ class GlasKopfCard extends GlasKarte {
     if (x !== this._x) { this._x = x; b.style.setProperty("--blase-x", x + "px"); }
     // Kleiner Abstand (Hysterese), damit die Blase am Umschaltpunkt nicht flackert
     const zu = this._zu ? p > 0.4 : p > 0.6;
-    if (zu !== this._zu) { this._zu = zu; b.classList.toggle("zu", zu); b.setAttribute("aria-hidden", String(!zu)); b.tabIndex = zu ? 0 : -1; }
+    if (zu !== this._zu) { this._zu = zu; Glas.blaseZu = zu; window.dispatchEvent(new CustomEvent("glas-blase", { detail: zu })); b.classList.toggle("zu", zu); b.setAttribute("aria-hidden", String(!zu)); b.tabIndex = zu ? 0 : -1; }
   }
   css() { return KOPF_CSS; }
   chipSichtbar(ch, st) {
@@ -4523,26 +4529,29 @@ class GlasRaumleisteCard extends GlasKarte {
   disconnectedCallback() {
     super.disconnectedCallback();
     ["location-changed", "hashchange", "popstate"].forEach((t) => window.removeEventListener(t, this._ort));
-    this._portal?.remove(); this._portal = null;
+    this._portal?.remove(); this._portal = null; this._kz = null;
   }
   entitaeten() { return Object.keys(this._hass?.states || {}).filter((e) => ["light", "switch", "media_player", "fan"].includes(domainVon(e))); }
   css() { return LEISTE_CSS; }
   inhalt(fest) {
+    return `<nav class="leiste glas ${fest ? "fest" : ""}" aria-label="Räume">${this.knoepfeHtml()}</nav>`;
+  }
+  knoepfeHtml() {
     const h = this._hass, c = this._config, jetzt = hashJetzt();
     const raeume = [...(c.zuhause_zeigen ? [{ name: "Zuhause", icon: "mdi:home-outline", hash: "" }] : []), ...(c.raeume || [])];
-    return `<nav class="leiste glas ${fest ? "fest" : ""}" aria-label="Räume">${raeume.map((r) => {
+    return `${raeume.map((r) => {
       const an = r.bereich && entitaetenImBereich(h, r.bereich, ["light", "switch", "media_player", "fan"]).some((e) => Geraet.istAn(h.states[e]));
       const akt = (r.hash || "") === jetzt;
       return `<button class="raum" data-h="${esc(r.hash || "")}" aria-label="${esc(r.name)}" aria-current="${akt ? "page" : "false"}">
         <ha-icon data-i="${esc(r.icon || "mdi:door")}"></ha-icon>${an ? `<span class="punkt" aria-hidden="true"></span>` : ""}</button>`;
-    }).join("")}</nav>`;
+    }).join("")}`;
   }
   render() {
     if (!this._config || !this._hass) return;
     const bearbeiten = istBearbeiten();
     karteVerstecken(this, !bearbeiten);
     if (bearbeiten) {
-      this._portal?.remove(); this._portal = null;
+      this._portal?.remove(); this._portal = null; this._kz = null;
       this.shadowRoot.innerHTML = `<style>${TOKENS}${LEISTE_CSS}</style>${this.inhalt(false)}<div class="leise hinweis">Raumleiste · schwebt außerhalb des Bearbeitens unten über dem Dashboard</div>`;
       this.verdrahten(this.shadowRoot);
       return;
@@ -4553,14 +4562,28 @@ class GlasRaumleisteCard extends GlasKarte {
       portalWurzel().appendChild(this._portal);
     }
     const r = this._portal.shadowRoot;
-    r.innerHTML = `<style>${TOKENS.replace(":host{", ".w{").replace(":host([dunkel]){", ".w.dunkel{")}${LEISTE_CSS}</style>
-      <div class="w ${istDunkel(this._hass) ? "dunkel" : ""}">${this.inhalt(true)}</div>`;
-    this.verdrahten(r);
+    // Gerüst einmal bauen (Kontrollzentrum bleibt dabei offen), danach nur die Raumknöpfe neu
+    if (!r.querySelector(".fest")) {
+      const kz = this._config.kontrollzentrum !== false && Glas.einst?.kontrollzentrum?.an !== false;
+      let gesehen = false;
+      try { gesehen = !!localStorage.getItem("glas-kz-gesehen"); } catch (_) { gesehen = true; }
+      r.innerHTML = `<style>${TOKENS.replace(":host{", ".w{").replace(":host([dunkel]){", ".w.dunkel{")}${LEISTE_CSS}${KZ_CSS}</style>
+        <div class="w"><div class="kz-dimm"></div><div class="fest">
+        ${kz ? `<div class="kz-clip"><div class="kz-panel" role="dialog" aria-label="Kontrollzentrum"><div class="kz-griff-oben" aria-hidden="true"><span></span></div><div class="kz-raster"></div></div></div>
+        <button class="kz-griff" aria-label="Kontrollzentrum öffnen" aria-expanded="false"><span></span></button>
+        ${gesehen ? "" : `<div class="kz-tipp glas" aria-hidden="true">Hochziehen für Schnellzugriff</div>`}` : ""}
+        <nav class="leiste glas" aria-label="Räume"></nav></div></div>`;
+      this._kz = kz ? new Kontrollzentrum(this, r) : null;
+    }
+    r.querySelector(".w").classList.toggle("dunkel", istDunkel(this._hass));
+    const nav = r.querySelector("nav.leiste"), neu = this.knoepfeHtml();
+    if (nav._html !== neu) { nav._html = neu; nav.innerHTML = neu; this.verdrahten(nav); }
   }
   verdrahten(r) {
     r.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
     r.querySelectorAll("[data-h]").forEach((b) => b.addEventListener("click", () => {
       const ziel = b.dataset.h;
+      if (this._kz?.offen) this._kz.zu();
       if (!ziel || ziel === hashJetzt()) hashSchliessen(); else hashOeffnen(ziel);
     }));
   }
@@ -4766,7 +4789,7 @@ class GlasRaumCard extends GlasKarte {
       else if (!box) neueBox(undefined);
       if (raum && cfg._i != null) {
         z.dataset.i = cfg._i;
-        z.dataset.name = cfg.titel || cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
+        z.dataset.name = cfg.type === "custom:glas-ordner-card" ? `Ordner ${cfg.name || ""}` : cfg.titel || cfg.name || this._hass.states[cfg.entity]?.attributes.friendly_name || (listenKarte(cfg._karte)?.[1] ?? "Karte");
         if (cfg._aus) z.classList.add("aus");
       }
       z.appendChild(el);
@@ -4937,6 +4960,7 @@ const BEARB_CSS = `
 .bearb .zieht{z-index:5}
 .bearb .zieht > :first-child{transform:scale(1.04);border-radius:var(--g-r);box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}
 .bearb .zieht > .deckel{cursor:grabbing}
+.bearb .ordner-ziel > :first-child{transform:scale(1.07);border-radius:var(--g-r);box-shadow:0 0 0 3px var(--g-akzent),0 10px 30px rgba(0,0,0,.2);transition:transform .22s cubic-bezier(.34,1.4,.64,1)}
 .bearb .gehalten > :first-child{transform:scale(1.03);transition:transform .18s cubic-bezier(.23,1,.32,1)}
 .bearb .abschn-raster:not(:has([data-i]))::after{content:"Kacheln hierher ziehen";grid-column:span 12;min-height:64px;display:flex;align-items:center;justify-content:center;
   border:1.5px dashed var(--g-text2);border-radius:var(--g-r);color:var(--g-text2);font-size:var(--g-s-klein)}
@@ -4966,6 +4990,11 @@ function flip(kinder, aendern) {
 // Kacheln eines Rasters bearbeitbar machen (Kinder mit data-i = Index in der Liste)
 function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = true, menue: eigenesMenue = null } = {}) {
   raster.classList.add("bearb");
+  const ordnerErlaubt = zugriff?.ort && zugriff.ort.art !== "abschnitte";
+  if (ordnerErlaubt) {
+    const l = zugriff.lesen(Glas.hass);
+    raster.querySelectorAll("[data-i]").forEach((z) => { const x = l[Number(z.dataset.i)]; if (x && (x.entity || x.ordner)) z.dataset.ordnerbar = "1"; });
+  }
   // eigene Kacheln: auch in Abschnitt-Kästen (Räume), aber nicht die eines inneren Rasters (Favoriten in der Startseite)
   const kinder = () => [...raster.querySelectorAll("[data-i]")].filter((z) => z.parentElement.closest(".bearb") === raster);
   const reihenfolgeSpeichern = () => {
@@ -4990,7 +5019,16 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
       z.classList.remove("gehalten");
       if (!x) return;
       if (!x.zieht) { if (ok && !x.weg) menue(); return; }
+      clearTimeout(x.ordnerT);
       z.classList.remove("zieht");
+      if (x.ordnerZiel && ok) {
+        x.ordnerZiel.classList.remove("ordner-ziel");
+        const von = Number(z.dataset.i), auf = Number(x.ordnerZiel.dataset.i);
+        z.style.transition = "transform .2s ease, opacity .2s ease"; z.style.opacity = "0";
+        zugriff.schreiben(Glas.hass, (l) => ordnerBilden(l, von, auf));
+        vibrieren(15);
+        return;
+      }
       z.style.transition = "transform .26s cubic-bezier(.23,1,.32,1)";
       z.style.transform = "";
       if (x.bewegt) reihenfolgeSpeichern();
@@ -5016,7 +5054,19 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
       }
       // Ziel unter dem Finger: davor oder dahinter einsortieren
       const ziel = kinder().find((k) => { if (k === z) return false; const r = k.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
-      if (ziel && ziel !== g.ziel) {
+      // Mitte einer Kachel kurz halten = Ordner anlegen (wie am iPhone); Rand = davor/dahinter einsortieren
+      let mitte = false;
+      if (ziel && ordnerErlaubt && ziel.dataset.ordnerbar && z.dataset.ordnerbar) {
+        const r = ziel.getBoundingClientRect(), rx = (e.clientX - r.left) / r.width;
+        mitte = rx > 0.26 && rx < 0.74;
+      }
+      if (mitte) {
+        if (g.ordnerKand !== ziel) {
+          clearTimeout(g.ordnerT); g.ordnerZiel?.classList.remove("ordner-ziel"); g.ordnerZiel = null; g.ordnerKand = ziel;
+          g.ordnerT = setTimeout(() => { if (g && g.ordnerKand === ziel) { g.ordnerZiel = ziel; ziel.classList.add("ordner-ziel"); vibrieren(10); } }, 420);
+        }
+      } else if (g.ordnerKand) { clearTimeout(g.ordnerT); g.ordnerZiel?.classList.remove("ordner-ziel"); g.ordnerZiel = null; g.ordnerKand = null; }
+      if (ziel && !mitte && ziel !== g.ziel) {
         const r = ziel.getBoundingClientRect(), vor = e.clientX < r.left + r.width / 2;
         const ref = vor ? ziel : ziel.nextElementSibling;
         if (ref !== z && (z.nextElementSibling !== ref || z.parentNode !== ziel.parentNode)) { flip(kinder(), () => ziel.parentNode.insertBefore(z, ref)); g.bewegt = true; }
@@ -5026,7 +5076,7 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
         const box = [...raster.querySelectorAll(".abschn-raster")].find((b) => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
         if (box && box !== z.parentNode && !kinder().some((k) => k !== z && k.parentNode === box)) { flip(kinder(), () => box.appendChild(z)); g.bewegt = true; }
       }
-      g.ziel = ziel || null;
+      g.ziel = mitte ? g.ziel : ziel || null;
       // Am Rand automatisch scrollen
       const sc = scroller || document.scrollingElement;
       const box = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
@@ -5123,6 +5173,7 @@ async function kachelMenue(quelle, zugriff, i) {
   await haFormLaden();
   const h0 = Glas.hass;
   let eintrag = kopieJ(zugriff.lesen(h0)[i] || {});
+  if (eintrag.ordner) return ordnerMenue(quelle, zugriff, i);
   if (!eintrag.entity && !eintrag.karte) return;
   const s = new GlasSchicht({ quelle, hoch: true, titel: "Kachel bearbeiten" });
   let speicherT = null, wegFrage = false;
@@ -5166,6 +5217,10 @@ async function kachelMenue(quelle, zugriff, i) {
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:gesture-tap"></ha-icon>Verhalten</div><div data-f="verhalten"></div></div>
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:chart-timeline-variant"></ha-icon>Große Ansicht &amp; Verlauf</div><div data-f="verlauf"></div></div>`}
       ${raum ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:map-marker-outline"></ha-icon>Platz</div><div data-f="platz"></div></div>` : ""}
+      ${karte ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:folder-outline"></ha-icon>In Ordner legen</div>
+        <div class="karten-wahl">${zugriff.lesen(h).map((y, k) => (y.ordner ? `<button class="glas" data-in-ordner="${k}"><ha-icon data-i="mdi:folder-outline"></ha-icon><span>${esc(y.name || "Ordner")}<small>${(y.eintraege || []).length} Geräte</small></span></button>` : "")).join("")}
+          <button class="glas" data-in-ordner="neu"><ha-icon data-i="mdi:folder-plus-outline"></ha-icon><span>Neuer Ordner</span></button></div>
+        <div class="m-hinweis">Oder im Bearbeiten-Modus eine Kachel auf die Mitte einer anderen ziehen und kurz halten.</div></div>`}
       <div class="knoepfe"><button class="glas" data-aus>${an ? "Ausblenden" : "Wieder zeigen"}</button><button class="glas rot" data-weg>${wegFrage ? "Wirklich entfernen?" : "Entfernen"}</button></div>`;
     s.kopfBinden();
     const $ = (q) => s.inhalt.querySelector(q);
@@ -5267,6 +5322,18 @@ async function kachelMenue(quelle, zugriff, i) {
       s.inhalt.querySelectorAll("[data-a]").forEach((o) => o.setAttribute("aria-checked", neu.includes(o.dataset.a)));
       speichern(true); vorschau();
     }));
+    s.inhalt.querySelectorAll("[data-in-ordner]").forEach((b) => b.addEventListener("click", () => {
+      clearTimeout(speicherT);
+      const ziel = b.dataset.inOrdner, { gruppe, an: _an, ...rein } = kopieJ(eintrag);
+      zugriff.schreiben(Glas.hass, (l) => {
+        if (ziel === "neu") { l[i] = { ordner: true, name: "Neuer Ordner", groesse: "breit", an: true, ...(gruppe ? { gruppe } : {}), eintraege: [rein] }; return l; }
+        const k = Number(ziel);
+        l[k] = { ...l[k], eintraege: [...(l[k].eintraege || []), rein] };
+        return l.filter((_, n) => n !== i);
+      });
+      s.schliessen();
+      if (ziel === "neu") setTimeout(() => ordnerMenue(quelle, zugriff, i), 250);
+    }));
     $("[data-aus]").addEventListener("click", () => { eintrag.an = eintrag.an === false; speichern(true); zeichnen(); });
     $("[data-weg]").addEventListener("click", () => {
       if (!wegFrage) { wegFrage = true; $("[data-weg]").textContent = "Wirklich entfernen?"; return; }
@@ -5334,8 +5401,10 @@ async function abschnittMenue(quelle, zugriff, i, festId = null) {
   const zeigenAn = festId ? (Glas.einst.bereiche?.[festId]?.an !== false) : a.an !== false;
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(info[1], "Abschnitt der Startseite")}
     <div class="m-gruppe glas"><button class="haken" role="switch" data-zeigen aria-checked="${zeigenAn}">Auf der Startseite zeigen<span class="sw" aria-hidden="true"></span></button></div>
-    ${festId ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Breite</div>
-      <div class="segment" role="group" aria-label="Breite">${[["halb", "Halb"], ["ganz", "Ganz"]].map(([b, n]) => `<button data-b="${b}" aria-pressed="${(a.breite || "ganz") === b}">${n}</button>`).join("")}</div></div>`}
+    ${festId || a.id === "zuhause" ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Darstellung</div>
+      <div class="segment" role="group" aria-label="Darstellung">${[["halb", "Halb", "Karte"], ["ganz", "Ganz", "Karte"], ...(WIDGET_ARTEN.includes(a.id) ? [["widget", "Widget", "Quadrat"]] : [])]
+        .map(([b, n, k]) => `<button data-b="${b}" aria-pressed="${b === "widget" ? !!a.widget : !a.widget && (a.breite || "ganz") === b}">${n}<small>${k}</small></button>`).join("")}</div>
+      ${WIDGET_ARTEN.includes(a.id) ? `<div class="m-hinweis">Widget: quadratisch wie auf dem iPhone-Homescreen, zwei nebeneinander. Antippen öffnet die große Ansicht.</div>` : ""}</div>`}
     ${ABSCHNITT_EDITOR[a.id] ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:tune-variant"></ha-icon>Einstellungen</div><div data-ed></div></div>`
       : a.id === "favoriten" ? `<div class="m-gruppe glas"><div class="m-hinweis">Die Favoriten bearbeitest du direkt: Kachel antippen oder verschieben, unten „Hinzufügen“.</div></div>` : ""}`;
   s.kopfBinden();
@@ -5347,7 +5416,7 @@ async function abschnittMenue(quelle, zugriff, i, festId = null) {
   });
   s.inhalt.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => {
     s.inhalt.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b));
-    abschnittSetzen({ breite: b.dataset.b });
+    abschnittSetzen(b.dataset.b === "widget" ? { widget: true } : { breite: b.dataset.b, widget: false });
   }));
   const box = s.inhalt.querySelector("[data-ed]");
   if (box) {
@@ -5389,7 +5458,7 @@ async function raumMenue(quelle, hash) {
     }, 400);
   };
   const h = Glas.hass;
-  const benutzt = () => [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity || g.karte).map((g) => g.gruppe || (g.entity ? gruppeVon(h, g.entity) : `karte-${g.karte}`)))];
+  const benutzt = () => [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity || g.karte || g.ordner).map((g) => g.gruppe || (g.entity ? gruppeVon(h, g.entity) : g.ordner ? (g.eintraege?.[0]?.entity && h.states[g.eintraege[0].entity] ? gruppeVon(h, g.eintraege[0].entity) : "sonstiges") : `karte-${g.karte}`)))];
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
@@ -5649,6 +5718,512 @@ function raumVerlaufOeffnen(quelle, bereich, raumName, fokus) {
   laden();
   return s;
 }
+// ---------------------------------------------------------------------------
+// Apple-Bausteine: Ordner (wie iPhone-Ordner) und Vorschau bei langem Drücken
+// ---------------------------------------------------------------------------
+
+// Feder auf ein Element: stil(p) liefert die Stile für Lage p (von → nach). Läuft als fertige Keyframes auf der Grafikkarte.
+function federAnim(el, stil, { von = 0, nach = 1, v = 0, antwort = 0.42, daempfung = 0.86 } = {}) {
+  const sp = nach - von;
+  Object.assign(el.style, stil(nach));
+  if (SCHICHT_RUHIG.matches) {
+    const a = stil(von), b = stil(nach);
+    return el.animate([{ opacity: a.opacity ?? 1 }, { opacity: b.opacity ?? 1 }], { duration: 160, easing: "ease" });
+  }
+  const { werte, dauer } = federVerlauf(sp ? v / sp : 0, { antwort, daempfung });
+  return el.animate(werte.map((p) => stil(von + sp * p)), { duration: dauer, easing: "linear" });
+}
+const vibrieren = (ms = 10) => { try { navigator.vibrate?.(ms); } catch (_) { /* */ } };
+
+// Eine Ebene über allem (Portal), mit unscharfem, abgedunkeltem Hintergrund
+const EBENE_CSS = `
+.dimm{position:fixed;inset:0;background:rgba(0,0,0,.22);-webkit-backdrop-filter:blur(18px) saturate(140%);backdrop-filter:blur(18px) saturate(140%);opacity:0;touch-action:none}
+.wurzel.dunkel .dimm{background:rgba(0,0,0,.45)}
+`;
+class GlasEbene {
+  constructor({ quelle, css = "", label = "", zu }) {
+    this.quelle = quelle; this.zu = zu;
+    this.host = document.createElement("div");
+    this.host.style.cssText = "position:relative;z-index:7";
+    this.root = this.host.attachShadow({ mode: "open" });
+    this.root.innerHTML = `<style>${TOKENS.replace(":host{", ".wurzel{").replace(":host([dunkel]){", ".wurzel.dunkel{")}${EBENE_CSS}${css}</style>
+      <div class="wurzel ${istDunkel(Glas.hass) ? "dunkel" : ""}" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="dimm"></div></div>`;
+    this.wurzel = this.root.querySelector(".wurzel");
+    this.dimm = this.root.querySelector(".dimm");
+    this.dimm.addEventListener("click", () => this.schliessen());
+    this._taste = (e) => { if (e.key === "Escape" && GlasEbene.oben === this && GlasSchicht.stapel.length <= this._stapel) { e.stopImmediatePropagation(); this.schliessen(); } };
+    ["hass-more-info", "hass-action", "show-dialog", "hass-notification", "ll-custom"].forEach((t) =>
+      this.host.addEventListener(t, (e) => {
+        if (e.__glas) return;
+        e.stopPropagation();
+        const neu = new CustomEvent(t, { detail: e.detail, bubbles: true, composed: true });
+        neu.__glas = true;
+        if (t === "hass-more-info" || t === "show-dialog") this.schliessen();
+        (this.quelle?.isConnected ? this.quelle : document.querySelector("home-assistant"))?.dispatchEvent(neu);
+      }));
+  }
+  oeffnen() {
+    portalWurzel().appendChild(this.host);
+    this._vorher = GlasEbene.oben; GlasEbene.oben = this;
+    this._fokusVorher = document.activeElement;
+    this._stapel = GlasSchicht.stapel.length; // Blätter, die schon offen waren (z. B. Raum), liegen darunter
+    document.addEventListener("keydown", this._taste, true);
+    federAnim(this.dimm, (p) => ({ opacity: String(klemmen(p, 0, 1)) }), { antwort: 0.3, daempfung: 1 });
+  }
+  schliessen() {
+    if (this._weg) return Promise.resolve();
+    this._weg = true;
+    if (GlasEbene.oben === this) GlasEbene.oben = this._vorher || null;
+    document.removeEventListener("keydown", this._taste, true);
+    this.wurzel.style.pointerEvents = "none";
+    const fertig = this.wegAnimieren?.() || Promise.resolve();
+    const d = federAnim(this.dimm, (p) => ({ opacity: String(klemmen(1 - p, 0, 1)) }), { antwort: 0.28, daempfung: 1 });
+    return Promise.all([fertig, d.finished.catch(() => {})]).then(() => { this.host.remove(); this.zu?.(); try { this._fokusVorher?.focus?.({ preventScroll: true }); } catch (_) { /* */ } });
+  }
+}
+GlasEbene.oben = null;
+
+// ---------------------------------------------------------------------------
+// glas-ordner-card: mehrere Kacheln in einem Ordner. Antippen lässt ihn zum großen Glas-Feld wachsen.
+// Größe L = Smart-Stapel: die ersten vier Geräte direkt bedienbar.
+// ---------------------------------------------------------------------------
+const ORDNER_CSS = `
+:host{display:block;height:100%}
+.ordner{position:relative;width:100%;height:100%;min-height:var(--g-kachel-h);display:flex;align-items:center;gap:var(--g-a3);padding:var(--g-a3);
+  border-radius:var(--g-r);text-align:left;color:var(--g-text);overflow:hidden}
+.ordner.klein{flex-direction:column;justify-content:center;gap:4px;padding:var(--g-a1) 6px}
+.vier{flex:none;display:grid;grid-template-columns:repeat(2,18px);grid-auto-rows:18px;gap:3px;padding:4px;border-radius:12px;background:var(--g-fuell)}
+.mini{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(120,120,128,.18);color:var(--g-fuell-text)}
+.mini ha-state-icon{--mdc-icon-size:11px}
+.mini.an{background:var(--sf);color:#fff}
+.text{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.name{font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zustand{font-size:var(--g-s-klein);color:var(--g-text2)}
+.pfeil{flex:none;color:var(--g-text2)}
+.kname{max-width:100%;font-size:var(--g-s-mini);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stapel{height:100%;min-height:calc(var(--g-kachel-h) * 2 + var(--g-a2));display:flex;flex-direction:column;gap:var(--g-a2);padding:var(--g-a3);border-radius:var(--g-r)}
+.stapel .kopf{display:flex;align-items:center;gap:var(--g-a2);min-height:28px;text-align:left;color:var(--g-text)}
+.stapel .kopf .text{flex-direction:row;align-items:baseline;gap:var(--g-a2)}
+.vierer{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.mk{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:2px;min-height:52px;padding:6px 8px;border-radius:var(--g-r-klein);
+  background:var(--g-fuell);color:var(--g-text);text-align:left;min-width:0}
+.mk.an{background:var(--g-an);color:var(--g-text-an)}
+.mk .mini{width:24px;height:24px}
+.mk .mini ha-state-icon{--mdc-icon-size:14px}
+.mk b{font-size:var(--g-s-mini);font-weight:600;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+`;
+const ordnerAnzahl = (h, eintraege) => {
+  const da = (eintraege || []).filter((x) => x.entity && h.states[x.entity]);
+  const schaltbar = da.filter((x) => Geraet.schaltbar(h.states[x.entity]));
+  const an = da.filter((x) => Geraet.istAn(h.states[x.entity])).length;
+  return { da, text: schaltbar.length ? `${an} von ${schaltbar.length} an` : `${da.length} ${da.length === 1 ? "Gerät" : "Geräte"}`, an };
+};
+const miniHtml = (h, x) => {
+  const st = h.states[x.entity], an = Geraet.istAn(st);
+  return `<span class="mini ${an ? "an" : ""}" style="--sf:${farbeAus(x.farbe, Geraet.farbe(st))}"><ha-state-icon data-e="${esc(x.entity)}" ${x.icon ? `data-i="${esc(x.icon)}"` : ""}></ha-state-icon></span>`;
+};
+
+class GlasOrdnerCard extends GlasKarte {
+  static standard() { return { name: "Ordner", groesse: "breit", eintraege: [] }; }
+  static getConfigElement() { return document.createElement("glas-ordner-card-editor"); }
+  static getStubConfig(hass) { return { name: "Lichter", eintraege: Object.keys(hass.states).filter((e) => e.startsWith("light.")).slice(0, 4).map((entity) => ({ entity })) }; }
+  getCardSize() { return this._config?.groesse === "gross" ? 3 : 1; }
+  getGridOptions() {
+    const g = this._config?.groesse;
+    return g === "klein" ? { columns: 3, rows: "auto" } : g === "ganz" ? { columns: 12, rows: "auto" } : g === "gross" ? { columns: 6, rows: 3 } : { columns: 6, rows: "auto" };
+  }
+  entitaeten() { return (this._config.eintraege || []).map((x) => x.entity).filter(Boolean); }
+  css() { return ORDNER_CSS; }
+  html() {
+    const h = this._hass, c = this._config, g = c.groesse || "breit";
+    const { da, text } = ordnerAnzahl(h, c.eintraege);
+    const vier = `<span class="vier" aria-hidden="true">${da.slice(0, 4).map((x) => miniHtml(h, x)).join("")}</span>`;
+    const label = `Ordner ${esc(c.name)}, ${esc(text)}`;
+    if (g === "klein") return `<button class="ordner glas k klein" data-auf aria-haspopup="dialog" aria-label="${label}">${vier}<span class="kname">${esc(c.name)}</span></button>`;
+    if (g === "gross") {
+      return `<div class="stapel glas"><button class="kopf" data-auf aria-haspopup="dialog" aria-label="${label}"><span class="text"><span class="name">${esc(c.name)}</span><span class="zustand">${esc(text)}</span></span>
+        <ha-icon class="pfeil" data-i="mdi:arrow-expand"></ha-icon></button><div class="vierer">${da.slice(0, 4).map((x) => {
+          const st = h.states[x.entity];
+          return `<button class="mk k ${Geraet.istAn(st) ? "an" : ""}" data-e="${esc(x.entity)}" aria-label="${esc(x.name || st.attributes.friendly_name)}: ${esc(Geraet.zustand(h, st, Geraet.regler(st)))}">
+            ${miniHtml(h, x)}<b>${esc(x.name || st.attributes.friendly_name || x.entity)}</b></button>`;
+        }).join("")}</div></div>`;
+    }
+    return `<button class="ordner glas k ${g}" data-auf aria-haspopup="dialog" aria-label="${label}">${vier}<span class="text"><span class="name">${esc(c.name)}</span><span class="zustand">${esc(text)}</span></span>
+      <ha-icon class="pfeil" data-i="mdi:chevron-right"></ha-icon></button>`;
+  }
+  binden() {
+    this.iconsSetzen();
+    this.$("[data-auf]")?.addEventListener("click", () => ordnerOeffnen(this));
+    this.$$("[data-e]").forEach((b) => {
+      let t = null, lang = false;
+      b.addEventListener("pointerdown", () => { lang = false; t = setTimeout(() => { lang = true; vibrieren(12); steuerungOeffnen(this, b.dataset.e, (this._config.eintraege || []).find((x) => x.entity === b.dataset.e) || {}); }, 480); });
+      ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => b.addEventListener(ev, () => clearTimeout(t)));
+      b.addEventListener("click", () => {
+        if (lang) return;
+        const st = this._hass.states[b.dataset.e];
+        if (Geraet.schaltbar(st) || Geraet.ausloesbar(st)) { vibrieren(8); Geraet.schalten(this._hass, st); } else steuerungOeffnen(this, b.dataset.e, {});
+      });
+    });
+  }
+}
+
+// Großes Glas-Feld: wächst aus der Ordner-Kachel, darin normale Kacheln
+const ORDNER_FELD_CSS = `
+.feld{position:fixed;left:50%;top:50%;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 96px);overflow:auto;overscroll-behavior:contain;
+  translate:-50% -50%;padding:var(--g-a5);border-radius:var(--g-r-blatt);background:var(--g-glas);border:1px solid var(--g-glas-rand);
+  -webkit-backdrop-filter:blur(30px) saturate(170%);backdrop-filter:blur(30px) saturate(170%);box-shadow:0 30px 80px rgba(0,0,0,.25);transform-origin:0 0;scrollbar-width:none}
+.wurzel:not(.dunkel) .feld{background:rgba(255,255,255,.62)}
+.feld::-webkit-scrollbar{display:none}
+.feld h2{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;color:var(--g-text);line-height:1.15}
+.feld .unter{margin:2px 0 var(--g-a4);font-size:var(--g-s-name);color:var(--g-text2)}
+.kacheln{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2)}
+.kacheln > *{min-width:0}
+.feld .inhalt-an{opacity:0}
+`;
+const ORDNER_SPANNE = { klein: 4, breit: 6, gross: 6, ganz: 12 };
+function ordnerOeffnen(karte) {
+  const c = karte._config, h = karte._hass;
+  const quellRect = karte.getBoundingClientRect();
+  const e = new GlasEbene({ quelle: karte, css: ORDNER_FELD_CSS, label: c.name, zu: () => Glas.hassHoerer.delete(neu) });
+  const feld = document.createElement("div");
+  feld.className = "feld";
+  feld.innerHTML = `<div class="inhalt"><h2>${esc(c.name)}</h2><div class="unter"></div><div class="kacheln"></div></div>`;
+  e.wurzel.appendChild(feld);
+  const kacheln = (c.eintraege || []).filter((x) => x.entity).map((x) => {
+    const el = document.createElement("glas-kachel-card");
+    try { el.setConfig(kachelCfg({ ...x, groesse: x.groesse === "ganz" ? "ganz" : x.groesse === "klein" ? "klein" : "breit" })); } catch (_) { return null; }
+    el.hass = h;
+    const z = document.createElement("div");
+    z.style.gridColumn = `span ${ORDNER_SPANNE[x.groesse === "ganz" ? "ganz" : x.groesse === "klein" ? "klein" : "breit"]}`;
+    z.appendChild(el);
+    feld.querySelector(".kacheln").appendChild(z);
+    return el;
+  }).filter(Boolean);
+  const unter = () => { feld.querySelector(".unter").textContent = ordnerAnzahl(Glas.hass, c.eintraege).text; };
+  const neu = () => { kacheln.forEach((k) => { k.hass = Glas.hass; }); unter(); };
+  Glas.hassHoerer.add(neu);
+  unter();
+  e.oeffnen();
+  // Aus der Kachel wachsen (FLIP): Startlage = Rechteck der Ordner-Kachel
+  const ziel = feld.getBoundingClientRect();
+  const sx = quellRect.width / ziel.width, sy = quellRect.height / ziel.height;
+  const dx = quellRect.left - ziel.left, dy = quellRect.top - ziel.top;
+  const inhalt = feld.querySelector(".inhalt");
+  const stil = (p) => ({ transform: `translate(${dx * (1 - p)}px,${dy * (1 - p)}px) scale(${sx + (1 - sx) * p},${sy + (1 - sy) * p})`, opacity: String(klemmen(p * 3, 0, 1)) });
+  const sichtbar = quellRect.width > 0 && quellRect.bottom > 0 && quellRect.top < innerHeight;
+  if (sichtbar) {
+    federAnim(feld, stil, { antwort: 0.42, daempfung: 0.8 });
+    federAnim(inhalt, (p) => ({ opacity: String(klemmen((p - 0.35) * 2, 0, 1)) }), { antwort: 0.42, daempfung: 1 });
+  } else federAnim(feld, (p) => ({ transform: `scale(${0.92 + 0.08 * p})`, opacity: String(klemmen(p, 0, 1)) }), { antwort: 0.36, daempfung: 0.85 });
+  karte.style.visibility = "hidden";
+  vibrieren(8);
+  e.wegAnimieren = () => {
+    const r = karte.getBoundingClientRect();
+    karte.style.visibility = "";
+    if (!r.width || !karte.isConnected) return federAnim(feld, (p) => ({ transform: `scale(${1 - 0.08 * p})`, opacity: String(1 - p) }), { antwort: 0.26, daempfung: 1 }).finished.catch(() => {});
+    const z2 = feld.getBoundingClientRect(); // ohne Transform gemessen? Rechteck ist bereits Endlage (Transform aufgehoben)
+    const sx2 = r.width / z2.width, sy2 = r.height / z2.height, dx2 = r.left - z2.left, dy2 = r.top - z2.top;
+    karte.style.visibility = "hidden";
+    federAnim(inhalt, (p) => ({ opacity: String(klemmen(1 - p * 2.5, 0, 1)) }), { antwort: 0.24, daempfung: 1 });
+    return federAnim(feld, (p) => ({ transform: `translate(${dx2 * p}px,${dy2 * p}px) scale(${1 + (sx2 - 1) * p},${1 + (sy2 - 1) * p})`, opacity: String(klemmen((1 - p) * 4, 0, 1)) }),
+      { antwort: 0.34, daempfung: 0.95 }).finished.catch(() => {}).then(() => { karte.style.visibility = ""; });
+  };
+  // Nach unten wischen schließt (folgt dem Finger)
+  let z = null;
+  feld.addEventListener("pointerdown", (ev) => {
+    if (ev.button > 0 || ev.target.closest("glas-kachel-card") || feld.scrollTop > 0) return;
+    z = { y: ev.clientY, dy: 0, id: ev.pointerId };
+  });
+  feld.addEventListener("pointermove", (ev) => {
+    if (!z || z.id !== ev.pointerId) return;
+    z.dy = Math.max(0, ev.clientY - z.y);
+    if (z.dy > 4) { try { feld.setPointerCapture(ev.pointerId); } catch (_) { /* */ } feld.style.transform = `translateY(${z.dy}px) scale(${1 - Math.min(z.dy, 300) / 3000})`; }
+  });
+  const los = () => {
+    if (!z) return;
+    const d = z.dy; z = null;
+    if (d > 90) e.schliessen();
+    else federAnim(feld, (p) => ({ transform: `translateY(${d * (1 - p)}px)` }), { antwort: 0.35, daempfung: 0.8 });
+  };
+  feld.addEventListener("pointerup", los);
+  feld.addEventListener("pointercancel", los);
+  e.zu = () => { Glas.hassHoerer.delete(neu); karte.style.visibility = ""; };
+  setTimeout(() => feld.querySelector("glas-kachel-card")?.shadowRoot?.querySelector("button")?.focus({ preventScroll: true }), 50);
+  return e;
+}
+
+class GlasOrdnerEditor extends GlasEditor {
+  schema() {
+    return [{ type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "groesse", selector: { select: { mode: "dropdown", options: [
+      { value: "klein", label: "Klein (1×1)" }, { value: "breit", label: "Breit (2×1)" }, { value: "gross", label: "Groß (2×2, Stapel)" }, { value: "ganz", label: "Ganze Breite" }] } } }] }];
+  }
+  labels() { return { name: "Name", groesse: "Größe" }; }
+  listen() {
+    return [{ key: "eintraege", titel: "Geräte im Ordner", neuText: "Gerät", neu: () => ({}), name: (x) => x.name || x.entity || "Neues Gerät",
+      labels: { entity: "Entität", name: "Name (leer = aus HA)" }, schema: () => [{ name: "entity", selector: { entity: {} } }, { name: "name", selector: { text: {} } }] }];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vorschau bei langem Drücken (wie iOS): Kachel hebt sich, Hintergrund unscharf,
+// darunter Details (Zustand groß, Verlauf 24 Std., Schnellknöpfe) und ein kleines Menü.
+// Finger auf einen Punkt ziehen und loslassen wählt ihn; einfach loslassen lässt die Vorschau offen.
+// ---------------------------------------------------------------------------
+const VORSCHAU_CSS = `
+.saeule-v{position:fixed;display:flex;flex-direction:column;gap:var(--g-a2);transform-origin:50% 0}
+.gehoben{position:relative;border-radius:var(--g-r);box-shadow:0 18px 50px rgba(0,0,0,.28);transform-origin:50% 50%}
+.detail,.menue{border-radius:var(--g-r);background:var(--g-glas);border:1px solid var(--g-glas-rand);-webkit-backdrop-filter:blur(30px) saturate(170%);backdrop-filter:blur(30px) saturate(170%);
+  box-shadow:0 12px 40px rgba(0,0,0,.18);transform-origin:50% 0;overflow:hidden}
+.wurzel:not(.dunkel) .detail,.wurzel:not(.dunkel) .menue{background:rgba(255,255,255,.72)}
+.detail{padding:var(--g-a3) var(--g-a4);display:flex;flex-direction:column;gap:var(--g-a2)}
+.gross-zustand{font-size:var(--g-s-titel);font-weight:700;letter-spacing:-.4px;color:var(--g-text);font-variant-numeric:tabular-nums;line-height:1.1}
+.gross-zustand small{display:block;margin-top:2px;font-size:var(--g-s-klein);font-weight:500;color:var(--g-text2);letter-spacing:0}
+.mini-kurve{height:44px}
+.mini-kurve svg{width:100%;height:44px;display:block;overflow:visible}
+.mini-kurve .linie{fill:none;stroke:var(--vf,#0a84ff);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mini-kurve .flaeche{fill:var(--vf,#0a84ff);opacity:.14}
+.mini-kurve .balken{height:10px;margin-top:17px;border-radius:5px;background:var(--g-fuell);position:relative;overflow:hidden}
+.mini-kurve .balken i{position:absolute;top:0;bottom:0;background:var(--vf,#34c759)}
+.mini-kurve .leer{font-size:var(--g-s-mini);color:var(--g-text2);line-height:44px}
+.schnell{display:flex;gap:var(--g-a2)}
+.schnell button{flex:1;min-height:40px;padding:0 6px;border-radius:var(--g-r-klein);background:var(--g-fuell);font-size:var(--g-s-klein);font-weight:600;color:var(--g-text);
+  display:flex;align-items:center;justify-content:center;gap:4px}
+.schnell button .farbe{width:16px;height:16px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.schnell button.an{background:var(--g-aktiv);color:var(--g-aktiv-text)}
+.menue{display:flex;flex-direction:column}
+.menue button{display:flex;align-items:center;justify-content:space-between;gap:var(--g-a3);min-height:46px;padding:0 var(--g-a4);font-size:var(--g-s-text);color:var(--g-text);text-align:left}
+.menue button + button{border-top:1px solid var(--g-trenn)}
+.menue button.rot{color:var(--g-rot-text)}
+.menue ha-icon{--mdc-icon-size:20px}
+[data-wahl].drauf{background:rgba(120,120,128,.2)}
+`;
+async function miniVerlaufHtml(h, eid) {
+  const st = h.states[eid];
+  if (!st) return "";
+  try {
+    const v = await verlaufHolen(h, [eid], 24);
+    const punkte = v.daten[eid] || [];
+    if (istZahlSensor(st)) {
+      const p = [...punkte.map((x) => ({ t: x.t, w: Number(x.s) })), { t: v.bis, w: Number(st.state) }].filter((x) => !isNaN(x.w));
+      if (p.length < 2) return `<div class="leer">Noch kein Verlauf</div>`;
+      const min = Math.min(...p.map((x) => x.w)), max = Math.max(...p.map((x) => x.w)), sp = max - min || 1;
+      const X = (t) => ((t - v.von) / (v.bis - v.von)) * 300, Y = (w) => 40 - ((w - min) / sp) * 36;
+      let d = `M${X(p[0].t).toFixed(1)},${Y(p[0].w).toFixed(1)}`;
+      for (let i = 1; i < p.length; i++) d += ` L${X(p[i].t).toFixed(1)},${Y(p[i].w).toFixed(1)}`;
+      return `<svg viewBox="0 0 300 44" preserveAspectRatio="none" style="--vf:${VERLAUF_FARBE[st.attributes.device_class] || "#0a84ff"}"><path class="flaeche" d="${d} L300,44 L0,44 Z"/><path class="linie" d="${d}"/></svg>`;
+    }
+    const l = leisteHtml(punkte, v.von, v.bis, st);
+    const i = l.html.match(/<i [^>]*><\/i>/g) || [];
+    return `<div class="balken" style="--vf:${domainVon(eid) === "light" ? "#ffcc00" : "#34c759"}">${i.join("")}</div>`;
+  } catch (_) { return ""; }
+}
+function vorschauSchnell(h, st) {
+  const d = domainVon(st.entity_id), eid = st.entity_id, an = Geraet.istAn(st), l = [];
+  if (d === "light" && (st.attributes.supported_color_modes || []).some((m) => m !== "onoff")) {
+    LICHT_FARBEN.forEach((f, i) => l.push({ html: `<span class="farbe" style="background:${f[3]}"></span>`, label: f[0], an: an && lichtFarbeAktiv(st, f),
+      tun: () => h.callService("light", "turn_on", { entity_id: eid, ...lichtFarbeDaten(st, f) }) }));
+  } else if (d === "cover") {
+    [["mdi:arrow-up", "Öffnen", "open_cover"], ["mdi:stop", "Stopp", "stop_cover"], ["mdi:arrow-down", "Schließen", "close_cover"]].forEach(([i, n, s]) =>
+      l.push({ html: `<ha-icon data-i="${i}"></ha-icon>`, label: n, tun: () => h.callService("cover", s, { entity_id: eid }) }));
+  } else if (d === "climate" && st.attributes.temperature != null) {
+    const t = Number(st.attributes.temperature), sch = Number(st.attributes.target_temp_step || 0.5);
+    l.push({ html: "−", label: "Kälter", tun: () => h.callService("climate", "set_temperature", { entity_id: eid, temperature: t - sch }) });
+    l.push({ html: "Eco 17°", label: "Eco 17 Grad", tun: () => h.callService("climate", "set_temperature", { entity_id: eid, temperature: 17 }) });
+    l.push({ html: "+", label: "Wärmer", tun: () => h.callService("climate", "set_temperature", { entity_id: eid, temperature: t + sch }) });
+  } else if (d === "media_player") {
+    l.push({ html: `<ha-icon data-i="mdi:${st.state === "playing" ? "pause" : "play"}"></ha-icon>`, label: st.state === "playing" ? "Pause" : "Abspielen", tun: () => h.callService("media_player", "media_play_pause", { entity_id: eid }) });
+  } else if (d === "vacuum") {
+    l.push({ html: `<ha-icon data-i="mdi:play"></ha-icon>`, label: "Saugen", tun: () => h.callService("vacuum", "start", { entity_id: eid }) });
+    l.push({ html: `<ha-icon data-i="mdi:home-import-outline"></ha-icon>`, label: "Zur Station", tun: () => h.callService("vacuum", "return_to_base", { entity_id: eid }) });
+  }
+  if (["light", "switch", "fan", "input_boolean", "media_player"].includes(d)) {
+    const rest = timerRest(eid);
+    l.push({ html: rest ? `Aus in ${esc(rest)}` : "30 Min.", label: rest ? "Timer stoppen" : "In 30 Minuten ausschalten", an: !!rest,
+      tun: () => { if (!an && !rest) Geraet.schalten(h, st); return Glas.timerSetzen(h, eid, rest ? 0 : 30); } });
+  }
+  return l.slice(0, 5);
+}
+// Wo liegt die Kachel? Raum-Blatt (#hash) oder Favoriten. Liefert Zugriff + Index für „Bearbeiten“
+function kachelOrt(eid) {
+  const hash = hashJetzt();
+  const z = hash ? listeZugriff({ art: "raum", hash }) : listeZugriff({ art: "fav", person: Glas.aktuellePerson(Glas.hass) });
+  const i = z.lesen(Glas.hass).findIndex((x) => x.entity === eid);
+  return i >= 0 ? { z, i } : null;
+}
+
+function vorschauOeffnen(karte, cfg) {
+  const h = karte._hass, eid = cfg.entity, st = h.states[eid];
+  if (!st || !Glas.hass) return null;
+  const r = karte.getBoundingClientRect();
+  const e = new GlasEbene({ quelle: karte, css: VORSCHAU_CSS, label: `Vorschau ${cfg.name || st.attributes.friendly_name || eid}`, zu: () => { Glas.hassHoerer.delete(neu); karte.style.visibility = ""; } });
+  const breite = Math.min(innerWidth - 32, Math.max(r.width, 300));
+  const saeule = document.createElement("div");
+  saeule.className = "saeule-v";
+  saeule.style.width = `${breite}px`;
+  const kopie = document.createElement("glas-kachel-card");
+  kopie.setConfig({ ...cfg, hold_action: { action: "none" } });
+  kopie.hass = h;
+  const gehoben = document.createElement("div");
+  gehoben.className = "gehoben";
+  gehoben.style.cssText = `width:${r.width}px;height:${r.height}px`;
+  gehoben.appendChild(kopie);
+  const ort = Glas.einst ? kachelOrt(eid) : null;
+  const favZ = Glas.einst ? listeZugriff({ art: "fav", person: Glas.aktuellePerson(h) }) : null;
+  const istFav = () => !!favZ?.lesen(Glas.hass).some((f) => f.entity === eid && f.an !== false);
+  const detail = document.createElement("div");
+  detail.className = "detail";
+  const menue = document.createElement("div");
+  menue.className = "menue";
+  menue.setAttribute("role", "menu");
+  saeule.append(gehoben, detail, menue);
+  e.wurzel.appendChild(saeule);
+  let schnell = [];
+  const detailZeichnen = () => {
+    const s = Glas.hass.states[eid];
+    if (!s) return;
+    schnell = vorschauSchnell(Glas.hass, s);
+    const kurve = detail.querySelector(".mini-kurve")?.innerHTML || "";
+    detail.innerHTML = `<div class="gross-zustand">${esc(Geraet.zustand(Glas.hass, s, Geraet.regler(s)))}<small>${esc(relativeZeit(s.last_changed))} geändert</small></div>
+      <div class="mini-kurve" aria-hidden="true">${kurve}</div>
+      ${schnell.length ? `<div class="schnell">${schnell.map((b, i) => `<button data-wahl data-s="${i}" class="${b.an ? "an" : ""}" aria-label="${esc(b.label)}">${b.html}</button>`).join("")}</div>` : ""}`;
+    detail.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    detail.querySelectorAll("[data-s]").forEach((b) => b.addEventListener("click", () => wahl(b)));
+  };
+  const punkte = [
+    ["gross", "Große Ansicht", "mdi:arrow-expand", () => { e.schliessen(); steuerungOeffnen(karte, eid, cfg); }],
+    ...(favZ ? [["fav", istFav() ? "Aus Favoriten" : "Zu Favoriten", istFav() ? "mdi:star-off-outline" : "mdi:star-outline", () => {
+      const an = !istFav();
+      favZ.schreiben(Glas.hass, (l) => (an ? (l.some((f) => f.entity === eid) ? l.map((f) => (f.entity === eid ? { ...f, an: true } : f)) : [...l, { ...geraetVorschlag(Glas.hass, eid), an: true, groesse: "breit" }]) : l.filter((f) => f.entity !== eid)));
+      e.schliessen();
+    }]] : []),
+    ...(ort && istAdmin(h) ? [["bearb", "Bearbeiten", "mdi:pencil-outline", () => { e.schliessen(); kachelMenue(karte, ort.z, ort.i); }]] : []),
+  ];
+  menue.innerHTML = punkte.map(([id, t, i]) => `<button role="menuitem" data-wahl data-m="${id}">${esc(t)}<ha-icon data-i="${i}"></ha-icon></button>`).join("");
+  menue.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+  menue.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => wahl(b)));
+  function wahl(b) {
+    vibrieren(8);
+    if (b.dataset.m) { punkte.find(([id]) => id === b.dataset.m)?.[3](); return; }
+    const s = schnell[Number(b.dataset.s)];
+    Promise.resolve(s?.tun()).catch(() => {});
+  }
+  detailZeichnen();
+  miniVerlaufHtml(h, eid).then((html) => { const k = detail.querySelector(".mini-kurve"); if (k) k.innerHTML = html; });
+  const neu = () => { kopie.hass = Glas.hass; detailZeichnen(); };
+  Glas.hassHoerer.add(neu);
+  // Lage: Kachel bleibt, wo sie war; passt die Säule nicht nach unten, rückt alles nach oben
+  const links = klemmen(r.left + r.width / 2 - breite / 2, 16, innerWidth - breite - 16);
+  saeule.style.left = `${links}px`;
+  saeule.style.top = `${r.top}px`;
+  gehoben.style.marginLeft = `${klemmen(r.left - links, 0, breite - r.width)}px`;
+  const hoehe = saeule.offsetHeight;
+  const oben = klemmen(r.top, 16 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-height")) || 0), Math.max(16, innerHeight - hoehe - 16));
+  saeule.style.top = `${oben}px`;
+  const dy = r.top - oben;
+  karte.style.visibility = "hidden";
+  e.oeffnen();
+  vibrieren(12);
+  federAnim(gehoben, (p) => ({ transform: `translateY(${dy * (1 - p)}px) scale(${1 + 0.03 * p})` }), { antwort: 0.4, daempfung: 0.72 });
+  [detail, menue].forEach((el, n) => federAnim(el, (p) => ({ transform: `translateY(${dy * (1 - p) - 12 * (1 - p)}px) scale(${0.55 + 0.45 * p})`, opacity: String(klemmen(p * 2, 0, 1)) }),
+    { antwort: 0.42 + n * 0.04, daempfung: 0.8 }));
+  e.wegAnimieren = () => {
+    const r2 = karte.getBoundingClientRect(), dy2 = r2.top - oben;
+    [detail, menue].forEach((el) => federAnim(el, (p) => ({ transform: `scale(${1 - 0.4 * p})`, opacity: String(klemmen(1 - p * 2.5, 0, 1)) }), { antwort: 0.26, daempfung: 1 }));
+    return federAnim(gehoben, (p) => ({ transform: `translateY(${dy2 * p}px) scale(${1.03 - 0.03 * p})` }), { antwort: 0.3, daempfung: 1 }).finished.catch(() => {})
+      .then(() => { karte.style.visibility = ""; });
+  };
+  // Finger weiterziehen: Punkt unter dem Finger markieren, beim Loslassen wählen
+  let markiert = null;
+  const ctrl = {
+    ziehen(x, y) {
+      const el = e.root.elementFromPoint(x, y)?.closest?.("[data-wahl]") || null;
+      if (el === markiert) return;
+      markiert?.classList.remove("drauf");
+      markiert = el;
+      if (el) { el.classList.add("drauf"); vibrieren(5); }
+    },
+    loslassen() { if (markiert) { const b = markiert; b.classList.remove("drauf"); markiert = null; wahl(b); } },
+    ebene: e,
+  };
+  setTimeout(() => menue.querySelector("button")?.focus({ preventScroll: true }), 60);
+  return ctrl;
+}
+
+// ---------------------------------------------------------------------------
+// Ordner im Bearbeiten-Modus: zwei Kacheln aufeinander ziehen = neuer Ordner
+// ---------------------------------------------------------------------------
+function ordnerBilden(liste, von, auf) {
+  const a = liste[von], b = liste[auf];
+  if (!a || !b || a === b || a.karte || b.karte) return liste;
+  const ohne = (x) => { const { gruppe, an, ...rest } = x; return rest; };
+  let neu;
+  if (b.ordner) neu = { ...b, eintraege: [...(b.eintraege || []), ...(a.ordner ? a.eintraege || [] : [ohne(a)])] };
+  else {
+    const raum = (Glas.hass && a.entity) ? bereichVon(Glas.hass, b.entity) : null;
+    const gr = Glas.hass && a.entity && gruppeVon(Glas.hass, a.entity) === gruppeVon(Glas.hass, b.entity) ? gruppeVon(Glas.hass, b.entity) : "";
+    const name = gr === "licht" ? `Lichter${raum && Glas.hass.areas?.[raum] ? ` ${Glas.hass.areas[raum].name}` : ""}` : (GRUPPEN.find(([g]) => g === gr)?.[1] || "Ordner");
+    neu = { ordner: true, name, groesse: b.groesse === "klein" ? "klein" : "breit", an: true, ...(b.gruppe ? { gruppe: b.gruppe } : {}), eintraege: [ohne(b), ...(a.ordner ? a.eintraege || [] : [ohne(a)])] };
+  }
+  return liste.map((x, i) => (i === auf ? neu : x)).filter((_, i) => i !== von);
+}
+
+// Ordner bearbeiten: Name, Größe, Inhalt (herausnehmen, Reihenfolge), auflösen
+async function ordnerMenue(quelle, zugriff, i) {
+  const s = new GlasSchicht({ quelle, hoch: true, titel: "Ordner bearbeiten" });
+  s.dunkel(istDunkel(Glas.hass));
+  let o = kopieJ(zugriff.lesen(Glas.hass)[i] || {}), t = null;
+  const speichern = (sofort) => { clearTimeout(t); const los = () => zugriff.schreiben(Glas.hass, (l) => { l[i] = kopieJ(o); return l; }); if (sofort) los(); else t = setTimeout(los, 380); };
+  const zeichnen = () => {
+    const h = Glas.hass;
+    s.inhalt.innerHTML = `<style>${MENUE_CSS}.inh{display:flex;align-items:center;gap:var(--g-a2);min-height:48px}.inh + .inh{border-top:1px solid var(--g-trenn)}
+      .inh span{flex:1;min-width:0;font-size:var(--g-s-name);color:var(--g-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.inh .rund{width:32px;height:32px}</style>
+      ${s.kopfHtml(o.name || "Ordner", ordnerAnzahl(h, o.eintraege).text)}
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:form-textbox"></ha-icon>Name</div>
+        <div class="neu-zeile" style="margin:0"><input data-name value="${esc(o.name || "")}" aria-label="Name des Ordners" enterkeyhint="done"></div></div>
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Größe</div>
+        <div class="segment" role="group" aria-label="Größe">${[["klein", "S", "1×1"], ["breit", "M", "2×1"], ["gross", "L", "Stapel"], ["ganz", "Ganz", "Breite"]]
+          .map(([g, k, x]) => `<button data-g="${g}" aria-pressed="${(o.groesse || "breit") === g}">${k}<small>${x}</small></button>`).join("")}</div>
+        <div class="m-hinweis">L zeigt die ersten vier Geräte direkt bedienbar (wie ein Smart-Stapel).</div></div>
+      <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:folder-outline"></ha-icon>Im Ordner</div>
+        ${(o.eintraege || []).map((x, n) => `<div class="inh"><span>${esc(x.name || h.states[x.entity]?.attributes.friendly_name || x.entity)}</span>
+          <button class="rund" data-hoch="${n}" aria-label="Nach vorne" ${n ? "" : "disabled"}><ha-icon data-i="mdi:chevron-up"></ha-icon></button>
+          <button class="rund" data-raus="${n}" aria-label="Aus dem Ordner nehmen"><ha-icon data-i="mdi:folder-arrow-up-outline"></ha-icon></button></div>`).join("")}
+        <div data-f></div></div>
+      <div class="knoepfe"><button class="glas" data-aufloesen>Ordner auflösen</button></div>`;
+    s.kopfBinden();
+    const $ = (q) => s.inhalt.querySelector(q);
+    $("[data-name]").addEventListener("input", (e) => { o.name = e.target.value.trim() || "Ordner"; s.kopfPlatz.querySelector(".titel").textContent = o.name; speichern(); });
+    s.inhalt.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => {
+      o.groesse = b.dataset.g; s.inhalt.querySelectorAll("[data-g]").forEach((x) => x.setAttribute("aria-pressed", x === b)); speichern(true);
+    }));
+    s.inhalt.querySelectorAll("[data-hoch]").forEach((b) => b.addEventListener("click", () => { const n = Number(b.dataset.hoch); o.eintraege = verschiebenL(o.eintraege, n, n - 1); speichern(true); zeichnen(); }));
+    s.inhalt.querySelectorAll("[data-raus]").forEach((b) => b.addEventListener("click", () => {
+      const n = Number(b.dataset.raus), x = o.eintraege[n];
+      o.eintraege = o.eintraege.filter((_, k) => k !== n);
+      clearTimeout(t);
+      const zurueck = { ...(zugriff.ort.art === "raum" && x.entity ? geraetVorschlag(Glas.hass, x.entity) : { groesse: "breit" }), ...x, an: true };
+      if (o.eintraege.length < 2) { // ein Ordner mit einem Gerät ist keiner mehr
+        zugriff.schreiben(Glas.hass, (l) => [...l.slice(0, i), ...o.eintraege.map((y) => ({ ...y, an: true, ...(o.gruppe ? { gruppe: o.gruppe } : {}) })), zurueck, ...l.slice(i + 1)]);
+        s.schliessen(); return;
+      }
+      zugriff.schreiben(Glas.hass, (l) => { l[i] = kopieJ(o); return [...l.slice(0, i + 1), zurueck, ...l.slice(i + 1)]; });
+      zeichnen();
+    }));
+    haForm($("[data-f]"), {}, [{ name: "entity", selector: { entity: {} } }], { entity: "Gerät hinzufügen" }, (v) => {
+      if (!v.entity) return;
+      o.eintraege = [...(o.eintraege || []), { entity: v.entity }]; speichern(true); zeichnen();
+    });
+    $("[data-aufloesen]").addEventListener("click", () => {
+      clearTimeout(t);
+      zugriff.schreiben(Glas.hass, (l) => [...l.slice(0, i), ...(o.eintraege || []).map((y) => ({ ...(zugriff.ort.art === "raum" && y.entity ? geraetVorschlag(Glas.hass, y.entity) : { groesse: "breit" }), ...y, an: true })), ...l.slice(i + 1)]);
+      s.schliessen();
+    });
+    s.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+  };
+  zeichnen();
+  s.oeffnen();
+}
+const verschiebenL = (arr, von, nach) => { const a = [...arr]; const [x] = a.splice(von, 1); a.splice(nach, 0, x); return a; };
 // ---------------------------------------------------------------------------
 // Bereichs-Karten: kompakt auf der Startseite, Tippen öffnet ein Blatt mit allem
 // Sicherheit · Drucker & Werkstatt · Robi · Gäste
@@ -6481,6 +7056,192 @@ class GlasKameraEditor extends GlasEditor {
   labels() { return { entity: "Kamera", name: "Name (leer = aus HA)" }; }
 }
 // ---------------------------------------------------------------------------
+// Widgets wie auf dem iPhone-Homescreen: quadratische Karten in eigener Farbe, Name darunter.
+// Wetter (blau), Planer (weiß, roter Wochentag), Drucker (schwarz, Fortschrittsring),
+// Zuhause (C/L, Alarm, Fenster), Robi. Antippen öffnet die große Ansicht.
+// ---------------------------------------------------------------------------
+const WIDGET_ARTEN = ["wetter", "planer", "drucker", "zuhause", "robi", "sicherheit"];
+const WIDGET_CSS = `
+:host{display:block}
+.w{display:flex;flex-direction:column;align-items:center;gap:6px}
+.wk{position:relative;width:100%;aspect-ratio:1;border-radius:26px;padding:var(--g-a4);display:flex;flex-direction:column;text-align:left;overflow:hidden;
+  box-shadow:0 6px 22px rgba(0,0,0,.1)}
+.wn{font-size:var(--g-s-klein);font-weight:600;color:var(--g-text)}
+.wetter{background:linear-gradient(170deg,#3a6fbf,#5d95dc);color:#fff}
+.wetter.nacht{background:linear-gradient(170deg,#1b2747,#34497a)}
+.wetter .ort{font-size:var(--g-s-name);font-weight:600}
+.wetter .grad{font-size:46px;font-weight:300;line-height:1;margin-top:2px}
+.wetter .unten{margin-top:auto;display:flex;flex-direction:column;gap:2px;font-size:var(--g-s-klein);font-weight:600}
+.wetter .unten small{font-size:var(--g-s-klein);font-weight:500;opacity:.85}
+.wetter ha-icon{--mdc-icon-size:22px}
+.planer{background:#fff;color:#1c1c1e}
+:host([dunkel]) .planer{background:#1c1c1e;color:#f2f2f7}
+.planer .tag{font-size:var(--g-s-klein);font-weight:700;letter-spacing:.3px;color:#ff3b30;text-transform:uppercase}
+.planer .zahl{font-size:34px;font-weight:300;line-height:1.05}
+.planer .liste{margin-top:var(--g-a2);display:flex;flex-direction:column;gap:6px;min-height:0;overflow:hidden}
+.planer .e{display:flex;flex-direction:column;padding-left:8px;border-left:3px solid var(--ef,#0a84ff);min-width:0}
+.planer .e b{font-size:var(--g-s-klein);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.planer .e span{font-size:var(--g-s-mini);opacity:.6}
+.planer .frei{font-size:var(--g-s-klein);opacity:.6;margin-top:var(--g-a2)}
+.drucker{background:#1c1c1e;color:#fff;align-items:center;justify-content:center;gap:var(--g-a2)}
+.ring-w{position:relative;width:62%;aspect-ratio:1}
+.ring-w svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring-w circle{fill:none;stroke-width:9}
+.ring-w b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.ring-w ha-icon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;--mdc-icon-size:34px;color:#8e8e93}
+.drucker .zeile{font-size:var(--g-s-klein);font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.zuhause{background:linear-gradient(170deg,#e9f3e6,#cfe8c8);color:#1c1c1e}
+.zuhause.weg{background:linear-gradient(170deg,#f2ece4,#e6dccd)}
+:host([dunkel]) .zuhause{background:linear-gradient(170deg,#1f3322,#152418);color:#f2f2f7}
+:host([dunkel]) .zuhause.weg{background:linear-gradient(170deg,#2f2a22,#211d17)}
+.avas{display:flex}
+.ava{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--g-s-h2);font-weight:700;color:#fff;
+  box-shadow:0 0 0 3px #fff;background:var(--af)}
+.ava + .ava{margin-left:-8px}
+.ava.weg{filter:grayscale(1);opacity:.55}
+.zuhause .unten,.robi .unten{margin-top:auto;display:flex;flex-direction:column;gap:2px}
+.zuhause b,.robi b{font-size:var(--g-s-text);font-weight:700;line-height:1.2}
+.zuhause small,.robi small{font-size:var(--g-s-klein);opacity:.75;line-height:1.3}
+.robi{background:linear-gradient(170deg,#efeaff,#dcd2ff);color:#1c1c1e}
+:host([dunkel]) .robi{background:linear-gradient(170deg,#2a2240,#1d1830);color:#f2f2f7}
+.robi .kreis{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#5e5ce6;color:#fff}
+.robi .kreis ha-icon{--mdc-icon-size:28px}
+`;
+const PERSON_FARBEN = ["#0a84ff", "#ff2d55", "#34c759", "#ff9f0a", "#5e5ce6"];
+
+class GlasWidgetCard extends GlasKarte {
+  constructor() { super(); this._helfer = new Map(); }
+  static standard() { return { art: "wetter" }; }
+  static getConfigElement() { return document.createElement("glas-widget-card-editor"); }
+  static getStubConfig() { return { art: "zuhause" }; }
+  getGridOptions() { return { columns: 6, rows: 4 }; }
+  disconnectedCallback() { super.disconnectedCallback(); this._abo?.then((f) => f?.()).catch(() => {}); this._abo = null; }
+  helfer(tag, cfg) {
+    const json = JSON.stringify(cfg);
+    let el = this._helfer.get(tag);
+    if (!el || el._json !== json) {
+      el = document.createElement(tag);
+      try { el.setConfig(cfg); } catch (_) { return null; }
+      el._json = json;
+      if (tag === "glas-planer-card") {
+        // Planer-Karte als Datenquelle: nach jedem Laden (Aufgaben, Termine) das Widget neu zeichnen
+        const orig = el.render.bind(el); el.render = () => { orig(); this.render(); };
+        const ot = el.termineLaden.bind(el); el.termineLaden = () => ot().then(() => this.render());
+      }
+      this._helfer.set(tag, el);
+    }
+    if (el._hass !== this._hass) el.hass = this._hass;
+    return el;
+  }
+  set hass(h) { this._hass = h; Glas.hassSetzen(h); this.toggleAttribute("dunkel", istDunkel(h)); if (this._config) this.render(); }
+  get hass() { return this._hass; }
+  css() { return WIDGET_CSS; }
+  b() { return Glas.einst?.bereiche || {}; }
+  name() { return this._config.name || { wetter: "Wetter", planer: "Planer", drucker: this.b().drucker?.name ? `${this.b().drucker.name}` : "3D-Drucker", zuhause: "Zuhause", sicherheit: "Zuhause", robi: this.b().robi?.name || "Robi" }[this._config.art] || ""; }
+  html() {
+    const a = this._config.art === "sicherheit" ? "zuhause" : this._config.art;
+    const inhalt = this[`w_${a}`]?.() || ["", ""];
+    return `<div class="w"><button class="wk ${a} ${inhalt[1]}" aria-label="${esc(this.name())}: ${esc(inhalt[2] || "")}">${inhalt[0]}</button><span class="wn" aria-hidden="true">${esc(this.name())}</span></div>`;
+  }
+  binden() {
+    this.iconsSetzen();
+    this.$(".wk").addEventListener("click", () => this.oeffnen());
+  }
+  oeffnen() {
+    const a = this._config.art, b = this.b(), h = this._hass;
+    vibrieren(8);
+    if (a === "wetter") { const e = this.wetterE(); if (e) kzKarteOeffnenSchicht(this, "glas-wetter-card", { ...(b.wetter || {}), entity: e }, "Wetter"); return; }
+    if (a === "planer") { kzKarteOeffnenSchicht(this, "glas-planer-card", b.planer || {}, "Planer"); return; }
+    if (a === "drucker") { this.helfer("glas-drucker-card", b.drucker || {})?.blattOeffnen(); return; }
+    if (a === "robi") { const e = b.robi?.entity || Object.keys(h.states).find((x) => x.startsWith("vacuum.")); if (e) this.helfer("glas-robi-card", { ...(b.robi || {}), entity: e })?.blattOeffnen(); return; }
+    this.helfer("glas-sicherheit-card", { fenster_auto: true, ...(b.sicherheit || {}) })?.blattOeffnen();
+  }
+  wetterE() { return this.b().wetter?.entity || Object.keys(this._hass.states).find((x) => x.startsWith("weather.")); }
+  w_wetter() {
+    const e = this.wetterE(), st = e && this._hass.states[e];
+    if (!st) return [`<span class="ort">Kein Wetter</span>`, ""];
+    if (!this._abo && this._hass.connection) {
+      this._abo = this._hass.connection.subscribeMessage((m) => { this._tag = m.forecast?.[0]; this.render(); }, { type: "weather/subscribe_forecast", forecast_type: "daily", entity_id: e }).catch(() => null);
+    }
+    const [text, icon] = WETTER[st.state] || [zustandText(this._hass, st), "mdi:weather-partly-cloudy"];
+    const t = st.attributes.temperature, f = this._tag;
+    const ht = f && f.temperature != null ? `H ${Math.round(f.temperature)}° T ${Math.round(f.templow ?? f.temperature)}°` : "";
+    const ort = this.b().wetter?.ort || st.attributes.friendly_name || "Wetter";
+    return [`<span class="ort">${esc(ort)}</span><span class="grad">${t != null ? Math.round(t) : "–"}°</span>
+      <span class="unten"><ha-icon data-i="${icon}"></ha-icon>${esc(text)}${ht ? `<small>${ht}</small>` : ""}</span>`, st.state === "clear-night" ? "nacht" : "", `${t}°, ${text}`];
+  }
+  w_planer() {
+    const p = this.helfer("glas-planer-card", this.b().planer || {});
+    const jetzt = new Date();
+    const tag = jetzt.toLocaleDateString("de-DE", { weekday: "long" });
+    const person = Glas.aktuellePerson(this._hass);
+    const morgen0 = new Date(jetzt); morgen0.setHours(24, 0, 0, 0);
+    const termine = (p?._termine || []).filter((t) => t.start < morgen0 && t.ende > jetzt);
+    const farben = p?._daten?.farben || {};
+    const auf = (p?.aufgaben?.(person) || []).filter((a) => a.status === "offen");
+    const eintraege = [...termine.map((t) => ({ t: t.titel, z: t.ganztag ? "Ganztägig" : `${uhr(t.start)}–${uhr(t.ende)}`, f: "#0a84ff" })),
+      ...auf.map((a) => ({ t: a.titel, z: a.uhrzeit || (a.datum && a.datum < heuteIso() ? "überfällig" : "Heute"), f: farben[a.bereich] || "#34c759" }))].slice(0, 2);
+    return [`<span class="tag">${esc(tag)}</span><span class="zahl">${jetzt.getDate()}</span>
+      ${eintraege.length ? `<span class="liste">${eintraege.map((x) => `<span class="e" style="--ef:${x.f}"><b>${esc(x.t)}</b><span>${esc(x.z)}</span></span>`).join("")}</span>`
+        : `<span class="frei">${p?._daten ? "Heute ist nichts geplant" : "Lade …"}</span>`}`, "", `${tag} ${jetzt.getDate()}, ${eintraege.length} Einträge`];
+  }
+  w_drucker() {
+    const d = this.helfer("glas-drucker-card", this.b().drucker || {});
+    const w = d?.werte?.();
+    if (!w) return [`<span class="zeile">Nicht eingerichtet</span>`, ""];
+    const pct = w.laeuft && w.pct != null ? klemmen(w.pct, 0, 100) : null;
+    const farbe = w.pause ? "#ff9f0a" : "#34c759";
+    const rest = (w.rest.match(/noch ([^·]+)/) || [])[1]?.trim();
+    return [`<span class="ring-w"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" stroke="rgba(255,255,255,.16)"/>
+      ${pct != null ? `<circle cx="50" cy="50" r="44" stroke="${farbe}" stroke-linecap="round" stroke-dasharray="${(276.5 * pct / 100).toFixed(1)} 277"/>` : ""}</svg>
+      ${pct != null ? `<b>${Math.round(pct)}%</b>` : `<ha-icon data-i="mdi:printer-3d-nozzle"></ha-icon>`}</span>
+      <span class="zeile">${esc(pct != null ? `${this.b().drucker?.name || "Drucker"}${rest ? ` · noch ${rest}` : ""}` : `${this.b().drucker?.name || "Drucker"} ${w.status}`)}</span>`, "",
+      pct != null ? `${Math.round(pct)} Prozent${rest ? `, noch ${rest}` : ""}` : w.status];
+  }
+  w_zuhause() {
+    const h = this._hass, e = Glas.einst || {};
+    const leute = (e.personen || []).filter((p) => !p.tablet);
+    const da = leute.filter((p) => p.entity && h.states[p.entity]?.state === "home");
+    const text = !leute.length ? "Zuhause" : da.length === leute.length ? (leute.length === 2 ? "Beide zu Hause" : leute.length > 2 ? "Alle zu Hause" : `${leute[0].name} ist da`)
+      : da.length ? `${da.map((p) => p.name).join(", ")} zu Hause` : "Keiner zu Hause";
+    const alarmE = e.bereiche?.sicherheit?.alarm || Object.keys(h.states).find((x) => x.startsWith("alarm_control_panel."));
+    const al = alarmE && h.states[alarmE];
+    const fenster = Object.keys(h.states).filter((x) => x.startsWith("binary_sensor.") && ["window", "door"].includes(h.states[x].attributes.device_class) && h.states[x].state === "on").length;
+    const unter = [al ? (al.state === "disarmed" ? "Alarm aus" : "Alarm scharf") : "", fenster ? `${fenster} ${fenster === 1 ? "Fenster offen" : "Fenster offen"}` : "Alles zu"].filter(Boolean).join(" · ");
+    return [`<span class="avas" aria-hidden="true">${leute.slice(0, 3).map((p, i) => `<span class="ava ${da.includes(p) ? "" : "weg"}" style="--af:${PERSON_FARBEN[i % PERSON_FARBEN.length]}">${esc((p.kurz || p.name || "?").slice(0, 1))}</span>`).join("")}</span>
+      <span class="unten"><b>${esc(text)}</b><small>${esc(unter)}</small></span>`, da.length ? "" : "weg", `${text}, ${unter}`];
+  }
+  w_robi() {
+    const h = this._hass, e = this.b().robi?.entity || Object.keys(h.states).find((x) => x.startsWith("vacuum."));
+    const st = e && h.states[e];
+    if (!st) return [`<b>Kein Saugroboter</b>`, ""];
+    const ak = st.attributes.battery_level;
+    const s = ROBI_STATUS[st.state] || zustandText(h, st);
+    return [`<span class="kreis"><ha-icon data-i="mdi:robot-vacuum"></ha-icon></span><span class="unten"><b>${esc(s)}</b>${ak != null ? `<small>Akku ${Math.round(ak)} %</small>` : ""}</span>`, "", `${s}${ak != null ? `, Akku ${Math.round(ak)} Prozent` : ""}`];
+  }
+}
+class GlasWidgetEditor extends GlasEditor {
+  schema() {
+    return [{ name: "art", selector: { select: { mode: "dropdown", options: [["wetter", "Wetter"], ["planer", "Planer (heute)"], ["drucker", "3D-Drucker"], ["zuhause", "Zuhause (Personen, Alarm, Fenster)"], ["robi", "Robi"]]
+      .map(([value, label]) => ({ value, label })) } } }, { name: "name", selector: { text: {} } }];
+  }
+  labels() { return { art: "Widget", name: "Name darunter (leer = automatisch)" }; }
+}
+// Eine ganze Karte in einem Blatt zeigen (Wetter, Planer): Widget antippen = große Ansicht
+function kzKarteOeffnenSchicht(quelle, tag, cfg, titel) {
+  const el = document.createElement(tag);
+  try { el.setConfig(cfg); } catch (_) { return; }
+  el.hass = Glas.hass;
+  const neu = () => { el.hass = Glas.hass; };
+  const s = new GlasSchicht({ quelle, titel, zu: () => Glas.hassHoerer.delete(neu) });
+  s.dunkel(istDunkel(Glas.hass));
+  s.inhalt.innerHTML = s.kopfHtml(titel, "");
+  s.kopfBinden();
+  s.inhalt.appendChild(el);
+  Glas.hassHoerer.add(neu);
+  s.oeffnen();
+}
+// ---------------------------------------------------------------------------
 // glas-zuhause-card: das ganze Dashboard aus den zentralen Einstellungen.
 // Kopf, Startseite der gewählten Person, Raumleiste und Raum-Blätter, mit Hintergrund.
 // ---------------------------------------------------------------------------
@@ -6489,9 +7250,13 @@ const ZUHAUSE_CSS = `
 .hg{position:fixed;inset:0;z-index:0;pointer-events:none}
 .seite{position:relative;z-index:1;max-width:1320px;margin:0 auto;
   padding:var(--g-a4) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
+.seite{transition:padding-top .35s cubic-bezier(.32,.72,0,1)}
+.seite.mit-insel{padding-top:60px}
 .raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);margin-top:var(--g-a3);align-items:start}
 .raster > *{grid-column:span 12;min-width:0}
 .raster > .halb{grid-column:span 6}
+.raster > .widget{grid-column:span 6}
+@media (min-width:900px){.raster > .widget{grid-column:span 3}}
 .abschnitt-titel{grid-column:span 12;margin:var(--g-a4) var(--g-a1) var(--g-a1)}
 .fav{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2)}
 .fav > *{min-width:0}
@@ -6513,6 +7278,8 @@ class GlasZuhauseCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._kinder = new Map(); // Schlüssel → Element (wird wiederverwendet, damit nichts flackert)
     this._hoerer = () => this.aufbauen();
+    // Platz oben für die Insel, solange etwas läuft
+    this.shadowRoot.addEventListener("glas-insel", (e) => this.shadowRoot.querySelector(".seite")?.classList.toggle("mit-insel", e.detail.anzahl > 0 && !Glas.bearbeiten));
   }
   setConfig(c) { this._config = c || {}; this.aufbauen(); }
   getCardSize() { return 12; }
@@ -6602,6 +7369,7 @@ class GlasZuhauseCard extends HTMLElement {
     }
     const s = startseiteVon(e, person);
     const teile = [];
+    if (!Glas.bearbeiten && e.insel?.an !== false) teile.push(this.kind("insel", "glas-insel-card", {}));
     teile.push(this.kind("kopf", "glas-kopf-card", { gruss_modus: e.gruss_modus || "name", gruss_text: e.gruss_text, untertitel: e.untertitel, personen: e.personen || [], chips: s.chips || [] }));
     const b = e.bereiche || {};
     const bearb = Glas.bearbeiten;
@@ -6644,27 +7412,31 @@ class GlasZuhauseCard extends HTMLElement {
       // Von null: offensichtliche Entitäten selbst finden (einzige Wetter-Entität, einziger Saugroboter)
       const erste = (d) => { const l = Object.keys(this._hass.states).filter((x) => x.startsWith(`${d}.`)); return l.length === 1 ? l[0] : null; };
       const wetterE = b.wetter?.entity || erste("weather"), robiE = b.robi?.entity || erste("vacuum");
-      if (a.id === "wetter" && wetterE) el = this.kind("wetter", "glas-wetter-card", { ...(b.wetter || {}), entity: wetterE });
+      const alsWidget = (a.widget || a.id === "zuhause") && WIDGET_ARTEN.includes(a.id);
+      const eingerichtet = { wetter: !!wetterE, planer: b.planer?.an !== false, drucker: !!(b.drucker?.geraet || b.drucker?.fortschritt), robi: !!robiE, zuhause: true, sicherheit: true }[a.id];
+      if (alsWidget && eingerichtet) el = this.kind(`w-${a.id}`, "glas-widget-card", { art: a.id });
+      else if (alsWidget) el = null;
+      else if (a.id === "wetter" && wetterE) el = this.kind("wetter", "glas-wetter-card", { ...(b.wetter || {}), entity: wetterE });
       else if (a.id === "planer" && b.planer?.an !== false) el = this.kind("planer", "glas-planer-card", b.planer || {});
       else if (a.id === "sicherheit" && b.sicherheit && (b.sicherheit.alarm || b.sicherheit.fenster_auto !== false)) el = this.kind("sicherheit", "glas-sicherheit-card", { fenster_auto: true, ...(b.sicherheit || {}) });
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
       else if (a.id === "robi" && robiE) el = this.kind("robi", "glas-robi-card", { ...(b.robi || {}), entity: robiE });
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
-      else if (a.id === "favoriten" && (bearb || (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte))))) {
+      else if (a.id === "favoriten" && (bearb || (s.favoriten || []).some((f) => f.an !== false && (f.entity || f.ordner || listenKarte(f.karte))))) {
         const wrap = document.createElement("div");
         wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
         wrap.style.display = bearb ? "grid" : "contents";
         if (bearb) { wrap.style.gridTemplateColumns = "repeat(12,minmax(0,1fr))"; wrap.style.gap = "var(--g-a2)"; }
         const fav = wrap.querySelector(".fav");
-        (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || listenKarte(f.karte))).forEach(({ f, i }, n) => {
+        (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || f.ordner || listenKarte(f.karte))).forEach(({ f, i }, n) => {
           const kk = f.karte && listenKarte(f.karte);
           const kc = kk && (({ type, ...r }) => r)(listenKarteCfg(f));
-          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], kc) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
+          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], kc) : f.ordner ? this.kind(`fav${n}-ordner`, "glas-ordner-card", ordnerCfg(f)) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
           if (bearb) {
             z.dataset.i = i;
-            z.dataset.name = kk ? listenKarteName(f) : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
+            z.dataset.name = kk ? listenKarteName(f) : f.ordner ? `Ordner ${f.name || ""}` : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
             if (f.an === false) z.classList.add("aus");
           }
           z.appendChild(k);
@@ -6679,13 +7451,16 @@ class GlasZuhauseCard extends HTMLElement {
       if (!el) el = platz(a.id === "favoriten" ? "Noch keine Favoriten" : !a.an ? "Ausgeblendet" : "Noch nicht eingerichtet · antippen");
       else if (bearb && !a.an) el = platz("Ausgeblendet");
       const z = umhuellen(el, false);
-      el.classList.toggle("halb", a.breite === "halb" && !bearb);
-      z.classList.toggle("halb", a.breite === "halb");
+      el.classList.toggle("halb", a.breite === "halb" && !bearb && !alsWidget);
+      z.classList.toggle("halb", a.breite === "halb" && !alsWidget);
+      el.classList.toggle("widget", alsWidget && !bearb);
+      z.classList.toggle("widget", alsWidget);
       raster.appendChild(z);
     }
     teile.push(raster);
     if (bearb) bearbeitRaster(raster, abZugriff, this, { mitNeu: false, menue: (i) => abschnittMenue(this, abZugriff, i) });
     seite.replaceChildren(...teile);
+    seite.classList.toggle("mit-insel", (this._kinder.get("insel") || this._neu.get("insel"))?._anzahl > 0 && !Glas.bearbeiten);
     // Räume: Leiste + Blätter (leben unsichtbar, öffnen über #raum)
     const raeume = (e.raeume || []).filter((r) => r.hash);
     const unten = [];
@@ -6699,6 +7474,8 @@ class GlasZuhauseCard extends HTMLElement {
     this._kinder = this._neu;
   }
 }
+// Ordner aus den Einstellungen → Ordner-Karte
+function ordnerCfg(o) { return { name: o.name || "Ordner", groesse: o.groesse || "breit", eintraege: (o.eintraege || []).map((x) => kachelCfg(x)) }; }
 // Gerät aus den Einstellungen → Kachel-Konfiguration
 function kachelCfg(g) {
   const { an, gruppe, ...rest } = g;
@@ -6706,7 +7483,7 @@ function kachelCfg(g) {
 }
 // alle = Bearbeiten-Modus: auch Ausgeblendete, mit Index (_i) und Gruppe (_gruppe) für Ziehen und Menü
 function raumCfg(hass, r, alle = false) {
-  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).map((g, i) => ({ g, i })).filter(({ g }) => (alle || g.an !== false) && (g.entity || g.karte));
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).map((g, i) => ({ g, i })).filter(({ g }) => (alle || g.an !== false) && (g.entity || g.karte || g.ordner));
   const cards = [];
   let gruppe = null;
   const extra = (g, i, gr) => (alle ? { _i: i, _aus: g.an === false, ...(gr ? { _gruppe: gr } : {}), ...(g.karte ? { _karte: g.karte } : {}) } : {});
@@ -6717,6 +7494,12 @@ function raumCfg(hass, r, alle = false) {
       const gr = g.gruppe || `karte-${g.karte}`;
       if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
       cards.push({ ...k, ...extra(g, i) });
+      continue;
+    }
+    if (g.ordner) {
+      const gr = g.gruppe || (g.eintraege?.[0]?.entity && hass.states[g.eintraege[0].entity] ? gruppeVon(hass, g.eintraege[0].entity) : "sonstiges");
+      if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
+      cards.push({ type: "custom:glas-ordner-card", ...ordnerCfg(g), ...extra(g, i) });
       continue;
     }
     const gr = g.gruppe || gruppeVon(hass, g.entity);
@@ -6824,6 +7607,536 @@ class GlasHinweiseEditor extends GlasEditor {
   labels() { return { an: "Warnungen oben auf der Startseite", regen: "Woran erkenne ich Regen? (leer = Wetter-Entität)" }; }
   hilfen() { return { regen: "Wetter-Entität (regnet laut Zustand), Regen-/Nässesensor (an = nass) oder Niederschlagssensor (über 0 = Regen).", an: "Rot: keiner zu Hause und Fenster offen. Blau: es regnet und ein Fenster ist offen. Wetter kommt aus „Wetter“, Personen aus „Personen“." }; }
 }
+// ---------------------------------------------------------------------------
+// Kontrollzentrum wie iOS: an der Raumleiste hochziehen (oder Griff antippen).
+// Die Leiste wächst zum dunklen Glas-Feld, die Räume bleiben unten erreichbar.
+// Inhalt: Knopf-Block (2×2), Medien, hohe Schieber, Modus, runde Einzelknöpfe.
+// ---------------------------------------------------------------------------
+const KZ_CSS = `
+.fest{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(560px,calc(100% - 32px));z-index:6;touch-action:none}
+.fest .leiste{position:relative;z-index:2;transition:background-color .25s ease,border-color .25s ease,box-shadow .25s ease}
+.kz-dimm{position:fixed;inset:0;z-index:5;background:rgba(0,0,0,.28);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);opacity:0;visibility:hidden;touch-action:none}
+.kz-clip{position:absolute;left:0;right:0;bottom:0;height:var(--kz-h,0px);border-radius:34px;overflow:hidden;pointer-events:none;z-index:1}
+.kz-panel{position:absolute;left:0;right:0;bottom:0;padding:var(--g-a2) var(--g-a3) 80px;border-radius:34px;container-type:inline-size;
+  background:rgba(58,58,66,.72);-webkit-backdrop-filter:blur(34px) saturate(170%);backdrop-filter:blur(34px) saturate(170%);border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 20px 60px rgba(0,0,0,.3);transform:translateY(100%);color:#fff}
+.offen .kz-clip{pointer-events:auto}
+.kz-griff-oben{height:20px;display:flex;align-items:center;justify-content:center;margin-bottom:var(--g-a1)}
+.kz-griff-oben span,.kz-griff span{width:36px;height:5px;border-radius:3px;background:currentColor;opacity:.45}
+.kz-griff{position:absolute;left:50%;bottom:68px;z-index:3;width:88px;height:22px;margin-left:-44px;display:flex;align-items:center;justify-content:center;color:var(--g-text);transition:opacity .2s ease}
+.kz-tipp{position:absolute;left:50%;bottom:92px;z-index:3;transform:translateX(-50%);padding:6px 12px;border-radius:var(--g-r-pille);white-space:nowrap;
+  font-size:var(--g-s-klein);font-weight:600;color:var(--g-text);pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.12);animation:kz-tipp 2.4s ease-in-out 3}
+@keyframes kz-tipp{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-4px)}}
+.offen .kz-griff,.offen .kz-tipp,.zieht .kz-tipp{opacity:0;pointer-events:none}
+.im-kz .leiste{background:transparent;border-color:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+.im-kz .raum{color:rgba(255,255,255,.88)}
+.im-kz .raum[aria-current="page"]{background:#fff;color:#1c1c1e}
+.kz-raster{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:calc((100cqw - 24px - 36px) / 4);gap:12px;grid-auto-flow:row dense}
+.kz-raster > *{min-width:0}
+.blk{border-radius:28px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.08)}
+.b22{grid-column:span 2;grid-row:span 2}
+.b12{grid-row:span 2}
+.b21{grid-column:span 2}
+.b41{grid-column:span 4}
+.knoepfe4{display:grid;grid-template-columns:1fr 1fr;place-items:center;padding:8%}
+.rk{width:min(64px,100%);aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.16);color:#fff;
+  transition:background-color .2s ease,color .2s ease,transform .16s cubic-bezier(.23,1,.32,1)}
+.rk ha-icon,.rk ha-state-icon{--mdc-icon-size:26px}
+.rk.an{background:#fff;color:var(--kf,#ff9f0a)}
+.rk:active,.mod:active,.med-k button:active{transform:scale(.92)}
+.med{display:flex;flex-direction:column;justify-content:space-between;padding:14px;gap:6px;overflow:hidden}
+.med-kopf{display:flex;gap:10px;align-items:center;min-width:0}
+.cover{flex:none;width:44px;height:44px;border-radius:10px;background:linear-gradient(160deg,#ff9f0a,#ff375f) center/cover}
+.med-t{min-width:0;display:flex;flex-direction:column}
+.med-t b{font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.med-t span{font-size:var(--g-s-klein);color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.med-k{display:flex;justify-content:space-around;align-items:center}
+.med-k button{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;transition:transform .16s cubic-bezier(.23,1,.32,1)}
+.med-k ha-icon{--mdc-icon-size:28px}
+.sch{position:relative;overflow:hidden;border-radius:28px;background:rgba(255,255,255,.16);touch-action:none;cursor:ns-resize}
+.sch .f{position:absolute;left:0;right:0;bottom:0;height:100%;background:#fff;transform-origin:50% 100%;transition:transform .2s cubic-bezier(.23,1,.32,1)}
+.sch.zieht .f{transition:none}
+.sch .sym{position:absolute;left:50%;bottom:16px;margin-left:-14px;color:var(--kf,#ff9f0a)}
+.sch .sym ha-state-icon{--mdc-icon-size:28px}
+.sch .wert{position:absolute;left:0;right:0;top:12px;text-align:center;font-size:var(--g-s-klein);font-weight:700;color:#fff;mix-blend-mode:difference;font-variant-numeric:tabular-nums}
+.mod{display:flex;align-items:center;gap:10px;padding:0 16px;color:#fff;text-align:left;transition:background-color .2s ease,transform .16s cubic-bezier(.23,1,.32,1)}
+.mod.an{background:#fff;color:#1c1c1e}
+.mod .ic{flex:none;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.16)}
+.mod.an .ic{background:var(--kf,#5e5ce6);color:#fff}
+.mod span{display:flex;flex-direction:column;min-width:0}
+.mod b{font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mod small{font-size:var(--g-s-klein);opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reihe{display:flex;justify-content:space-around;align-items:center;padding:0 6px}
+.reihe .rk{width:min(56px,44cqw)}
+.kz-leer{grid-column:span 4;padding:var(--g-a3);font-size:var(--g-s-klein);color:rgba(255,255,255,.75);line-height:1.4;text-align:center}
+@media (prefers-reduced-motion:reduce){.kz-tipp{animation:none}}
+`;
+
+// Was ins Kontrollzentrum kommt: aus den Einstellungen, sonst sinnvoll geraten
+function kzInhalt(h, e) {
+  const k = e?.kontrollzentrum || {};
+  const alle = Object.keys(h.states);
+  const erste = (f) => alle.find(f);
+  const istHeizModus = (x) => /^(input_)?select\./.test(x) && /heiz|heat|modus/i.test(`${x} ${h.states[x].attributes.friendly_name || ""}`);
+  const knoepfe = k.knoepfe?.length ? k.knoepfe : [
+    alle.some((x) => x.startsWith("light.")) ? "lichter" : null,
+    erste(istHeizModus), erste((x) => x.startsWith("alarm_control_panel.")), erste((x) => x.startsWith("vacuum.")),
+  ].filter(Boolean);
+  const medien = k.medien === "-" ? null : k.medien || erste((x) => x.startsWith("media_player.") && h.states[x].state === "playing") || erste((x) => x.startsWith("media_player.") && h.states[x].attributes.media_title);
+  const regler = k.regler?.length ? k.regler : [erste((x) => x.startsWith("light.") && Geraet.istAn(h.states[x]) && Geraet.regler(h.states[x])) || erste((x) => x.startsWith("light.") && Geraet.regler(h.states[x])),
+    erste((x) => x.startsWith("cover.") && Geraet.regler(h.states[x]))].filter(Boolean);
+  const modus = k.modus === "-" ? null : k.modus || null;
+  const rund = k.rund?.length ? k.rund : [...alle.filter((x) => x.startsWith("scene.")).slice(0, 3), ...(e?.bereiche?.gaeste?.ssid || e?.bereiche?.gaeste?.ssid_entity ? ["gaeste"] : [])];
+  return { knoepfe: knoepfe.slice(0, 4), medien, regler: regler.slice(0, 2), modus, rund: rund.slice(0, 4) };
+}
+const lichterAn = (h) => Object.keys(h.states).filter((x) => x.startsWith("light.") && h.states[x].state === "on");
+
+class Kontrollzentrum {
+  constructor(leiste, root) {
+    this.leiste = leiste; this.root = root; this.p = 0;
+    this.w = root.querySelector(".w");
+    this.fest = root.querySelector(".fest");
+    this.clip = root.querySelector(".kz-clip");
+    this.panel = root.querySelector(".kz-panel");
+    this.dimm = root.querySelector(".kz-dimm");
+    this.raster = root.querySelector(".kz-raster");
+    this.griff = root.querySelector(".kz-griff");
+    this.dimm.addEventListener("click", () => this.zu());
+    this.griff.addEventListener("click", () => { if (performance.now() - (this.gezogen || 0) > 300) this.auf(); });
+    this._taste = (e) => { if (e.key === "Escape" && this.offen && !GlasSchicht.stapel.length) { e.stopPropagation(); this.zu(); } };
+    this._hass = () => { if (this.offen && !this._sperre) this.zeichnen(); };
+    this.gesten();
+  }
+  get offen() { return this.p > 0.5; }
+  hoehe() { return this.panel.offsetHeight || 400; }
+  setzen(p) {
+    this.p = p;
+    const H = this.hoehe();
+    this.panel.style.transform = `translateY(${(1 - p) * H}px)`;
+    this.dimm.style.opacity = String(klemmen(p, 0, 1));
+    this.dimm.style.visibility = p > 0.001 ? "visible" : "hidden";
+    this.w.classList.toggle("im-kz", p > 0.35);
+  }
+  animieren(ziel, v = 0) {
+    this.anim?.forEach((a) => a.cancel());
+    const von = this.p, H = this.hoehe();
+    this.p = ziel;
+    this.w.classList.toggle("im-kz", ziel > 0.5);
+    this.dimm.style.visibility = "visible";
+    const opt = { von, nach: ziel, v: v / H, antwort: ziel ? 0.44 : 0.36, daempfung: ziel ? 0.82 : 1 };
+    this.anim = [federAnim(this.panel, (p) => ({ transform: `translateY(${(1 - p) * H}px)` }), opt),
+      federAnim(this.dimm, (p) => ({ opacity: String(klemmen(p, 0, 1)) }), opt)];
+    this.anim[0].finished.then(() => { this.anim = null; if (!this.p) this.dimm.style.visibility = "hidden"; }, () => {});
+  }
+  auf(v = 0) {
+    if (!this.offenGemerkt) { this.offenGemerkt = true; try { localStorage.setItem("glas-kz-gesehen", "1"); } catch (_) { /* */ } this.root.querySelector(".kz-tipp")?.remove(); }
+    this.zeichnen();
+    this.clip.style.setProperty("--kz-h", `${this.hoehe() + 2}px`);
+    this.w.classList.add("offen");
+    this.griff.setAttribute("aria-expanded", "true");
+    Glas.hassHoerer.add(this._hass);
+    document.addEventListener("keydown", this._taste, true);
+    vibrieren(8);
+    this.animieren(1, v);
+    setTimeout(() => this.raster.querySelector("button")?.focus({ preventScroll: true }), 80);
+  }
+  zu(v = 0) {
+    this.w.classList.remove("offen");
+    this.griff.setAttribute("aria-expanded", "false");
+    Glas.hassHoerer.delete(this._hass);
+    document.removeEventListener("keydown", this._taste, true);
+    this.animieren(0, v);
+  }
+  // aktuelle Lage (auch mitten in einer Feder) übernehmen
+  greifen() {
+    if (!this.anim) return;
+    const m = new DOMMatrixReadOnly(getComputedStyle(this.panel).transform);
+    this.anim.forEach((a) => a.cancel()); this.anim = null;
+    this.setzen(klemmen(1 - m.m42 / this.hoehe(), 0, 1));
+  }
+  gesten() {
+    let z = null;
+    const start = (e) => {
+      if (e.button > 0 || e.target.closest(".sch,.med-k,.kz-raster button")) return;
+      z = { y: e.clientY, x: e.clientX, aktiv: false, punkte: [[performance.now(), e.clientY]], id: e.pointerId, ziel: e.currentTarget };
+    };
+    const bewegen = (e) => {
+      if (!z || z.id !== e.pointerId) return;
+      const dy = e.clientY - z.y, dx = e.clientX - z.x;
+      if (!z.aktiv) {
+        if (Math.abs(dy) < 8 || Math.abs(dy) < Math.abs(dx)) return;
+        if (!this.offen && dy > 0) { z = null; return; }
+        z.aktiv = true; z.y = e.clientY;
+        this.greifen();
+        if (!this.offen) { this.zeichnen(); this.clip.style.setProperty("--kz-h", `${this.hoehe() + 2}px`); }
+        z.p0 = this.p; z.H = this.hoehe();
+        this.w.classList.add("zieht");
+        try { z.ziel.setPointerCapture(e.pointerId); } catch (_) { /* */ }
+      }
+      let p = z.p0 - (e.clientY - z.y) / z.H;
+      if (p > 1) p = 1 + gummi((p - 1) * z.H, 60) / z.H;
+      this.setzen(Math.max(0, p));
+      const t = performance.now();
+      z.punkte.push([t, e.clientY]);
+      while (z.punkte.length > 2 && t - z.punkte[0][0] > 90) z.punkte.shift();
+    };
+    const ende = () => {
+      if (!z) return;
+      const s = z; z = null;
+      if (!s.aktiv) return;
+      this.gezogen = performance.now();
+      this.w.classList.remove("zieht");
+      const [t0, y0] = s.punkte[0], [t1, y1] = s.punkte[s.punkte.length - 1];
+      const v = t1 - t0 > 0 ? ((y1 - y0) / (t1 - t0)) * 1000 : 0;
+      const ziel = this.p - (v * 0.18) / s.H;
+      if (ziel > 0.5 || v < -500) this.auf(-v); else this.zu(-v);
+    };
+    for (const el of [this.fest, this.panel]) {
+      el.addEventListener("pointerdown", start);
+      el.addEventListener("pointermove", bewegen);
+      el.addEventListener("pointerup", ende);
+      el.addEventListener("pointercancel", ende);
+    }
+    // Klick nach dem Ziehen nicht als Raumwechsel werten
+    this.fest.addEventListener("click", (e) => { if (performance.now() - (this.gezogen || 0) < 300) { e.stopPropagation(); e.preventDefault(); } }, true);
+  }
+  zeichnen() {
+    const h = Glas.hass;
+    if (!h) return;
+    const k = kzInhalt(h, Glas.einst);
+    const name = (x) => h.states[x]?.attributes.friendly_name || x;
+    const knopf = (x, i) => {
+      if (x === "lichter") {
+        const n = lichterAn(h).length;
+        return `<button class="rk ${n ? "an" : ""}" data-kn="${i}" style="--kf:#ff9f0a" aria-label="${n ? `${n} Lichter an, alle ausschalten` : "Alle Lichter aus"}"><ha-icon data-i="mdi:lightbulb-group${n ? "" : "-off-outline"}"></ha-icon></button>`;
+      }
+      if (x === "gaeste") return `<button class="rk" data-kn="${i}" aria-label="Gäste-WLAN"><ha-icon data-i="mdi:qrcode"></ha-icon></button>`;
+      const st = h.states[x];
+      if (!st) return "";
+      const d = domainVon(x);
+      const an = d === "alarm_control_panel" ? st.state !== "disarmed" : /^(input_)?select$/.test(d) ? st.state !== (st.attributes.options || [])[0] : Geraet.istAn(st);
+      const farbe = d === "alarm_control_panel" ? (an ? "#ff3b30" : "#34c759") : farbeAus(null, Geraet.farbe(st));
+      return `<button class="rk ${an ? "an" : ""}" data-kn="${i}" style="--kf:${farbe}" aria-label="${esc(name(x))}: ${esc(zustandText(h, st))}"><ha-state-icon data-e="${esc(x)}"></ha-state-icon></button>`;
+    };
+    let html = "";
+    if (k.knoepfe.length) html += `<div class="blk b22 knoepfe4" role="group" aria-label="Schnellknöpfe">${k.knoepfe.map((x, i) => knopf(x, i)).join("")}</div>`;
+    const m = k.medien && h.states[k.medien];
+    if (m) {
+      const a = m.attributes, spielt = m.state === "playing";
+      html += `<div class="blk b22 med"><div class="med-kopf"><span class="cover" ${a.entity_picture ? `style="background-image:url('${esc(a.entity_picture)}')"` : ""}></span>
+        <span class="med-t"><b>${esc(a.media_title || a.friendly_name || k.medien)}</b><span>${esc(a.media_artist || (a.media_title ? a.friendly_name : zustandText(h, m)))}</span></span></div>
+        <div class="med-k"><button data-med="media_previous_track" aria-label="Zurück"><ha-icon data-i="mdi:skip-previous"></ha-icon></button>
+        <button data-med="media_play_pause" aria-label="${spielt ? "Pause" : "Abspielen"}"><ha-icon data-i="mdi:${spielt ? "pause" : "play"}"></ha-icon></button>
+        <button data-med="media_next_track" aria-label="Weiter"><ha-icon data-i="mdi:skip-next"></ha-icon></button></div></div>`;
+    }
+    k.regler.forEach((x) => {
+      const st = h.states[x], r = Geraet.regler(st);
+      if (!st || !r) return;
+      const pct = Geraet.istAn(st) || domainVon(x) === "cover" ? klemmen(r.pct, 0, 100) : 0;
+      html += `<div class="blk b12 sch" data-r="${esc(x)}" role="slider" tabindex="0" aria-label="${esc(name(x))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}" aria-valuetext="${esc(r.text(pct))}"
+        style="--kf:${domainVon(x) === "cover" ? "#0a84ff" : farbeAus(null, Geraet.farbe(st))}"><div class="f" style="transform:scaleY(${pct / 100})"></div><span class="wert">${Math.round(pct)} %</span>
+        <span class="sym"><ha-state-icon data-e="${esc(x)}"></ha-state-icon></span></div>`;
+    });
+    const mo = k.modus && h.states[k.modus];
+    if (mo) {
+      const an = /^(input_)?select$/.test(domainVon(k.modus)) ? mo.state !== (mo.attributes.options || [])[0] : Geraet.istAn(mo);
+      html += `<button class="blk b21 mod ${an ? "an" : ""}" data-modus aria-label="${esc(name(k.modus))}: ${esc(zustandText(h, mo))}"><span class="ic"><ha-state-icon data-e="${esc(k.modus)}"></ha-state-icon></span>
+        <span><b>${esc(zustandText(h, mo))}</b><small>${esc(name(k.modus))}</small></span></button>`;
+    }
+    if (k.rund.length) html += `<div class="blk ${k.rund.length > 2 ? "b41" : "b21"} reihe" role="group" aria-label="Einzelknöpfe">${k.rund.map((x, i) => knopf(x, `r${i}`)).join("")}</div>`;
+    if (!html) html = `<div class="kz-leer">Noch nichts eingerichtet. In den Glas-Einstellungen unter „Kontrollzentrum“ wählst du Knöpfe, Schieber und Medien.</div>`;
+    if (html === this._html) return;
+    this._html = html;
+    this.raster.innerHTML = html;
+    this.raster.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
+    this.raster.querySelectorAll("ha-state-icon[data-e]").forEach((el) => { el.hass = h; el.stateObj = h.states[el.dataset.e]; });
+    this.binden(k);
+  }
+  binden(k) {
+    const h = () => Glas.hass;
+    const tun = (x) => {
+      const hs = h(); vibrieren(8);
+      if (x === "lichter") { const l = lichterAn(hs); if (l.length) hs.callService("light", "turn_off", { entity_id: l }); return; }
+      if (x === "gaeste") { kzKarteOeffnen(this.leiste, "glas-gaeste-card", Glas.einst?.bereiche?.gaeste || {}); return; }
+      const st = hs.states[x], d = domainVon(x);
+      if (!st) return;
+      if (/^(input_)?select$/.test(d)) return hs.callService(d, "select_next", { entity_id: x, cycle: true });
+      if (d === "alarm_control_panel") {
+        if ((st.state === "disarmed" && st.attributes.code_arm_required) || (st.state !== "disarmed" && st.attributes.code_format)) return mehrInfo(this.leiste, x);
+        return hs.callService(d, st.state === "disarmed" ? "alarm_arm_away" : "alarm_disarm", { entity_id: x });
+      }
+      if (d === "vacuum") return hs.callService(d, ["cleaning", "returning"].includes(st.state) ? "return_to_base" : "start", { entity_id: x });
+      if (d === "camera") return mehrInfo(this.leiste, x);
+      Geraet.schalten(hs, st);
+    };
+    this.raster.querySelectorAll("[data-kn]").forEach((b) => {
+      const id = b.dataset.kn, x = id.startsWith("r") ? k.rund[Number(id.slice(1))] : k.knoepfe[Number(id)];
+      let t = null, lang = false;
+      b.addEventListener("pointerdown", () => { lang = false; t = setTimeout(() => { lang = true; if (Glas.hass.states[x]) { vibrieren(12); steuerungOeffnen(this.leiste, x, {}); } }, 480); });
+      ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => b.addEventListener(ev, () => clearTimeout(t)));
+      b.addEventListener("click", () => { if (!lang) tun(x); });
+    });
+    this.raster.querySelectorAll("[data-med]").forEach((b) => b.addEventListener("click", () => { vibrieren(8); h().callService("media_player", b.dataset.med, { entity_id: k.medien }); }));
+    this.raster.querySelector("[data-modus]")?.addEventListener("click", () => tun(k.modus));
+    // Hohe Schieber: Füllung wächst von unten, folgt dem Finger
+    this.raster.querySelectorAll("[data-r]").forEach((el) => {
+      const x = el.dataset.r, f = el.querySelector(".f"), w = el.querySelector(".wert");
+      let z = null;
+      el.addEventListener("pointerdown", (e) => {
+        const st = h().states[x], r = Geraet.regler(st);
+        if (!r) return;
+        e.stopPropagation();
+        el.setPointerCapture(e.pointerId);
+        z = { y: e.clientY, p0: Geraet.istAn(st) || domainVon(x) === "cover" ? r.pct : 0, r, H: el.offsetHeight, bewegt: false, p: null };
+        this._sperre = true;
+      });
+      el.addEventListener("pointermove", (e) => {
+        if (!z) return;
+        const d = z.y - e.clientY;
+        if (!z.bewegt && Math.abs(d) < 4) return;
+        z.bewegt = true; el.classList.add("zieht");
+        const roh = z.p0 + (d / z.H) * 100;
+        z.p = klemmen(roh, 0, 100);
+        const ueber = roh > 100 ? gummi(roh - 100, 12) : roh < 0 ? gummi(roh, 12) : 0; // Gummiband am Ende
+        f.style.transform = `scaleY(${z.p / 100}) translateY(${-ueber}px)`;
+        w.textContent = `${Math.round(z.p)} %`;
+        const stufe = Math.round(z.p / 25);
+        if (stufe !== z.stufe) { if (z.stufe !== undefined && z.p % 25 < 3) vibrieren(4); z.stufe = stufe; }
+      });
+      const los = () => {
+        if (!z) return;
+        const s = z; z = null; this._sperre = false; el.classList.remove("zieht");
+        if (s.bewegt) { s.r.setzen(h(), s.p ?? s.p0); el.setAttribute("aria-valuenow", Math.round(s.p ?? s.p0)); }
+        else { vibrieren(8); Geraet.schalten(h(), h().states[x]); }
+      };
+      el.addEventListener("pointerup", los);
+      el.addEventListener("pointercancel", los);
+      el.addEventListener("keydown", (e) => {
+        const d = { ArrowUp: 10, ArrowRight: 10, ArrowDown: -10, ArrowLeft: -10 }[e.key];
+        const r = Geraet.regler(h().states[x]);
+        if (d && r) { e.preventDefault(); r.setzen(h(), klemmen(r.pct + d, 0, 100)); }
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); Geraet.schalten(h(), h().states[x]); }
+      });
+    });
+  }
+}
+// Eine Bereichskarte nur als Blatt öffnen (z. B. Gäste-QR aus dem Kontrollzentrum)
+function kzKarteOeffnen(quelle, tag, cfg) {
+  const el = document.createElement(tag);
+  try { el.setConfig(cfg); } catch (_) { return; }
+  el.hass = Glas.hass;
+  const neu = () => { el.hass = Glas.hass; };
+  Glas.hassHoerer.add(neu);
+  el.blattOeffnen?.();
+  const s = el._blatt;
+  if (s) { const zu = s.zu; s.zu = () => { zu?.(); Glas.hassHoerer.delete(neu); }; } else Glas.hassHoerer.delete(neu);
+  return el;
+}
+// ---------------------------------------------------------------------------
+// Dynamic Island: schwarze Pille oben, zeigt was gerade läuft (Druck, Robi, Licht-Timer,
+// Alarm scharf, Waschmaschine …). Antippen klappt sie auf. Verschwindet, wenn nichts läuft.
+// ---------------------------------------------------------------------------
+const INSEL_CSS = `
+:host{display:contents}
+.insel{position:fixed;z-index:5;top:calc(var(--header-height,0px) + env(safe-area-inset-top,0px) + var(--g-a2));left:50%;
+  transform:translateX(calc(-50% + var(--ix,0px)));transition:transform .45s cubic-bezier(.32,.72,0,1);color:#fff}
+.ipille{display:flex;align-items:center;gap:10px;min-height:36px;max-width:calc(100vw - 32px);padding:4px 14px 4px 8px;border-radius:var(--g-r-pille);
+  background:#000;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:var(--g-s-klein);font-weight:600;white-space:nowrap;transition:transform .16s cubic-bezier(.23,1,.32,1)}
+.ipille:active{transform:scale(.96)}
+.ipille .ic{flex:none;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--if)}
+.ipille .ic ha-icon{--mdc-icon-size:18px}
+.ipille .t{overflow:hidden;text-overflow:ellipsis}
+.ipille .w{color:var(--if);font-variant-numeric:tabular-nums}
+.ipille .mehr{flex:none;width:22px;height:22px;margin-right:-6px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1c1c1e;font-size:var(--g-s-mini)}
+.ring{flex:none;width:22px;height:22px}
+.ring circle{fill:none;stroke-width:3}
+.gross{position:fixed;z-index:6;top:calc(var(--header-height,0px) + env(safe-area-inset-top,0px) + var(--g-a2));left:50%;width:min(380px,calc(100vw - 24px));margin-left:calc(min(380px,calc(100vw - 24px)) / -2);
+  padding:var(--g-a3) var(--g-a4) var(--g-a4);border-radius:30px;background:#000;color:#fff;box-shadow:0 18px 50px rgba(0,0,0,.35);transform-origin:50% 0;display:flex;flex-direction:column;gap:var(--g-a3)}
+.akt{display:flex;flex-direction:column;gap:var(--g-a2)}
+.akt + .akt{padding-top:var(--g-a3);border-top:1px solid rgba(255,255,255,.12)}
+.akt-kopf{display:flex;align-items:center;gap:var(--g-a3)}
+.akt-kopf .ic{flex:none;width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.1);color:var(--if)}
+.akt-kopf span{min-width:0;display:flex;flex-direction:column}
+.akt-kopf b{font-size:var(--g-s-name);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.akt-kopf small{font-size:var(--g-s-klein);color:rgba(255,255,255,.65)}
+.akt-kopf .gw{margin-left:auto;font-size:var(--g-s-h2);font-weight:700;color:var(--if);font-variant-numeric:tabular-nums}
+.balken{height:6px;border-radius:3px;background:rgba(255,255,255,.16);overflow:hidden}
+.balken i{display:block;height:100%;border-radius:3px;background:var(--if);transform-origin:0 50%}
+.knoepfe{display:flex;gap:var(--g-a2)}
+.knoepfe button{flex:1;min-height:40px;border-radius:var(--g-r-pille);background:rgba(255,255,255,.14);color:#fff;font-size:var(--g-s-klein);font-weight:600;
+  display:flex;align-items:center;justify-content:center;gap:6px;transition:transform .16s cubic-bezier(.23,1,.32,1)}
+.knoepfe button:active{transform:scale(.95)}
+.knoepfe ha-icon{--mdc-icon-size:18px}
+`;
+const LAEUFT = ["running", "run", "on", "washing", "drying", "rinsing", "spinning", "active", "program", "in_progress", "läuft"];
+const GERAET_MUSTER = /wasch|spül|spuel|trockner|washer|dishwasher|dryer/i;
+
+// Was läuft gerade? Liste von { id, icon, farbe, titel, wert, kurz, pct, knoepfe:[{icon,text,tun}] }
+function inselAktivitaeten(h, e, helfer) {
+  const l = [], b = e?.bereiche || {};
+  // 3D-Drucker (über die Drucker-Karte, damit dieselben Entitäten gelten)
+  if (b.drucker && (b.drucker.geraet || b.drucker.fortschritt)) {
+    const d = helfer("glas-drucker-card", b.drucker);
+    const w = d?.werte?.();
+    if (w?.laeuft) {
+      const knoepfe = [];
+      const pause = d.e(w.pause ? "weiter" : "pause"), licht = d.e("licht");
+      if (pause) knoepfe.push({ icon: w.pause ? "mdi:play" : "mdi:pause", text: w.pause ? "Weiter" : "Pause", tun: () => h.callService("button", "press", { entity_id: pause }) });
+      if (licht && h.states[licht]) knoepfe.push({ icon: "mdi:lightbulb-outline", text: "Licht", tun: () => h.callService(domainVon(licht), "toggle", { entity_id: licht }) });
+      knoepfe.push({ icon: "mdi:printer-3d-nozzle", text: "Öffnen", tun: () => d.blattOeffnen() });
+      l.push({ id: "drucker", icon: "mdi:printer-3d-nozzle", farbe: w.pause ? "#ff9f0a" : "#34c759", titel: `${b.drucker.name || "Drucker"}${w.pause ? " pausiert" : ""}`,
+        wert: [w.pct != null ? `${Math.round(w.pct)} %` : "", (w.rest.match(/noch ([^·]+)/) || [])[1]?.trim().replace(" Std. ", ":").replace(" Min.", " Min.") || ""].filter(Boolean).join(" · "),
+        unter: w.rest, pct: w.pct, knoepfe });
+    }
+  }
+  // Saugroboter
+  const robiE = b.robi?.entity || Object.keys(h.states).find((x) => x.startsWith("vacuum."));
+  const rs = robiE && h.states[robiE];
+  if (rs && ["cleaning", "returning", "paused"].includes(rs.state)) {
+    const ak = rs.attributes.battery_level;
+    l.push({ id: "robi", icon: "mdi:robot-vacuum", farbe: "#bf5af2", titel: `${b.robi?.name || "Robi"} ${{ cleaning: "saugt", returning: "fährt heim", paused: "pausiert" }[rs.state]}`,
+      wert: ak != null ? `${Math.round(ak)} %` : "", unter: ak != null ? `Akku ${Math.round(ak)} %` : "", knoepfe: [
+        rs.state === "cleaning" ? { icon: "mdi:pause", text: "Pause", tun: () => h.callService("vacuum", "pause", { entity_id: robiE }) } : { icon: "mdi:play", text: "Weiter", tun: () => h.callService("vacuum", "start", { entity_id: robiE }) },
+        { icon: "mdi:home-import-outline", text: "Zur Station", tun: () => h.callService("vacuum", "return_to_base", { entity_id: robiE }) },
+        { icon: "mdi:robot-vacuum", text: "Öffnen", tun: () => helfer("glas-robi-card", { ...(b.robi || {}), entity: robiE })?.blattOeffnen() },
+      ] });
+  }
+  // Ausschalt-Timer
+  Object.keys(Glas.timer || {}).forEach((eid) => {
+    const st = h.states[eid], rest = timerRest(eid);
+    if (!st || !rest) return;
+    l.push({ id: `timer-${eid}`, icon: "mdi:timer-outline", farbe: "#ff9f0a", titel: st.attributes.friendly_name || eid, wert: rest, unter: `Schaltet aus in ${rest}`,
+      knoepfe: [{ icon: "mdi:timer-off-outline", text: "Timer stoppen", tun: () => Glas.timerSetzen(h, eid, 0) }, { icon: "mdi:power", text: "Jetzt aus", tun: () => { Glas.timerSetzen(h, eid, 0); h.callService("homeassistant", "turn_off", { entity_id: eid }); } }] });
+  });
+  // Alarm scharf
+  const alarmE = b.sicherheit?.alarm || Object.keys(h.states).find((x) => x.startsWith("alarm_control_panel."));
+  const as = alarmE && h.states[alarmE];
+  if (as && as.state !== "disarmed" && !["unavailable", "unknown"].includes(as.state)) {
+    const ausgeloest = as.state === "triggered";
+    l.push({ id: "alarm", icon: ausgeloest ? "mdi:alarm-light" : "mdi:shield-lock", farbe: ausgeloest ? "#ff3b30" : "#34c759", titel: ausgeloest ? "Alarm ausgelöst!" : "Alarm scharf",
+      wert: "", unter: ALARM_TEXT[as.state] || zustandText(h, as), knoepfe: [
+        as.attributes.code_format ? { icon: "mdi:shield-home-outline", text: "Entschärfen …", tun: () => fire(document.querySelector("home-assistant") || window, "hass-more-info", { entityId: alarmE }) }
+          : { icon: "mdi:shield-off-outline", text: "Unscharf", tun: () => h.callService("alarm_control_panel", "alarm_disarm", { entity_id: alarmE }) }] });
+  }
+  // Waschmaschine & Co.: selbst gewählt oder am Namen erkannt
+  const weitere = e?.insel?.weitere?.length ? e.insel.weitere
+    : Object.keys(h.states).filter((x) => /^(sensor|binary_sensor)\./.test(x) && GERAET_MUSTER.test(`${x} ${h.states[x].attributes.friendly_name || ""}`));
+  weitere.forEach((x) => {
+    const st = h.states[x];
+    if (!st || !(LAEUFT.includes(String(st.state).toLowerCase()) || (e?.insel?.weitere?.length && Geraet.istAn(st)))) return;
+    const ic = /trock|dryer/i.test(x) ? "mdi:tumble-dryer" : /spül|spuel|dish/i.test(x) ? "mdi:dishwasher" : "mdi:washing-machine";
+    l.push({ id: x, icon: ic, farbe: "#0a84ff", titel: (st.attributes.friendly_name || x).replace(/ (status|zustand|state)$/i, ""), wert: "läuft", unter: zustandText(h, st), knoepfe: [] });
+  });
+  return l;
+}
+
+class GlasInselCard extends GlasKarte {
+  constructor() {
+    super();
+    this._helfer = new Map();
+    this._blase = (e) => this.verschieben(e.detail);
+    this._aussen = (e) => { if (this._auf && !e.composedPath().includes(this.$(".gross"))) this.zuklappen(); };
+    this._taste = (e) => { if (e.key === "Escape" && this._auf) { e.stopPropagation(); this.zuklappen(); } };
+  }
+  static standard() { return {}; }
+  getCardSize() { return 0; }
+  connectedCallback() {
+    super.connectedCallback();
+    addEventListener("glas-blase", this._blase);
+    addEventListener("resize", this._blase);
+    this._takt = setInterval(() => { if (this._hass) this.render(); }, 30e3); // Restzeit der Timer
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    removeEventListener("glas-blase", this._blase);
+    removeEventListener("resize", this._blase);
+    clearInterval(this._takt);
+    this.zuklappen(true);
+  }
+  // Hilfskarten (unsichtbar) für Drucker/Robi: gleiche Logik und gleiches Blatt wie die großen Karten
+  helfer(tag, cfg) {
+    const json = JSON.stringify(cfg);
+    let el = this._helfer.get(tag);
+    if (!el || el._json !== json) {
+      el = document.createElement(tag);
+      try { el.setConfig(cfg); } catch (_) { return null; }
+      el._json = json;
+      this._helfer.set(tag, el);
+    }
+    el.hass = this._hass;
+    return el;
+  }
+  // jede Zustandsänderung kann eine Aktivität betreffen; render() baut nur bei echter Änderung neu
+  set hass(h) { this._hass = h; Glas.hassSetzen(h); if (this._config) this.render(); }
+  get hass() { return this._hass; }
+  css() { return INSEL_CSS; }
+  aktivitaeten() { return Glas.einst?.insel?.an === false ? [] : inselAktivitaeten(this._hass, Glas.einst, (t, c) => this.helfer(t, c)); }
+  html() {
+    const a = this.aktivitaeten();
+    this._akt = a;
+    if (a.length !== this._anzahl) { this._anzahl = a.length; fire(this, "glas-insel", { anzahl: a.length }); }
+    if (!a.length) { if (this._auf) queueMicrotask(() => this.zuklappen(true)); return ""; }
+    const x = a[0];
+    const ring = x.pct != null ? `<svg class="ring" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9" stroke="rgba(255,255,255,.2)"/>
+      <circle cx="11" cy="11" r="9" stroke="${x.farbe}" stroke-linecap="round" stroke-dasharray="${(56.5 * x.pct / 100).toFixed(1)} 57" transform="rotate(-90 11 11)"/></svg>` : "";
+    const gross = this._auf ? `<div class="gross" role="dialog" aria-label="Was gerade läuft">${a.map((y, i) => `<div class="akt" style="--if:${y.farbe}">
+      <div class="akt-kopf"><span class="ic"><ha-icon data-i="${y.icon}"></ha-icon></span><span><b>${esc(y.titel)}</b>${y.unter ? `<small>${esc(y.unter)}</small>` : ""}</span>
+        ${y.pct != null ? `<span class="gw">${Math.round(y.pct)} %</span>` : ""}</div>
+      ${y.pct != null ? `<div class="balken"><i style="transform:scaleX(${klemmen(y.pct, 0, 100) / 100})"></i></div>` : ""}
+      ${y.knoepfe.length ? `<div class="knoepfe">${y.knoepfe.map((k, j) => `<button data-k="${i}-${j}"><ha-icon data-i="${k.icon}"></ha-icon>${esc(k.text)}</button>`).join("")}</div>` : ""}</div>`).join("")}</div>` : "";
+    return `<div class="insel" style="--if:${x.farbe}"><button class="ipille" data-auf aria-expanded="${!!this._auf}" aria-label="${esc(x.titel)} ${esc(x.wert)}${a.length > 1 ? `, und ${a.length - 1} mehr` : ""}">
+      <span class="ic">${ring || `<ha-icon data-i="${x.icon}"></ha-icon>`}</span><span class="t">${esc(x.titel)}</span>${x.wert ? `<span class="w">${esc(x.wert)}</span>` : ""}
+      ${a.length > 1 ? `<span class="mehr" style="color:${a[1].farbe}"><ha-icon data-i="${a[1].icon}" style="--mdc-icon-size:14px"></ha-icon></span>` : ""}</button></div>${gross}`;
+  }
+  binden() {
+    this.iconsSetzen();
+    this.verschieben(Glas.blaseZu);
+    this.$("[data-auf]")?.addEventListener("click", () => (this._auf ? this.zuklappen() : this.aufklappen()));
+    this.$$("[data-k]").forEach((b) => b.addEventListener("click", () => {
+      const [i, j] = b.dataset.k.split("-").map(Number);
+      vibrieren(8);
+      const k = this._akt?.[i]?.knoepfe[j];
+      if (k) { Promise.resolve(k.tun()).catch(() => {}); if (/Öffnen|Entschärfen/.test(k.text)) this.zuklappen(); }
+    }));
+  }
+  // Wenn oben links die Titel-Blase erscheint, rückt die Insel nach rechts (sie sollen sich nicht überdecken)
+  verschieben(zu) {
+    const el = this.$(".insel");
+    if (!el) return;
+    const rechts = (typeof zu === "boolean" ? zu : Glas.blaseZu) && innerWidth < 700 && !this._auf;
+    el.style.setProperty("--ix", rechts ? `${Math.max(0, innerWidth / 2 - el.offsetWidth / 2 - 16)}px` : "0px");
+  }
+  aufklappen() {
+    this._auf = true; this._letztesHtml = null;
+    const vorher = this.$(".ipille")?.getBoundingClientRect();
+    this.render();
+    vibrieren(10);
+    const g = this.$(".gross");
+    if (g && vorher) {
+      const r = g.getBoundingClientRect();
+      federAnim(g, (p) => ({ transform: `translateX(${(vorher.left + vorher.width / 2 - (r.left + r.width / 2)) * (1 - p)}px) scale(${vorher.width / r.width + (1 - vorher.width / r.width) * p},${vorher.height / r.height + (1 - vorher.height / r.height) * p})`,
+        borderRadius: `${30 + (18 - 30) * (1 - p)}px` }), { antwort: 0.42, daempfung: 0.78 });
+      [...g.children].forEach((c) => federAnim(c, (p) => ({ opacity: String(klemmen((p - 0.3) * 2, 0, 1)) }), { antwort: 0.4, daempfung: 1 }));
+      this.$(".ipille").style.opacity = "0";
+    }
+    setTimeout(() => { document.addEventListener("pointerdown", this._aussen, true); document.addEventListener("keydown", this._taste, true); }, 0);
+    setTimeout(() => this.$(".gross button")?.focus({ preventScroll: true }), 60);
+  }
+  zuklappen(sofort) {
+    if (!this._auf) return;
+    this._auf = false;
+    document.removeEventListener("pointerdown", this._aussen, true);
+    document.removeEventListener("keydown", this._taste, true);
+    const g = this.$(".gross"), p = this.$(".ipille");
+    if (sofort || !g || !p) { this._letztesHtml = null; this.render(); return; }
+    const r = g.getBoundingClientRect(), z = p.getBoundingClientRect();
+    [...g.children].forEach((c) => federAnim(c, (q) => ({ opacity: String(klemmen(1 - q * 3, 0, 1)) }), { antwort: 0.2, daempfung: 1 }));
+    federAnim(g, (q) => ({ transform: `translateX(${(z.left + z.width / 2 - (r.left + r.width / 2)) * q}px) scale(${1 + (z.width / r.width - 1) * q},${1 + (z.height / r.height - 1) * q})` }),
+      { antwort: 0.32, daempfung: 1 }).finished.catch(() => {}).then(() => { this._letztesHtml = null; this.render(); });
+    p.style.opacity = "";
+  }
+}
+class GlasInselEditor extends GlasEditor { render() { if (!this._hass) return; this._gezeichnet = true; this.innerHTML = `<p style="line-height:1.45">Die Insel braucht keine Einstellungen: sie findet Drucker, Robi, Timer, Alarm und Waschmaschine selbst. Feinheiten stellst du in der Seitenleiste unter <a href="/glas-einstellungen">Glas</a> › Aussehen ein.</p>`; } }
 // ---------------------------------------------------------------------------
 // Einstellungsseite „Glas“ (Seitenleiste): alles an einer Stelle, gilt auf allen Geräten
 // ---------------------------------------------------------------------------
@@ -7124,6 +8437,25 @@ class GlasEinstellungen extends HTMLElement {
     let letzte = null;
     liste.forEach((x, i) => {
       if (x.karte) { this.kartenZeile(g, liste, i, setzen, (l) => { liste = l; }); if (gruppen) letzte = null; return; }
+      if (x.ordner) {
+        // Ordner: zeigen, Größe, auflösen (Inhalt bearbeitest du im Dashboard: Bearbeiten › Ordner antippen)
+        const an = x.an !== false;
+        const z = this.html(g, `<div class="zeile geraet ${an ? "" : "aus"}" data-i="${i}">
+          <span class="griff" tabindex="0" role="button" aria-label="Ordner ${esc(x.name)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
+          <button class="schalter" role="switch" aria-checked="${an}" aria-label="Zeigen"></button>
+          <span class="name"><b>${esc(x.name || "Ordner")}</b><span>Ordner · ${esc((x.eintraege || []).map((y) => y.name || h.states[y.entity]?.attributes.friendly_name || y.entity).join(", "))}</span></span>
+          <span class="optionen"><span class="segment" role="group" aria-label="Größe">${GROESSEN.map(([id, k, t]) => `<button data-g="${id}" title="${t}" aria-label="${t}" aria-pressed="${(x.groesse || "breit") === id}">${k}</button>`).join("")}</span>
+          <button class="klein-knopf" data-aufloesen aria-label="Ordner auflösen" title="Ordner auflösen"><ha-icon data-i="mdi:folder-remove-outline"></ha-icon></button></span></div>`);
+        const neu = (teil) => { const l = [...liste]; l[i] = { ...l[i], ...teil }; setzen(l); liste = l; this.speichern(); };
+        z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); z.classList.toggle("aus", !a); neu({ an: a }); });
+        z.querySelectorAll("[data-g]").forEach((b) => b.addEventListener("click", () => { z.querySelectorAll("[data-g]").forEach((o) => o.setAttribute("aria-pressed", o === b)); neu({ groesse: b.dataset.g }); }));
+        z.querySelector("[data-aufloesen]").addEventListener("click", () => {
+          const l = [...liste.slice(0, i), ...(x.eintraege || []).map((y) => ({ ...(gruppen ? geraetVorschlag(h, y.entity) : { groesse: "breit" }), ...y, an: true })), ...liste.slice(i + 1)];
+          setzen(l); this.speichern(); this.zeichnen();
+        });
+        if (gruppen) letzte = null;
+        return;
+      }
       const st = h.states[x.entity];
       const gr = x.gruppe || gruppeVon(h, x.entity);
       if (gruppen && gr !== letzte) { letzte = gr; this.html(g, `<div class="kopfzeile">${esc((GRUPPEN.find(([id]) => id === gr) || [, "Sonstiges"])[1])}</div>`); }
@@ -7268,12 +8600,12 @@ class GlasEinstellungen extends HTMLElement {
         <span class="griff" tabindex="0" role="button" aria-label="${esc(name)} verschieben"><ha-icon data-i="mdi:drag-horizontal-variant"></ha-icon></span>
         <button class="schalter" role="switch" aria-checked="${!!a.an}" aria-label="${esc(name)} zeigen"></button>
         <span class="sym"><ha-icon data-i="${icon}"></ha-icon></span><span class="name"><b>${esc(name)}</b></span>
-        <span class="segment" role="group" aria-label="Breite"><button data-b="halb" aria-pressed="${a.breite === "halb"}" title="Halbe Breite (am PC)">½</button><button data-b="ganz" aria-pressed="${a.breite !== "halb"}" title="Ganze Breite">Ganz</button></span></div>`);
+        <span class="segment" role="group" aria-label="Darstellung">${a.id === "zuhause" ? `<button aria-pressed="true" disabled>Widget</button>` : `<button data-b="halb" aria-pressed="${!a.widget && a.breite === "halb"}" title="Halbe Breite (am PC)">½</button><button data-b="ganz" aria-pressed="${!a.widget && a.breite !== "halb"}" title="Ganze Breite">Ganz</button>${WIDGET_ARTEN.includes(a.id) ? `<button data-b="widget" aria-pressed="${!!a.widget}" title="Quadratisches Widget wie am iPhone">Widget</button>` : ""}`}</span></div>`);
       z.querySelector(".schalter").addEventListener("click", (e) => { a.an = !a.an; e.currentTarget.setAttribute("aria-checked", a.an); z.classList.toggle("aus", !a.an); this.speichern(); });
-      z.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => { a.breite = b.dataset.b; z.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b)); this.speichern(); }));
+      z.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.b === "widget") a.widget = true; else { a.breite = b.dataset.b; delete a.widget; } z.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b)); this.speichern(); }));
     });
     ziehSortieren(g, (von, nach) => { s.abschnitte = verschieben(s.abschnitte, von, nach); this.speichern(); this.zeichnen(); });
-    this.html(box, `<div class="fuss">Abschnitte ohne Einstellung (z. B. kein Saugroboter gewählt) bleiben automatisch weg. „½“ stellt am PC zwei nebeneinander.</div>`);
+    this.html(box, `<div class="fuss">Abschnitte ohne Einstellung (z. B. kein Saugroboter gewählt) bleiben automatisch weg. „½“ stellt am PC zwei nebeneinander. „Widget“ zeigt die Karte quadratisch wie auf dem iPhone-Homescreen.</div>`);
     this.html(box, `<h2>Favoriten</h2>`);
     this.geraeteListe(box, s.favoriten || [], (neu) => { s.favoriten = neu; });
     this.html(box, `<h2>Schnellzugriff</h2>`);
@@ -7314,6 +8646,48 @@ class GlasEinstellungen extends HTMLElement {
       .map(([id, n]) => `<button class="hg-wahl" data-hg="${id}" aria-pressed="${A.hintergrund === id}"><span class="muster" style="background:${hintergrundCss(id, d)}"><span></span></span>${esc(n)}</button>`).join("")}</div></div>`);
     hg.querySelectorAll("[data-hg]").forEach((b) => b.addEventListener("click", () => { A.hintergrund = b.dataset.hg; this.speichern(); this.hintergrund(); this.zeichnen(); }));
     this.html(box, `<div class="fuss">„Nach Tageszeit“: morgens warm, tagsüber wie bisher, abends See, nachts ruhig.</div>`);
+  }
+  // ---------------- Kontrollzentrum & Dynamic Island ----------------
+  kontrollSeite(box) {
+    const d = this._d, h = this._hass;
+    const K = (d.kontrollzentrum = { ...(d.kontrollzentrum || {}) });
+    const I = (d.insel = { ...(d.insel || {}) });
+    const vor = kzInhalt(h, { ...d, kontrollzentrum: {} });
+    const name = (x) => (x === "lichter" ? "Alle Lichter aus" : x === "gaeste" ? "Gäste-WLAN" : h.states[x]?.attributes.friendly_name || x);
+    const schalter = (g, titel, text, an, setzen) => {
+      const z = this.html(g, `<div class="zeile"><span class="name"><b>${esc(titel)}</b><span>${esc(text)}</span></span><button class="schalter" role="switch" aria-checked="${an}" aria-label="${esc(titel)}"></button></div>`);
+      z.querySelector(".schalter").addEventListener("click", (e) => { const a = e.currentTarget.getAttribute("aria-checked") !== "true"; e.currentTarget.setAttribute("aria-checked", a); setzen(a); this.speichern(); });
+    };
+    this.html(box, `<h2>Kontrollzentrum</h2>`);
+    schalter(this.html(box, `<div class="gruppe"></div>`), "Kontrollzentrum", "An der Raumleiste unten hochziehen", K.an !== false, (a) => { if (a) delete K.an; else K.an = false; });
+    const f = this.html(box, `<div class="gruppe form"></div>`);
+    this.form(f, { knoepfe: (K.knoepfe || []).filter((x) => h.states[x]), lichter: (K.knoepfe || vor.knoepfe).includes("lichter"), medien: K.medien === "-" ? "" : K.medien || vor.medien || "", regler: K.regler, modus: K.modus === "-" ? "" : K.modus, rund: (K.rund || []).filter((x) => h.states[x]), gaeste: (K.rund || vor.rund).includes("gaeste") }, [
+      { name: "lichter", selector: { boolean: {} } },
+      { name: "knoepfe", selector: { entity: { multiple: true } } },
+      { name: "regler", selector: { entity: { multiple: true, filter: [{ domain: "light" }, { domain: "cover" }, { domain: "fan" }, { domain: "media_player" }, { domain: "climate" }] } } },
+      { name: "medien", selector: { entity: { filter: { domain: "media_player" } } } },
+      { name: "modus", selector: { entity: { filter: [{ domain: "input_select" }, { domain: "select" }, { domain: "scene" }, { domain: "input_boolean" }, { domain: "script" }] } } },
+      { name: "rund", selector: { entity: { multiple: true } } },
+      { name: "gaeste", selector: { boolean: {} } },
+    ], { lichter: "Knopf „Alle Lichter aus“", knoepfe: "Runde Knöpfe im 2×2-Block (bis 4)", regler: "Hohe Schieber (bis 2)", medien: "Medien-Kachel", modus: "Breite Modus-Kachel (z. B. Heizung Tag/Nacht)",
+      rund: "Einzelknöpfe unten (Szenen, Steckdosen, Kamera)", gaeste: "Knopf für den Gäste-QR-Code" }, (v) => {
+      const kn = [...(v.lichter ? ["lichter"] : []), ...(v.knoepfe || [])].slice(0, 4);
+      K.knoepfe = kn;
+      K.regler = (v.regler || []).slice(0, 2); if (!K.regler.length) delete K.regler;
+      K.medien = v.medien || "-"; K.modus = v.modus || "-";
+      K.rund = [...(v.rund || []), ...(v.gaeste ? ["gaeste"] : [])].slice(0, 4);
+      this.speichern();
+    }, { knoepfe: `Leer = automatisch: ${vor.knoepfe.map(name).join(", ") || "nichts gefunden"}`, regler: `Leer = automatisch: ${vor.regler.map(name).join(", ") || "nichts gefunden"}`,
+      medien: "Leer = keine Medien-Kachel", modus: "Antippen springt zur nächsten Auswahl" });
+    this.html(box, `<div class="fuss">Lange auf einen Knopf drücken öffnet die große Steuerung. Die Schieber regeln mit dem Finger von unten nach oben, Tippen schaltet.</div>`);
+    this.html(box, `<h2>Dynamic Island</h2>`);
+    const gi = this.html(box, `<div class="gruppe"></div>`);
+    schalter(gi, "Insel oben", "Zeigt, was gerade läuft: Druck, Robi, Licht-Timer, Alarm, Waschmaschine", I.an !== false, (a) => { if (a) delete I.an; else I.an = false; });
+    const fi = this.html(box, `<div class="gruppe form"></div>`);
+    this.form(fi, { weitere: I.weitere || [] }, [{ name: "weitere", selector: { entity: { multiple: true } } }], { weitere: "Weitere Geräte (z. B. Waschmaschine)" }, (v) => {
+      if ((v.weitere || []).length) I.weitere = v.weitere; else delete I.weitere;
+      this.speichern();
+    }, { weitere: "Erscheinen, solange sie an sind oder laufen. Leer = Waschmaschine, Spülmaschine und Trockner werden am Namen erkannt." });
   }
   async dashboardBlock(box) {
     const g = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Dashboard „Zuhause“</b><span class="info">Prüfe …</span></span><span class="knopf-platz"></span></div></div>`);
@@ -7423,7 +8797,7 @@ const KARTEN_INFO = [
 ];
 const kartenInfo = (id) => KARTEN_INFO.find(([k]) => k === id);
 const SEITEN = { raeume: ["Räume", "mdi:sofa-outline", "blau"], start: ["Startseite & Favoriten", "mdi:star-outline", "orange"], personen: ["Personen", "mdi:account-multiple-outline", "gruen"],
-  aussehen: ["Aussehen", "mdi:palette-outline", "lila"], dashboard: ["Dashboard „Zuhause“", "mdi:view-dashboard-outline", "grau"] };
+  aussehen: ["Aussehen", "mdi:palette-outline", "lila"], kontroll: ["Kontrollzentrum & Insel", "mdi:tune-vertical-variant", "grau"], dashboard: ["Dashboard „Zuhause“", "mdi:view-dashboard-outline", "grau"] };
 const AS_SCHRITTE = ["start", "raeume", "personen", "karten", "favoriten", "fertig"];
 
 // Neuer Raum aus einem HA-Bereich, mit vorgeschlagenen Geräten
@@ -7525,6 +8899,7 @@ Object.assign(GlasEinstellungen.prototype, {
     else if (S === "start") this.startseite(box);
     else if (S === "personen") this.personen(box);
     else if (S === "aussehen") this.aussehen(box);
+    else if (S === "kontroll") this.kontrollSeite(box);
     else if (S === "dashboard") this.dashboardBlock(box);
     else if (karte) this.kartenSeite(box, karte);
     this.icons();
@@ -7599,6 +8974,7 @@ Object.assign(GlasEinstellungen.prototype, {
     g = this.html(box, `<div class="gruppe"></div>`);
     const A = { modus: "auto", hintergrund: "klassisch", ...(d.aussehen || {}) };
     this.zeilenLink(g, { seite: "aussehen", ...this.seiteInfo("aussehen"), wert: `${{ auto: "Automatisch", hell: "Hell", dunkel: "Dunkel" }[A.modus] || ""} · ${HINTERGRUENDE[A.hintergrund]?.name || (A.hintergrund === "tageszeit" ? "Nach Tageszeit" : "Wie HA")}` });
+    this.zeilenLink(g, { seite: "kontroll", ...this.seiteInfo("kontroll"), wert: d.kontrollzentrum?.an === false ? "Aus" : "An" });
     this.zeilenLink(g, { seite: "dashboard", ...this.seiteInfo("dashboard") });
     if (!leer) {
       const a = this.html(box, `<div class="aktionen"><button class="knopf"><ha-icon data-i="mdi:auto-fix"></ha-icon>Assistent erneut durchgehen</button></div>`);
@@ -7895,6 +9271,9 @@ const KARTEN = [
   ["glas-kamera-card", GlasKameraCard, GlasKameraEditor, "Glas · Kamera", "Standbild einer Kamera, Tippen zeigt das Livebild groß."],
   ["glas-hinweise-card", GlasHinweiseCard, GlasHinweiseEditor, "Glas · Warnungen", "Fenster offen und Regen kommt / keiner zu Hause – nur sichtbar, wenn es zutrifft."],
   ["glas-zuhause-card", GlasZuhauseCard, GlasZuhauseEditor, "Glas · Zuhause (alles)", "Das ganze Dashboard aus den Glas-Einstellungen: Kopf, Startseite der gewählten Person, Räume."],
+  ["glas-ordner-card", GlasOrdnerCard, GlasOrdnerEditor, "Glas · Ordner", "Mehrere Kacheln in einem Ordner: zeigt vier Mini-Symbole, Antippen öffnet ihn groß (wie am iPhone). Größe L = Stapel mit vier Geräten direkt bedienbar."],
+  ["glas-insel-card", GlasInselCard, GlasInselEditor, "Glas · Dynamic Island", "Schwarze Pille oben: zeigt, was gerade läuft (Druck, Robi, Timer, Alarm, Waschmaschine). Antippen klappt sie auf."],
+  ["glas-widget-card", GlasWidgetCard, GlasWidgetEditor, "Glas · Widget", "Quadratisches Widget wie auf dem iPhone: Wetter, Planer, 3D-Drucker, Zuhause oder Robi. Antippen öffnet die große Ansicht."],
   ["glas-raum-card", GlasRaumCard, GlasRaumEditor, "Glas · Raum-Blatt", "Blatt von unten mit beliebigen Karten, öffnet über die Raumleiste."],
 ];
 window.customCards = window.customCards || [];
