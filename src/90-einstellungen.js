@@ -265,15 +265,14 @@ class GlasEinstellungen extends HTMLElement {
     if (!raum.geraete) raum.geraete = raumGeraeteVorschlag(this._hass, raum.bereich);
     const g = this.html(box, `<div class="gruppe form"></div>`);
     const { geraete, ...rest } = raum;
-    this.form(g, { fenster_auto: true, alles_aus: true, ...rest }, [
+    this.form(g, { alles_aus: true, ...rest }, [
       { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] },
       { name: "bereich", selector: { area: {} } },
       { type: "grid", name: "", schema: [
         { name: "temperatur", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
         { name: "feuchte", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] },
-      { name: "fenster_auto", selector: { boolean: {} } },
       { name: "alles_aus", selector: { boolean: {} } },
-    ], { name: "Name", icon: "Symbol", bereich: "HA-Bereich", temperatur: "Temperatur im Kopf", feuchte: "Luftfeuchte im Kopf", fenster_auto: "Fenster und Türen oben als Chips", alles_aus: "Knopf „Alles aus“" }, (v) => {
+    ], { name: "Name", icon: "Symbol", bereich: "HA-Bereich", temperatur: "Temperatur im Kopf", feuchte: "Luftfeuchte im Kopf", alles_aus: "Knopf „Alles aus“" }, (v) => {
       const neuBereich = v.bereich && v.bereich !== raum.bereich;
       Object.assign(raum, v);
       ["temperatur", "feuchte", "bereich"].forEach((k) => { if (!(k in v)) delete raum[k]; });
@@ -281,6 +280,7 @@ class GlasEinstellungen extends HTMLElement {
       this.speichern();
       if (neuBereich) this.zeichnen();
     });
+    this.raumFensterGruppe(box, raum);
     this.html(box, `<h2>Geräte im Raum</h2>`);
     this.geraeteListe(box, raum.geraete, (neu) => { raum.geraete = neu; }, { gruppen: true, bereich: raum.bereich });
     const akt = this.html(box, `<div class="aktionen"><button class="knopf rot" data-weg>Raum entfernen</button></div>`);

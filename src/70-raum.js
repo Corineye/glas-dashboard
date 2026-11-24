@@ -184,8 +184,7 @@ class GlasRaumCard extends GlasKarte {
   chips() {
     const h = this._hass, c = this._config;
     let ids = c.chips || [];
-    if (c.fenster_auto && c.bereich) ids = [...new Set([...ids, ...entitaetenImBereich(h, c.bereich, ["binary_sensor"])
-      .filter((e) => ["window", "door", "opening", "moisture", "smoke"].includes(h.states[e].attributes.device_class))])];
+    if (c.fenster_auto && c.bereich) ids = [...new Set([...ids, ...raumFensterAuto(h, c.bereich).filter((e) => !(c.fenster_aus || []).includes(e))])];
     return ids.map((e) => h.states[e]).filter(Boolean);
   }
   ausZiele() {

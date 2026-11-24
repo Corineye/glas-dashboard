@@ -53,6 +53,24 @@ function raumGeraeteVorschlag(hass, bereich) {
   return entitaetenImBereich(hass, bereich, RAUM_DOMAINS).map((e) => geraetVorschlag(hass, e))
     .sort((a, b) => reihen.indexOf(a.gruppe) - reihen.indexOf(b.gruppe));
 }
+// Fenster/Türen eines Raums, die oben als Chips erscheinen können
+const CHIP_KLASSEN = ["window", "door", "opening", "garage_door", "moisture", "smoke"];
+function raumFensterAuto(hass, bereich) {
+  return bereich ? entitaetenImBereich(hass, bereich, ["binary_sensor"]).filter((e) => CHIP_KLASSEN.includes(hass.states[e].attributes.device_class)) : [];
+}
+function raumFensterAlle(hass, r) { return [...new Set([...raumFensterAuto(hass, r.bereich), ...(r.fenster || [])])]; }
+function raumFensterGezeigt(hass, r) {
+  const auto = raumFensterAuto(hass, r.bereich), aus = r.fenster_auto === false ? auto : r.fenster_aus || [];
+  return raumFensterAlle(hass, r).filter((e) => !(auto.includes(e) && aus.includes(e)));
+}
+// gezeigt = Liste der Sensoren, die oben stehen sollen; der Rest des Bereichs wird gemerkt als ausgeblendet
+function raumFensterSetzen(hass, r, gezeigt) {
+  const auto = raumFensterAuto(hass, r.bereich);
+  delete r.fenster_auto;
+  const aus = auto.filter((e) => !gezeigt.includes(e)), extra = gezeigt.filter((e) => !auto.includes(e));
+  if (aus.length) r.fenster_aus = aus; else delete r.fenster_aus;
+  if (extra.length) r.fenster = extra; else delete r.fenster;
+}
 function einstStandard() {
   return { version: 1, personen: [], gruss_modus: "name", raeume: [], startseiten: { alle: startseiteStandard() }, bereiche: {},
     aussehen: { modus: "auto", hintergrund: "klassisch" } };

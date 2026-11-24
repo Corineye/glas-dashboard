@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.9.0";
+const VERSION = "0.9.1";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -43,7 +43,9 @@ const TOKENS = `
 *{box-sizing:border-box}
 button{font:inherit;color:inherit;border:0;margin:0;padding:0;background:none;cursor:pointer;touch-action:manipulation;
   -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--g-akzent);outline-offset:2px}
+:focus:not(:focus-visible){outline:none}
+@media (pointer:fine){button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--g-akzent);outline-offset:2px}}
+@media (pointer:coarse){:focus{outline:none}}
 .glas{background:var(--g-glas);border:1px solid var(--g-glas-rand);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur)}
 .karte{border-radius:var(--g-r);padding:var(--g-a4)}
 .pille{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border-radius:var(--g-r-pille);
@@ -399,6 +401,24 @@ function raumGeraeteVorschlag(hass, bereich) {
   const reihen = GRUPPEN.map(([g]) => g);
   return entitaetenImBereich(hass, bereich, RAUM_DOMAINS).map((e) => geraetVorschlag(hass, e))
     .sort((a, b) => reihen.indexOf(a.gruppe) - reihen.indexOf(b.gruppe));
+}
+// Fenster/Türen eines Raums, die oben als Chips erscheinen können
+const CHIP_KLASSEN = ["window", "door", "opening", "garage_door", "moisture", "smoke"];
+function raumFensterAuto(hass, bereich) {
+  return bereich ? entitaetenImBereich(hass, bereich, ["binary_sensor"]).filter((e) => CHIP_KLASSEN.includes(hass.states[e].attributes.device_class)) : [];
+}
+function raumFensterAlle(hass, r) { return [...new Set([...raumFensterAuto(hass, r.bereich), ...(r.fenster || [])])]; }
+function raumFensterGezeigt(hass, r) {
+  const auto = raumFensterAuto(hass, r.bereich), aus = r.fenster_auto === false ? auto : r.fenster_aus || [];
+  return raumFensterAlle(hass, r).filter((e) => !(auto.includes(e) && aus.includes(e)));
+}
+// gezeigt = Liste der Sensoren, die oben stehen sollen; der Rest des Bereichs wird gemerkt als ausgeblendet
+function raumFensterSetzen(hass, r, gezeigt) {
+  const auto = raumFensterAuto(hass, r.bereich);
+  delete r.fenster_auto;
+  const aus = auto.filter((e) => !gezeigt.includes(e)), extra = gezeigt.filter((e) => !auto.includes(e));
+  if (aus.length) r.fenster_aus = aus; else delete r.fenster_aus;
+  if (extra.length) r.fenster = extra; else delete r.fenster;
 }
 function einstStandard() {
   return { version: 1, personen: [], gruss_modus: "name", raeume: [], startseiten: { alle: startseiteStandard() }, bereiche: {},
@@ -2933,7 +2953,9 @@ const SCHICHT_CSS = `
   box-shadow:var(--g-schatten-gross);translate:0 110vh;transform-origin:50% 0;
   padding-bottom:env(safe-area-inset-bottom)}
 /* Unter einem weiteren Blatt rückt das alte leicht nach hinten (Karten-Stapel wie iOS) */
-@media (max-width:899px){.blatt{transition:scale .5s cubic-bezier(.32,.72,0,1)}.blatt.hinten{scale:.94}}
+@media (max-width:899px){.blatt{transition:scale .5s cubic-bezier(.32,.72,0,1);-webkit-backdrop-filter:none;backdrop-filter:none;background:rgb(246,246,250);contain:layout paint style}
+  .wurzel.dunkel .blatt{background:rgb(28,28,32)}.blatt.hinten{scale:.94}
+  .blatt.bewegt .inhalt{-webkit-mask-image:none;mask-image:none}}
 .blatt.bewegt{will-change:translate,scale,opacity}
 .blatt.breit{max-width:min(1000px,100%)}
 .blatt.hoch{height:calc(100% - 48px)}
@@ -2957,10 +2979,16 @@ const SCHICHT_CSS = `
 .unter{font-size:var(--g-s-name);font-weight:500;color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .inhalt{-webkit-mask-image:linear-gradient(transparent 0,#000 12px);mask-image:linear-gradient(transparent 0,#000 12px);padding-top:var(--g-a3)}
 .kopf-knoepfe{display:flex;gap:var(--g-a2);flex:none}
+.stern{transition:transform .16s cubic-bezier(.23,1,.32,1)}
+.stern:active{transform:scale(.9)}
+.stern.an{color:#ff9f0a}
+.stern.hupf ha-icon{animation:stern-hupf .3s cubic-bezier(.34,1.56,.64,1)}
+@keyframes stern-hupf{from{transform:scale(.6)}}
 `;
 
 class GlasSchicht {
-  constructor({ quelle, hoch = false, titel = "", zu }) {
+  constructor({ quelle, hoch = false, titel = "", zu, stern = null }) {
+    this.stern = stern; // { entity } oder { karte }: Stern im Kopf = zu Favoriten
     this.quelle = quelle; // Karte, von der Ereignisse an HA weitergehen
     this.zu = zu;
     this.host = document.createElement("div");
@@ -3151,13 +3179,41 @@ class GlasSchicht {
   // Kopf: Titel, Untertitel, Knöpfe. Wird von kopfBinden in die feste Kopfzeile über dem Inhalt gesetzt.
   kopfHtml(titel, unter, knoepfe = "") {
     return `<div class="kopf"><div class="kopf-text"><h2 class="titel">${esc(titel)}</h2>${unter ? `<div class="unter">${esc(unter)}</div>` : ""}</div>
-      <div class="kopf-knoepfe">${knoepfe}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>`;
+      <div class="kopf-knoepfe">${knoepfe}${this.sternHtml()}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>`;
+  }
+  // Stern: in die Favoriten der Person, die gerade schaut (bzw. „Für alle“)
+  _favZugriff() { return typeof listeZugriff === "function" && Glas.einst ? listeZugriff({ art: "fav", person: Glas.aktuellePerson(Glas.hass) }) : null; }
+  _istFav() {
+    const z = this._favZugriff(), x = this.stern;
+    return !!z && z.lesen(Glas.hass).some((f) => f.an !== false && (x.entity ? f.entity === x.entity : f.karte === x.karte));
+  }
+  sternHtml() {
+    if (!this.stern || !this._favZugriff()) return "";
+    const an = this._istFav();
+    return `<button class="rund stern ${an ? "an" : ""}" data-stern aria-pressed="${an}" aria-label="${an ? "Aus Favoriten entfernen" : "Zu Favoriten"}"><ha-icon data-i="mdi:${an ? "star" : "star-outline"}"></ha-icon></button>`;
+  }
+  sternUmschalten(knopf) {
+    const z = this._favZugriff(), x = this.stern, h = Glas.hass;
+    if (!z) return;
+    const an = !this._istFav();
+    knopf.classList.toggle("an", an); knopf.setAttribute("aria-pressed", an);
+    knopf.setAttribute("aria-label", an ? "Aus Favoriten entfernen" : "Zu Favoriten");
+    knopf.querySelector("ha-icon").icon = an ? "mdi:star" : "mdi:star-outline";
+    knopf.classList.remove("hupf"); void knopf.offsetWidth; if (an) knopf.classList.add("hupf");
+    const gleich = (f) => (x.entity ? f.entity === x.entity : f.karte === x.karte);
+    z.schreiben(h, (liste) => {
+      if (!an) return liste.filter((f) => !gleich(f));
+      const da = liste.findIndex(gleich);
+      if (da >= 0) return liste.map((f, i) => (i === da ? { ...f, an: true } : f));
+      return [...liste, x.entity ? { ...geraetVorschlag(h, x.entity), an: true, groesse: "breit" } : { karte: x.karte, groesse: "breit", an: true }];
+    });
   }
   kopfBinden() {
     const kopf = this.inhalt.querySelector(".kopf");
     if (kopf) {
       this.kopfPlatz.replaceChildren(kopf);
       kopf.querySelector("[data-zu]")?.addEventListener("click", () => this.schliessen());
+      kopf.querySelector("[data-stern]")?.addEventListener("click", (e) => this.sternUmschalten(e.currentTarget));
       kopf.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
     }
     this.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
@@ -3248,7 +3304,7 @@ function verlaufIds(entityId, cfg) {
 }
 
 function steuerungOeffnen(quelle, entityId, cfg = {}) {
-  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
+  const s = new GlasSchicht({ quelle, titel: cfg.name || entityId, stern: { entity: entityId }, zu: () => { Glas.hassHoerer.delete(neu); clearInterval(takt); } });
   let letzter = null;
   // nur neu zeichnen, wenn sich diese Entität geändert hat
   let letzterTimer = null;
@@ -4603,8 +4659,7 @@ class GlasRaumCard extends GlasKarte {
   chips() {
     const h = this._hass, c = this._config;
     let ids = c.chips || [];
-    if (c.fenster_auto && c.bereich) ids = [...new Set([...ids, ...entitaetenImBereich(h, c.bereich, ["binary_sensor"])
-      .filter((e) => ["window", "door", "opening", "moisture", "smoke"].includes(h.states[e].attributes.device_class))])];
+    if (c.fenster_auto && c.bereich) ids = [...new Set([...ids, ...raumFensterAuto(h, c.bereich).filter((e) => !(c.fenster_aus || []).includes(e))])];
     return ids.map((e) => h.states[e]).filter(Boolean);
   }
   ausZiele() {
@@ -5338,7 +5393,8 @@ async function raumMenue(quelle, hash) {
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
-    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Chips</div><div data-f="chips"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Fenster und Türen</div><div data-f="fenster"></div></div>
+    <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:motion-sensor"></ha-icon>Kopfzeile: weitere Chips</div><div data-f="chips"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:view-grid-outline"></ha-icon>Anordnung</div>
       <div class="segment" role="group" aria-label="Anordnung">${[[1, "Untereinander"], [2, "Nebeneinander"]].map(([n, l]) => `<button data-sp="${n}" aria-pressed="${(r.spalten || 1) === n}">${l}<small>${n === 1 ? "eine Spalte" : "Abschnitte versetzt"}</small></button>`).join("")}</div>
       <div class="m-hinweis">Nebeneinander gilt auf breiten Bildschirmen (PC, Tablet quer). Am Handy bleibt es eine Spalte.</div></div>
@@ -5356,16 +5412,29 @@ async function raumMenue(quelle, hash) {
     { name: "temperatur", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
     { name: "feuchte", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } },
   ], { temperatur: "Temperatursensor (leer = automatisch)", feuchte: "Luftfeuchtesensor (leer = automatisch)" }, nimm);
-  haForm($("[data-f=chips]"), { fenster_auto: r.fenster_auto !== false, fenster: r.fenster, bewegung: r.bewegung, chips: r.chips, verlauf_chip: r.verlauf_chip !== false, alles_aus: r.alles_aus !== false }, [
-    { name: "fenster_auto", selector: { boolean: {} } },
-    { name: "fenster", selector: { entity: { multiple: true, filter: { domain: "binary_sensor", device_class: ["window", "door", "opening", "garage_door"] } } } },
+  const fensterForm = () => {
+    const box = $("[data-f=fenster]");
+    box.replaceChildren();
+    const alle = raumFensterAlle(h, r);
+    haForm(box, { fenster_zeigen: raumFensterGezeigt(h, r) }, [
+      ...(alle.length ? [{ name: "fenster_zeigen", selector: { select: { multiple: true, mode: "list", options: alle.map((e) => ({ value: e, label: `${h.states[e]?.attributes.friendly_name || e}${raumFensterAuto(h, r.bereich).includes(e) ? "" : " (hinzugefügt)"}` })) } } }] : []),
+      { name: "fenster_neu", selector: { entity: { filter: { domain: "binary_sensor", device_class: CHIP_KLASSEN } } } },
+    ], { fenster_zeigen: "Oben anzeigen", fenster_neu: "Weiteren Sensor hinzufügen" }, (v) => {
+      const gezeigt = [...(v.fenster_zeigen || []), ...(v.fenster_neu && !(v.fenster_zeigen || []).includes(v.fenster_neu) ? [v.fenster_neu] : [])];
+      raumFensterSetzen(h, r, gezeigt);
+      speichern();
+      if (v.fenster_neu) fensterForm();
+    }, alle.length ? {} : { fenster_neu: "Im Bereich gibt es keine Fenster- oder Türsensoren." });
+  };
+  fensterForm();
+  haForm($("[data-f=chips]"), { bewegung: r.bewegung, chips: r.chips, verlauf_chip: r.verlauf_chip !== false, alles_aus: r.alles_aus !== false }, [
     { name: "bewegung", selector: { entity: { multiple: true, filter: { domain: "binary_sensor", device_class: ["motion", "occupancy", "presence"] } } } },
     { name: "chips", selector: { entity: { multiple: true } } },
     { type: "grid", name: "", schema: [{ name: "verlauf_chip", selector: { boolean: {} } }, { name: "alles_aus", selector: { boolean: {} } }] },
-  ], { fenster_auto: "Fenster/Türen des Bereichs automatisch", fenster: "Weitere Fenster-/Türsensoren", bewegung: "Bewegungsmelder", chips: "Weitere Chips (beliebige Entitäten)",
+  ], { bewegung: "Bewegungsmelder", chips: "Weitere Chips (beliebige Entitäten)",
     verlauf_chip: "Chip „Verlauf“", alles_aus: "Knopf „Alles aus“" }, (v, f) => {
     nimm(v, f);
-    ["fenster_auto", "verlauf_chip", "alles_aus"].forEach((k) => { if (r[k] === true) delete r[k]; });
+    ["verlauf_chip", "alles_aus"].forEach((k) => { if (r[k] === true) delete r[k]; });
   });
   const namenZeichnen = () => {
     const genutzt = benutzt();
@@ -5682,7 +5751,7 @@ class GlasBereichKarte extends GlasKarte {
   get hass() { return this._hass; }
   blattOeffnen() {
     if (this._blatt) return;
-    this._blatt = new GlasSchicht({ quelle: this, hoch: this.blattHoch?.() ?? false, titel: this.blattTitel(), zu: () => { this._blatt = null; } });
+    this._blatt = new GlasSchicht({ quelle: this, hoch: this.blattHoch?.() ?? false, titel: this.blattTitel(), stern: ({ "glas-drucker-card": { karte: "drucker" }, "glas-robi-card": { karte: "robi" } })[this.localName] || null, zu: () => { this._blatt = null; } });
     this._vz = { auf: false, stunden: 24, daten: null };
     this.blattZeichnen();
     this._blatt.oeffnen();
@@ -6661,7 +6730,7 @@ function raumCfg(hass, r, alle = false) {
       .forEach((g) => cards.push({ type: "heading", heading: gruppenName(r, g), heading_style: "subtitle", _gruppe: g, _leer: true }));
   }
   return { hash: r.hash, name: r.name, icon: r.icon, bereich: r.bereich, temperatur: r.temperatur, feuchte: r.feuchte,
-    fenster_auto: r.fenster_auto !== false, alles_aus: r.alles_aus !== false, chips: [...(r.fenster || []), ...(r.bewegung || []), ...(r.chips || [])],
+    fenster_auto: r.fenster_auto !== false, fenster_aus: r.fenster_aus || [], alles_aus: r.alles_aus !== false, chips: [...(r.fenster || []), ...(r.bewegung || []), ...(r.chips || [])],
     verlauf_chip: r.verlauf_chip !== false, spalten: r.spalten || 1, cards };
 }
 
@@ -7022,15 +7091,14 @@ class GlasEinstellungen extends HTMLElement {
     if (!raum.geraete) raum.geraete = raumGeraeteVorschlag(this._hass, raum.bereich);
     const g = this.html(box, `<div class="gruppe form"></div>`);
     const { geraete, ...rest } = raum;
-    this.form(g, { fenster_auto: true, alles_aus: true, ...rest }, [
+    this.form(g, { alles_aus: true, ...rest }, [
       { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] },
       { name: "bereich", selector: { area: {} } },
       { type: "grid", name: "", schema: [
         { name: "temperatur", selector: { entity: { filter: { domain: "sensor", device_class: "temperature" } } } },
         { name: "feuchte", selector: { entity: { filter: { domain: "sensor", device_class: "humidity" } } } }] },
-      { name: "fenster_auto", selector: { boolean: {} } },
       { name: "alles_aus", selector: { boolean: {} } },
-    ], { name: "Name", icon: "Symbol", bereich: "HA-Bereich", temperatur: "Temperatur im Kopf", feuchte: "Luftfeuchte im Kopf", fenster_auto: "Fenster und Türen oben als Chips", alles_aus: "Knopf „Alles aus“" }, (v) => {
+    ], { name: "Name", icon: "Symbol", bereich: "HA-Bereich", temperatur: "Temperatur im Kopf", feuchte: "Luftfeuchte im Kopf", alles_aus: "Knopf „Alles aus“" }, (v) => {
       const neuBereich = v.bereich && v.bereich !== raum.bereich;
       Object.assign(raum, v);
       ["temperatur", "feuchte", "bereich"].forEach((k) => { if (!(k in v)) delete raum[k]; });
@@ -7038,6 +7106,7 @@ class GlasEinstellungen extends HTMLElement {
       this.speichern();
       if (neuBereich) this.zeichnen();
     });
+    this.raumFensterGruppe(box, raum);
     this.html(box, `<h2>Geräte im Raum</h2>`);
     this.geraeteListe(box, raum.geraete, (neu) => { raum.geraete = neu; }, { gruppen: true, bereich: raum.bereich });
     const akt = this.html(box, `<div class="aktionen"><button class="knopf rot" data-weg>Raum entfernen</button></div>`);
@@ -7471,6 +7540,35 @@ Object.assign(GlasEinstellungen.prototype, {
       ${wert ? `<span class="wert">${esc(wert)}</span>` : ""}${punkt === null ? "" : `<span class="punkt ${punkt ? "an" : ""}" aria-hidden="true"></span>`}
       <ha-icon class="pfeil" data-i="mdi:chevron-right"></ha-icon></div>`);
     z.querySelector(".weiter").addEventListener("click", () => this.gehe(seite));
+  },
+
+  // Fenster/Türen oben im Raum: jeden Sensor einzeln an/aus
+  raumFensterGruppe(box, raum) {
+    const h = this._hass, alle = raumFensterAlle(h, raum), auto = raumFensterAuto(h, raum.bereich);
+    this.html(box, `<h2>Fenster und Türen oben im Raum</h2>`);
+    const g = this.html(box, `<div class="gruppe"></div>`);
+    if (!alle.length) g.innerHTML = `<div class="leise-zeile">Im Bereich gibt es keine Fenster- oder Türsensoren. Unten kannst du einen hinzufügen.</div>`;
+    let gezeigt = raumFensterGezeigt(h, raum);
+    alle.forEach((e) => {
+      const st = h.states[e], an = gezeigt.includes(e), fremd = !auto.includes(e);
+      const z = this.html(g, `<div class="zeile ${an ? "" : "aus"}"><span class="sym"><ha-state-icon data-e="${esc(e)}"></ha-state-icon></span>
+        <span class="name"><b>${esc(st?.attributes.friendly_name || e)}</b><span>${st ? esc(Geraet.zustand(h, st, null)) : "nicht gefunden"}${fremd ? " · hinzugefügt" : ""}</span></span>
+        <button class="schalter" role="switch" aria-checked="${an}" aria-label="${esc(st?.attributes.friendly_name || e)} oben anzeigen"></button></div>`);
+      z.querySelector(".schalter").addEventListener("click", (ev) => {
+        const neu = ev.currentTarget.getAttribute("aria-checked") !== "true";
+        ev.currentTarget.setAttribute("aria-checked", neu); z.classList.toggle("aus", !neu);
+        gezeigt = neu ? [...gezeigt, e] : gezeigt.filter((x) => x !== e);
+        raumFensterSetzen(h, raum, gezeigt);
+        this.speichern();
+        if (fremd && !neu) this.zeichnen();
+      });
+    });
+    const hinzu = this.html(g, `<div class="hinzu"></div>`);
+    this.form(hinzu, {}, [{ name: "e", selector: { entity: { filter: { domain: "binary_sensor", device_class: CHIP_KLASSEN } } } }], { e: "Weiteren Sensor hinzufügen" }, (v) => {
+      if (!v.e || gezeigt.includes(v.e)) return;
+      raumFensterSetzen(h, raum, [...gezeigt, v.e]); this.speichern(); this.zeichnen();
+    });
+    this.html(box, `<div class="fuss">Ausgeschaltete Sensoren erscheinen nicht mehr als Chip oben im Raum. In „Fenster und Türen“ und bei den Warnungen bleiben sie.</div>`);
   },
 
   // ---------------- Übersicht ----------------

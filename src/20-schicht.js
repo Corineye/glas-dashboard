@@ -30,7 +30,9 @@ const SCHICHT_CSS = `
   box-shadow:var(--g-schatten-gross);translate:0 110vh;transform-origin:50% 0;
   padding-bottom:env(safe-area-inset-bottom)}
 /* Unter einem weiteren Blatt rückt das alte leicht nach hinten (Karten-Stapel wie iOS) */
-@media (max-width:899px){.blatt{transition:scale .5s cubic-bezier(.32,.72,0,1)}.blatt.hinten{scale:.94}}
+@media (max-width:899px){.blatt{transition:scale .5s cubic-bezier(.32,.72,0,1);-webkit-backdrop-filter:none;backdrop-filter:none;background:rgb(246,246,250);contain:layout paint style}
+  .wurzel.dunkel .blatt{background:rgb(28,28,32)}.blatt.hinten{scale:.94}
+  .blatt.bewegt .inhalt{-webkit-mask-image:none;mask-image:none}}
 .blatt.bewegt{will-change:translate,scale,opacity}
 .blatt.breit{max-width:min(1000px,100%)}
 .blatt.hoch{height:calc(100% - 48px)}
@@ -54,10 +56,16 @@ const SCHICHT_CSS = `
 .unter{font-size:var(--g-s-name);font-weight:500;color:var(--g-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .inhalt{-webkit-mask-image:linear-gradient(transparent 0,#000 12px);mask-image:linear-gradient(transparent 0,#000 12px);padding-top:var(--g-a3)}
 .kopf-knoepfe{display:flex;gap:var(--g-a2);flex:none}
+.stern{transition:transform .16s cubic-bezier(.23,1,.32,1)}
+.stern:active{transform:scale(.9)}
+.stern.an{color:#ff9f0a}
+.stern.hupf ha-icon{animation:stern-hupf .3s cubic-bezier(.34,1.56,.64,1)}
+@keyframes stern-hupf{from{transform:scale(.6)}}
 `;
 
 class GlasSchicht {
-  constructor({ quelle, hoch = false, titel = "", zu }) {
+  constructor({ quelle, hoch = false, titel = "", zu, stern = null }) {
+    this.stern = stern; // { entity } oder { karte }: Stern im Kopf = zu Favoriten
     this.quelle = quelle; // Karte, von der Ereignisse an HA weitergehen
     this.zu = zu;
     this.host = document.createElement("div");
@@ -248,13 +256,41 @@ class GlasSchicht {
   // Kopf: Titel, Untertitel, Knöpfe. Wird von kopfBinden in die feste Kopfzeile über dem Inhalt gesetzt.
   kopfHtml(titel, unter, knoepfe = "") {
     return `<div class="kopf"><div class="kopf-text"><h2 class="titel">${esc(titel)}</h2>${unter ? `<div class="unter">${esc(unter)}</div>` : ""}</div>
-      <div class="kopf-knoepfe">${knoepfe}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>`;
+      <div class="kopf-knoepfe">${knoepfe}${this.sternHtml()}<button class="rund" data-zu aria-label="Schließen"><ha-icon data-i="mdi:close"></ha-icon></button></div></div>`;
+  }
+  // Stern: in die Favoriten der Person, die gerade schaut (bzw. „Für alle“)
+  _favZugriff() { return typeof listeZugriff === "function" && Glas.einst ? listeZugriff({ art: "fav", person: Glas.aktuellePerson(Glas.hass) }) : null; }
+  _istFav() {
+    const z = this._favZugriff(), x = this.stern;
+    return !!z && z.lesen(Glas.hass).some((f) => f.an !== false && (x.entity ? f.entity === x.entity : f.karte === x.karte));
+  }
+  sternHtml() {
+    if (!this.stern || !this._favZugriff()) return "";
+    const an = this._istFav();
+    return `<button class="rund stern ${an ? "an" : ""}" data-stern aria-pressed="${an}" aria-label="${an ? "Aus Favoriten entfernen" : "Zu Favoriten"}"><ha-icon data-i="mdi:${an ? "star" : "star-outline"}"></ha-icon></button>`;
+  }
+  sternUmschalten(knopf) {
+    const z = this._favZugriff(), x = this.stern, h = Glas.hass;
+    if (!z) return;
+    const an = !this._istFav();
+    knopf.classList.toggle("an", an); knopf.setAttribute("aria-pressed", an);
+    knopf.setAttribute("aria-label", an ? "Aus Favoriten entfernen" : "Zu Favoriten");
+    knopf.querySelector("ha-icon").icon = an ? "mdi:star" : "mdi:star-outline";
+    knopf.classList.remove("hupf"); void knopf.offsetWidth; if (an) knopf.classList.add("hupf");
+    const gleich = (f) => (x.entity ? f.entity === x.entity : f.karte === x.karte);
+    z.schreiben(h, (liste) => {
+      if (!an) return liste.filter((f) => !gleich(f));
+      const da = liste.findIndex(gleich);
+      if (da >= 0) return liste.map((f, i) => (i === da ? { ...f, an: true } : f));
+      return [...liste, x.entity ? { ...geraetVorschlag(h, x.entity), an: true, groesse: "breit" } : { karte: x.karte, groesse: "breit", an: true }];
+    });
   }
   kopfBinden() {
     const kopf = this.inhalt.querySelector(".kopf");
     if (kopf) {
       this.kopfPlatz.replaceChildren(kopf);
       kopf.querySelector("[data-zu]")?.addEventListener("click", () => this.schliessen());
+      kopf.querySelector("[data-stern]")?.addEventListener("click", (e) => this.sternUmschalten(e.currentTarget));
       kopf.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });
     }
     this.inhalt.querySelectorAll("ha-icon[data-i]").forEach((el) => { el.icon = el.dataset.i; });

@@ -196,6 +196,35 @@ Object.assign(GlasEinstellungen.prototype, {
     z.querySelector(".weiter").addEventListener("click", () => this.gehe(seite));
   },
 
+  // Fenster/Türen oben im Raum: jeden Sensor einzeln an/aus
+  raumFensterGruppe(box, raum) {
+    const h = this._hass, alle = raumFensterAlle(h, raum), auto = raumFensterAuto(h, raum.bereich);
+    this.html(box, `<h2>Fenster und Türen oben im Raum</h2>`);
+    const g = this.html(box, `<div class="gruppe"></div>`);
+    if (!alle.length) g.innerHTML = `<div class="leise-zeile">Im Bereich gibt es keine Fenster- oder Türsensoren. Unten kannst du einen hinzufügen.</div>`;
+    let gezeigt = raumFensterGezeigt(h, raum);
+    alle.forEach((e) => {
+      const st = h.states[e], an = gezeigt.includes(e), fremd = !auto.includes(e);
+      const z = this.html(g, `<div class="zeile ${an ? "" : "aus"}"><span class="sym"><ha-state-icon data-e="${esc(e)}"></ha-state-icon></span>
+        <span class="name"><b>${esc(st?.attributes.friendly_name || e)}</b><span>${st ? esc(Geraet.zustand(h, st, null)) : "nicht gefunden"}${fremd ? " · hinzugefügt" : ""}</span></span>
+        <button class="schalter" role="switch" aria-checked="${an}" aria-label="${esc(st?.attributes.friendly_name || e)} oben anzeigen"></button></div>`);
+      z.querySelector(".schalter").addEventListener("click", (ev) => {
+        const neu = ev.currentTarget.getAttribute("aria-checked") !== "true";
+        ev.currentTarget.setAttribute("aria-checked", neu); z.classList.toggle("aus", !neu);
+        gezeigt = neu ? [...gezeigt, e] : gezeigt.filter((x) => x !== e);
+        raumFensterSetzen(h, raum, gezeigt);
+        this.speichern();
+        if (fremd && !neu) this.zeichnen();
+      });
+    });
+    const hinzu = this.html(g, `<div class="hinzu"></div>`);
+    this.form(hinzu, {}, [{ name: "e", selector: { entity: { filter: { domain: "binary_sensor", device_class: CHIP_KLASSEN } } } }], { e: "Weiteren Sensor hinzufügen" }, (v) => {
+      if (!v.e || gezeigt.includes(v.e)) return;
+      raumFensterSetzen(h, raum, [...gezeigt, v.e]); this.speichern(); this.zeichnen();
+    });
+    this.html(box, `<div class="fuss">Ausgeschaltete Sensoren erscheinen nicht mehr als Chip oben im Raum. In „Fenster und Türen“ und bei den Warnungen bleiben sie.</div>`);
+  },
+
   // ---------------- Übersicht ----------------
   uebersicht(box) {
     const d = this._d, h = this._hass, erk = glasErkennen(h);
