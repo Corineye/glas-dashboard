@@ -7,9 +7,12 @@ const ZUHAUSE_CSS = `
 .hg{position:fixed;inset:0;z-index:0;pointer-events:none}
 .seite{position:relative;z-index:1;max-width:1320px;margin:0 auto;
   padding:var(--g-a4) var(--g-a4) calc(120px + env(safe-area-inset-bottom))}
+
 .raster{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2);margin-top:var(--g-a3);align-items:start}
 .raster > *{grid-column:span 12;min-width:0}
 .raster > .halb{grid-column:span 6}
+.raster > .widget{grid-column:span 6}
+@media (min-width:900px){.raster > .widget{grid-column:span 3}}
 .abschnitt-titel{grid-column:span 12;margin:var(--g-a4) var(--g-a1) var(--g-a1)}
 .fav{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--g-a2)}
 .fav > *{min-width:0}
@@ -120,6 +123,7 @@ class GlasZuhauseCard extends HTMLElement {
     }
     const s = startseiteVon(e, person);
     const teile = [];
+    if (!Glas.bearbeiten && e.insel?.an !== false) teile.push(this.kind("insel", "glas-insel-card", {}));
     teile.push(this.kind("kopf", "glas-kopf-card", { gruss_modus: e.gruss_modus || "name", gruss_text: e.gruss_text, untertitel: e.untertitel, personen: e.personen || [], chips: s.chips || [] }));
     const b = e.bereiche || {};
     const bearb = Glas.bearbeiten;
@@ -137,10 +141,19 @@ class GlasZuhauseCard extends HTMLElement {
       teile.push(w);
     }
     const abZugriff = listeZugriff({ art: "abschnitte", person });
+    // Räume als Ordner: oben Favoriten-Ordner und Raum-Kacheln, Wetter/Planer wandern in die untere Leiste
+    const ordner = ordnerStil(e), plaetze = ordner ? leistePlaetze(e) : [];
+    if (ordner) {
+      const favAn = s.abschnitte.find((a) => a.id === "favoriten")?.an !== false;
+      if (!bearb && favAn) teile.push(this.kind("favordner", "glas-favordner-card", { favoriten: s.favoriten || [] }));
+      teile.push(this.kind("raeume", "glas-raeume-card", {}));
+    }
     const raster = document.createElement("div");
     raster.className = "raster";
     for (const [ai, a] of s.abschnitte.entries()) {
       if (!a.an && !bearb) continue;
+      if (ordner && !bearb && a.id === "favoriten") continue;
+      if (ordner && ["wetter", "planer"].includes(a.id) && plaetze.includes(a.id)) continue;
       let el = null;
       const info = ABSCHNITTE.find(([id]) => id === a.id) || [a.id, a.id, "mdi:card-outline"];
       const platz = (text) => {
@@ -162,27 +175,31 @@ class GlasZuhauseCard extends HTMLElement {
       // Von null: offensichtliche Entitäten selbst finden (einzige Wetter-Entität, einziger Saugroboter)
       const erste = (d) => { const l = Object.keys(this._hass.states).filter((x) => x.startsWith(`${d}.`)); return l.length === 1 ? l[0] : null; };
       const wetterE = b.wetter?.entity || erste("weather"), robiE = b.robi?.entity || erste("vacuum");
-      if (a.id === "wetter" && wetterE) el = this.kind("wetter", "glas-wetter-card", { ...(b.wetter || {}), entity: wetterE });
+      const alsWidget = (a.widget || a.id === "zuhause") && WIDGET_ARTEN.includes(a.id);
+      const eingerichtet = { wetter: !!wetterE, planer: b.planer?.an !== false, drucker: !!(b.drucker?.geraet || b.drucker?.fortschritt), robi: !!robiE, zuhause: true, sicherheit: true }[a.id];
+      if (alsWidget && eingerichtet) el = this.kind(`w-${a.id}`, "glas-widget-card", { art: a.id });
+      else if (alsWidget) el = null;
+      else if (a.id === "wetter" && wetterE) el = this.kind("wetter", "glas-wetter-card", { ...(b.wetter || {}), entity: wetterE });
       else if (a.id === "planer" && b.planer?.an !== false) el = this.kind("planer", "glas-planer-card", b.planer || {});
       else if (a.id === "sicherheit" && b.sicherheit && (b.sicherheit.alarm || b.sicherheit.fenster_auto !== false)) el = this.kind("sicherheit", "glas-sicherheit-card", { fenster_auto: true, ...(b.sicherheit || {}) });
       else if (a.id === "drucker" && (b.drucker?.geraet || b.drucker?.fortschritt)) el = this.kind("drucker", "glas-drucker-card", b.drucker);
       else if (a.id === "robi" && robiE) el = this.kind("robi", "glas-robi-card", { ...(b.robi || {}), entity: robiE });
       else if (a.id === "gaeste" && (b.gaeste?.ssid || b.gaeste?.ssid_entity)) el = this.kind("gaeste", "glas-gaeste-card", b.gaeste);
-      else if (a.id === "favoriten" && (bearb || (s.favoriten || []).some((f) => f.an !== false && (f.entity || listenKarte(f.karte))))) {
+      else if (a.id === "favoriten" && (bearb || (s.favoriten || []).some((f) => f.an !== false && (f.entity || f.ordner || listenKarte(f.karte))))) {
         const wrap = document.createElement("div");
         wrap.innerHTML = `<h2 class="h2 abschnitt-titel">Favoriten</h2><div class="fav"></div>`;
         wrap.style.display = bearb ? "grid" : "contents";
         if (bearb) { wrap.style.gridTemplateColumns = "repeat(12,minmax(0,1fr))"; wrap.style.gap = "var(--g-a2)"; }
         const fav = wrap.querySelector(".fav");
-        (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || listenKarte(f.karte))).forEach(({ f, i }, n) => {
+        (s.favoriten || []).map((f, i) => ({ f, i })).filter(({ f }) => (bearb || f.an !== false) && (f.entity || f.ordner || listenKarte(f.karte))).forEach(({ f, i }, n) => {
           const kk = f.karte && listenKarte(f.karte);
           const kc = kk && (({ type, ...r }) => r)(listenKarteCfg(f));
-          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], kc) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
+          const k = kk ? this.kind(`fav${n}-${f.karte}`, kk[3], kc) : f.ordner ? this.kind(`fav${n}-ordner`, "glas-ordner-card", ordnerCfg(f)) : this.kind(`fav${n}`, "glas-kachel-card", kachelCfg(f));
           const z = document.createElement("div");
           z.style.gridColumn = `span ${SPANNE[f.groesse || "breit"] || 6}`;
           if (bearb) {
             z.dataset.i = i;
-            z.dataset.name = kk ? listenKarteName(f) : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
+            z.dataset.name = kk ? listenKarteName(f) : f.ordner ? `Ordner ${f.name || ""}` : f.name || this._hass.states[f.entity]?.attributes.friendly_name || f.entity;
             if (f.an === false) z.classList.add("aus");
           }
           z.appendChild(k);
@@ -197,9 +214,16 @@ class GlasZuhauseCard extends HTMLElement {
       if (!el) el = platz(a.id === "favoriten" ? "Noch keine Favoriten" : !a.an ? "Ausgeblendet" : "Noch nicht eingerichtet · antippen");
       else if (bearb && !a.an) el = platz("Ausgeblendet");
       const z = umhuellen(el, false);
-      el.classList.toggle("halb", a.breite === "halb" && !bearb);
-      z.classList.toggle("halb", a.breite === "halb");
+      el.classList.toggle("halb", a.breite === "halb" && !bearb && !alsWidget);
+      z.classList.toggle("halb", a.breite === "halb" && !alsWidget);
+      el.classList.toggle("widget", alsWidget && !bearb);
+      z.classList.toggle("widget", alsWidget);
       raster.appendChild(z);
+    }
+    if (ordner && !bearb && raster.children.length) {
+      const t = document.createElement("h2");
+      t.className = "h2 abschnitt-titel"; t.textContent = "Mehr";
+      raster.prepend(t);
     }
     teile.push(raster);
     if (bearb) bearbeitRaster(raster, abZugriff, this, { mitNeu: false, menue: (i) => abschnittMenue(this, abZugriff, i) });
@@ -207,8 +231,8 @@ class GlasZuhauseCard extends HTMLElement {
     // Räume: Leiste + Blätter (leben unsichtbar, öffnen über #raum)
     const raeume = (e.raeume || []).filter((r) => r.hash);
     const unten = [];
-    if (raeume.length) {
-      unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
+    if (raeume.length || ordner) {
+      unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, ordner, plaetze, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
       raeume.forEach((r) => unten.push(this.kind(`raum-${r.hash}`, "glas-raum-card", raumCfg(this._hass, r))));
     }
     // Nur umhängen, wenn sich etwas geändert hat: sonst würde ein offenes Raum-Blatt geschlossen
@@ -217,6 +241,8 @@ class GlasZuhauseCard extends HTMLElement {
     this._kinder = this._neu;
   }
 }
+// Ordner aus den Einstellungen → Ordner-Karte
+function ordnerCfg(o) { return { name: o.name || "Ordner", groesse: o.groesse || "breit", eintraege: (o.eintraege || []).map((x) => kachelCfg(x)) }; }
 // Gerät aus den Einstellungen → Kachel-Konfiguration
 function kachelCfg(g) {
   const { an, gruppe, ...rest } = g;
@@ -224,7 +250,7 @@ function kachelCfg(g) {
 }
 // alle = Bearbeiten-Modus: auch Ausgeblendete, mit Index (_i) und Gruppe (_gruppe) für Ziehen und Menü
 function raumCfg(hass, r, alle = false) {
-  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).map((g, i) => ({ g, i })).filter(({ g }) => (alle || g.an !== false) && (g.entity || g.karte));
+  const geraete = (r.geraete || raumGeraeteVorschlag(hass, r.bereich)).map((g, i) => ({ g, i })).filter(({ g }) => (alle || g.an !== false) && (g.entity || g.karte || g.ordner));
   const cards = [];
   let gruppe = null;
   const extra = (g, i, gr) => (alle ? { _i: i, _aus: g.an === false, ...(gr ? { _gruppe: gr } : {}), ...(g.karte ? { _karte: g.karte } : {}) } : {});
@@ -235,6 +261,12 @@ function raumCfg(hass, r, alle = false) {
       const gr = g.gruppe || `karte-${g.karte}`;
       if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
       cards.push({ ...k, ...extra(g, i) });
+      continue;
+    }
+    if (g.ordner) {
+      const gr = g.gruppe || (g.eintraege?.[0]?.entity && hass.states[g.eintraege[0].entity] ? gruppeVon(hass, g.eintraege[0].entity) : "sonstiges");
+      if (gr !== gruppe) { gruppe = gr; cards.push({ type: "heading", heading: gruppenName(r, gr), heading_style: "subtitle", _gruppe: gr }); }
+      cards.push({ type: "custom:glas-ordner-card", ...ordnerCfg(g), ...extra(g, i) });
       continue;
     }
     const gr = g.gruppe || gruppeVon(hass, g.entity);

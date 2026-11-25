@@ -77,7 +77,7 @@ const KARTEN_INFO = [
 ];
 const kartenInfo = (id) => KARTEN_INFO.find(([k]) => k === id);
 const SEITEN = { raeume: ["Räume", "mdi:sofa-outline", "blau"], start: ["Startseite & Favoriten", "mdi:star-outline", "orange"], personen: ["Personen", "mdi:account-multiple-outline", "gruen"],
-  aussehen: ["Aussehen", "mdi:palette-outline", "lila"], dashboard: ["Dashboard „Zuhause“", "mdi:view-dashboard-outline", "grau"] };
+  aussehen: ["Aussehen", "mdi:palette-outline", "lila"], kontroll: ["Kontrollzentrum & Insel", "mdi:tune-vertical-variant", "grau"], dashboard: ["Dashboard „Zuhause“", "mdi:view-dashboard-outline", "grau"] };
 const AS_SCHRITTE = ["start", "raeume", "personen", "karten", "favoriten", "fertig"];
 
 // Neuer Raum aus einem HA-Bereich, mit vorgeschlagenen Geräten
@@ -179,6 +179,7 @@ Object.assign(GlasEinstellungen.prototype, {
     else if (S === "start") this.startseite(box);
     else if (S === "personen") this.personen(box);
     else if (S === "aussehen") this.aussehen(box);
+    else if (S === "kontroll") this.kontrollSeite(box);
     else if (S === "dashboard") this.dashboardBlock(box);
     else if (karte) this.kartenSeite(box, karte);
     this.icons();
@@ -253,6 +254,7 @@ Object.assign(GlasEinstellungen.prototype, {
     g = this.html(box, `<div class="gruppe"></div>`);
     const A = { modus: "auto", hintergrund: "klassisch", ...(d.aussehen || {}) };
     this.zeilenLink(g, { seite: "aussehen", ...this.seiteInfo("aussehen"), wert: `${{ auto: "Automatisch", hell: "Hell", dunkel: "Dunkel" }[A.modus] || ""} · ${HINTERGRUENDE[A.hintergrund]?.name || (A.hintergrund === "tageszeit" ? "Nach Tageszeit" : "Wie HA")}` });
+    this.zeilenLink(g, { seite: "kontroll", ...this.seiteInfo("kontroll"), wert: d.kontrollzentrum?.an === false ? "Aus" : "An" });
     this.zeilenLink(g, { seite: "dashboard", ...this.seiteInfo("dashboard") });
     if (!leer) {
       const a = this.html(box, `<div class="aktionen"><button class="knopf"><ha-icon data-i="mdi:auto-fix"></ha-icon>Assistent erneut durchgehen</button></div>`);

@@ -64,7 +64,8 @@ const SCHICHT_CSS = `
 `;
 
 class GlasSchicht {
-  constructor({ quelle, hoch = false, titel = "", zu, stern = null }) {
+  constructor({ quelle, hoch = false, titel = "", zu, stern = null, herkunft = null }) {
+    this.herkunft = herkunft; // Element (z. B. Raum-Kachel): Blatt wächst daraus wie ein iPhone-Ordner
     this.stern = stern; // { entity } oder { karte }: Stern im Kopf = zu Favoriten
     this.quelle = quelle; // Karte, von der Ereignisse an HA weitergehen
     this.zu = zu;
@@ -167,12 +168,62 @@ class GlasSchicht {
     // Inhalt (Symbole, eingebettete Karten) darf sich noch einen Moment setzen, dann federt das Blatt hoch
     requestAnimationFrame(() => {
       if (this._weg) return;
+      if (this._wachsen()) return;
       this._feder(0, 0, SCHICHT_BREIT.matches ? { antwort: 0.38, daempfung: 0.82 } : { antwort: 0.46, daempfung: 1 });
       this.blatt.querySelector("[data-zu]")?.focus({ preventScroll: true, focusVisible: false });
     });
   }
+  // Handy: aus dem Rechteck der Kachel zum Blatt wachsen (FLIP), Inhalt blendet erst unterwegs ein
+  _herkunftRect() {
+    const el = typeof this.herkunft === "function" ? this.herkunft() : this.herkunft;
+    this._hkEl = el;
+    if (!el?.isConnected || SCHICHT_BREIT.matches || SCHICHT_RUHIG.matches) return null;
+    const r = el.getBoundingClientRect();
+    return r.width && r.bottom > 0 && r.top < innerHeight ? r : null;
+  }
+  _flip(q, p) {
+    const z = this._zielRect;
+    const sx = q.width / z.width, sy = q.height / z.height, dx = q.left - z.left, dy = q.top - z.top;
+    return { transform: `translate(${dx * (1 - p)}px,${dy * (1 - p)}px) scale(${sx + (1 - sx) * p},${sy + (1 - sy) * p})`, borderRadius: `${24 + 8 * p}px` };
+  }
+  _wachsen() {
+    const q = this._herkunftRect();
+    if (!q) return false;
+    this._setzen(0);
+    this._zielRect = this.blatt.getBoundingClientRect();
+    this.blatt.style.transformOrigin = "0 0";
+    this._hkEl.style.visibility = "hidden";
+    const teile = [this.kopfPlatz, this.inhalt, this.root.querySelector(".griff")];
+    const a = federAnim(this.blatt, (p) => this._flip(q, p), { antwort: 0.44, daempfung: 0.84 });
+    teile.forEach((t) => federAnim(t, (p) => ({ opacity: String(klemmen((p - 0.3) * 2.2, 0, 1)) }), { antwort: 0.44, daempfung: 1 }));
+    federAnim(this.dimm, (p) => ({ opacity: String(klemmen(p, 0, 1)) }), { antwort: 0.3, daempfung: 1 });
+    a.finished.catch(() => {}).then(() => { this.blatt.style.transform = ""; this.blatt.style.borderRadius = ""; this.blatt.style.transformOrigin = ""; if (!this._weg) this._hkEl.style.visibility = ""; });
+    this.blatt.querySelector("[data-zu]")?.focus({ preventScroll: true, focusVisible: false });
+    return true;
+  }
   schliessen(v = 0) {
     if (this._weg) return;
+    // Ohne Wischen zurück in die Kachel schrumpfen (wie ein Ordner)
+    if (!v && this._lageWert === 0 && this.herkunft && !this._anim) {
+      const q = this._herkunftRect();
+      if (q) {
+        this._weg = true;
+        GlasSchicht.stapel = GlasSchicht.stapel.filter((x) => x !== this);
+        GlasSchicht.stapel[GlasSchicht.stapel.length - 1]?.blatt.classList.remove("hinten");
+        document.removeEventListener("keydown", this._taste);
+        this.dimm.style.pointerEvents = "none"; this.blatt.style.pointerEvents = "none";
+        this._zielRect = this.blatt.getBoundingClientRect();
+        this.blatt.style.transformOrigin = "0 0";
+        this._hkEl.style.visibility = "hidden";
+        [this.kopfPlatz, this.inhalt, this.root.querySelector(".griff")].forEach((t) => federAnim(t, (p) => ({ opacity: String(klemmen(1 - p * 2.5, 0, 1)) }), { antwort: 0.24, daempfung: 1 }));
+        federAnim(this.dimm, (p) => ({ opacity: String(klemmen(1 - p, 0, 1)) }), { antwort: 0.3, daempfung: 1 });
+        federAnim(this.blatt, (p) => ({ ...this._flip(q, 1 - p), opacity: String(klemmen((1 - p) * 5, 0, 1)) }), { antwort: 0.36, daempfung: 0.95 })
+          .finished.catch(() => {}).then(() => { this._hkEl.style.visibility = ""; this.host.remove(); this.zu?.(); });
+        try { this._vorher?.focus?.({ preventScroll: true }); } catch (_) { /* */ }
+        return;
+      }
+    }
+    if (this._hkEl) this._hkEl.style.visibility = "";
     this._weg = true;
     GlasSchicht.stapel = GlasSchicht.stapel.filter((x) => x !== this);
     GlasSchicht.stapel[GlasSchicht.stapel.length - 1]?.blatt.classList.remove("hinten");

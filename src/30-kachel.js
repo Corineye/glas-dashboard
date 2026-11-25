@@ -399,6 +399,8 @@ class GlasKachelCard extends GlasKarte {
       if (eigene && eigene.action) { aktion(this, { entity: c.entity, tap_action: eigene }, "tap"); return; }
       if (art === "tap" && v.schalten && !v.anzeige) { if (navigator.vibrate) navigator.vibrate(8); Geraet.schalten(this._hass, s); return; }
       if (art === "tap" && v.anzeige) { steuerungOeffnen(this, c.entity, c); return; } // eigene große Ansicht mit Verlauf
+      // Langes Drücken: Vorschau wie iOS (abschaltbar mit vorschau: false)
+      if (art === "hold" && c.vorschau !== false && typeof vorschauOeffnen === "function") { this._vorschau = vorschauOeffnen(this, c); if (this._vorschau) return; }
       steuerungOeffnen(this, c.entity, c); // Symbol / Halten: große Steuerung
     };
     el.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -419,10 +421,11 @@ class GlasKachelCard extends GlasKarte {
         start: regler && Geraet.istAn(s) ? regler.pct : 0, regler, zieh: false, lang: false, weg: false };
       try { el.setPointerCapture(e.pointerId); } catch (_) { /* */ }
       clearTimeout(timer);
-      timer = setTimeout(() => { if (ges && !ges.zieh && !ges.weg) { ges.lang = true; if (navigator.vibrate) navigator.vibrate(12); ausfuehren("hold"); } }, 480);
+      timer = setTimeout(() => { if (ges && !ges.zieh && !ges.weg) { ges.lang = true; this._vorschau = null; ausfuehren("hold"); } }, 480);
     });
     el.addEventListener("pointermove", (e) => {
-      if (!ges || ges.lang) return;
+      if (ges?.lang) { this._vorschau?.ziehen(e.clientX, e.clientY); return; }
+      if (!ges) return;
       const dx = e.clientX - ges.x, dy = e.clientY - ges.y;
       if (!ges.zieh && !ges.weg) {
         if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) && ges.regler && c.wischen !== false && c.groesse !== "klein") { ges.zieh = true; clearTimeout(timer); this._sperre = true; }
@@ -442,7 +445,8 @@ class GlasKachelCard extends GlasKarte {
       const g = ges; ges = null;
       if (!g) return;
       if (g.zieh) { this._sperre = false; if (!abbruch) g.regler.setzen(this._hass, g.p ?? g.start); else this.render(); return; }
-      if (abbruch || g.lang || g.weg) return;
+      if (g.lang) { if (!abbruch) this._vorschau?.loslassen(); this._vorschau = null; return; }
+      if (abbruch || g.weg) return;
       const art = g.zone === "icon" ? "icon" : "tap";
       if (c.double_tap_action?.action && art === "tap") {
         const jetzt = Date.now();
@@ -451,6 +455,8 @@ class GlasKachelCard extends GlasKarte {
       }
       ausfuehren(art);
     };
+    // Nach dem langen Drücken scrollt der Finger nicht mehr, sondern wählt in der Vorschau
+    el.addEventListener("touchmove", (e) => { if (ges?.lang && e.cancelable) e.preventDefault(); }, { passive: false });
     el.addEventListener("pointerup", () => los(false));
     el.addEventListener("pointercancel", () => los(true));
   }

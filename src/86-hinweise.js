@@ -27,7 +27,7 @@ class GlasHinweiseCard extends GlasKarte {
   fenster() {
     const h = this._hass, k = this._config.fenster_klassen;
     return Object.values(h.states).filter((st) => st.entity_id.startsWith("binary_sensor.") && k.includes(st.attributes.device_class)
-      && st.state === "on" && !h.entities?.[st.entity_id]?.hidden);
+      && st.state === "on" && !h.entities?.[st.entity_id]?.hidden && !(Glas.einst?.bereiche?.sicherheit?.ausgeblendet || []).includes(st.entity_id));
   }
   entitaeten() {
     const h = this._hass;

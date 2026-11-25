@@ -17,6 +17,9 @@ h1{margin:0;font-size:var(--g-s-titel);font-weight:800;letter-spacing:-.4px;colo
 .chips{display:flex;flex-wrap:wrap;gap:var(--g-a2);margin-top:var(--g-a3)}
 .chip{min-height:36px}
 .aktiv-rund{background:var(--g-akzent-voll);color:#fff}
+.insel-platz{flex:1;min-width:0;align-self:stretch;margin-left:calc(-1 * var(--g-a3))}
+/* Läuft etwas, bleibt mindestens Platz für die kleine Insel (nur das Symbol) */
+:host([insel]) .insel-platz{min-width:44px;margin-left:0}
 .rechts{display:flex;align-items:center;gap:var(--g-a2);flex:none}
 .bearb-zeile{display:flex;align-items:center;gap:var(--g-a2);margin-top:var(--g-a3);padding:var(--g-a2) var(--g-a3);border-radius:var(--g-r-klein);
   font-size:var(--g-s-klein);line-height:1.4;color:var(--g-text)}
@@ -62,12 +65,16 @@ class GlasKopfCard extends GlasKarte {
       this._scrollHoerer = () => { if (!wartet) { wartet = true; requestAnimationFrame(() => { wartet = false; this.titelFolgen(); }); } };
       this._groesseHoerer = () => { this._kopfH = null; this._scrollHoerer(); };
     }
+    if (!this._inselHoerer) this._inselHoerer = () => { const an = !!Glas.inselAktiv && !(parseFloat(getComputedStyle(this).getPropertyValue("--header-height")) || 0); if (an !== this.hasAttribute("insel")) { this.toggleAttribute("insel", an); } this._scrollHoerer(); };
+    addEventListener("glas-insel-aktiv", this._inselHoerer);
+    requestAnimationFrame(() => this._inselHoerer());
     addEventListener("scroll", this._scrollHoerer, { passive: true });
     addEventListener("resize", this._groesseHoerer, { passive: true });
   }
   disconnectedCallback() {
     super.disconnectedCallback();
     removeEventListener("scroll", this._scrollHoerer);
+    removeEventListener("glas-insel-aktiv", this._inselHoerer);
     removeEventListener("resize", this._groesseHoerer);
   }
   // Großer Titel folgt dem Scrollen (wird kleiner und blasser); ab der Hälfte federt die Blase oben links heraus.
@@ -86,11 +93,17 @@ class GlasKopfCard extends GlasKarte {
       g.style.transform = p && !BEWEGUNG_REDUZIERT.matches ? `scale(${(1 - p * 0.18).toFixed(4)})` : "";
       g.style.opacity = p ? (1 - p).toFixed(3) : "";
     }
+    // Freie Fläche zwischen Begrüßung und Knöpfen: dort sitzt die Dynamic Island (keine eigene Zeile)
+    const pl = this.$(".insel-platz")?.getBoundingClientRect();
+    if (pl) {
+      const P = { x: Math.round(pl.left + pl.width / 2 + scrollX), y: Math.round(pl.top + pl.height / 2 + scrollY), w: Math.round(pl.width) };
+      if (JSON.stringify(P) !== JSON.stringify(Glas.inselPlatz)) { Glas.inselPlatz = P; window.dispatchEvent(new CustomEvent("glas-insel-platz")); }
+    }
     const x = Math.round(Math.max(8, r.left - 4));
     if (x !== this._x) { this._x = x; b.style.setProperty("--blase-x", x + "px"); }
     // Kleiner Abstand (Hysterese), damit die Blase am Umschaltpunkt nicht flackert
     const zu = this._zu ? p > 0.4 : p > 0.6;
-    if (zu !== this._zu) { this._zu = zu; b.classList.toggle("zu", zu); b.setAttribute("aria-hidden", String(!zu)); b.tabIndex = zu ? 0 : -1; }
+    if (zu !== this._zu) { this._zu = zu; Glas.blaseZu = zu; window.dispatchEvent(new CustomEvent("glas-blase", { detail: zu })); b.classList.toggle("zu", zu); b.setAttribute("aria-hidden", String(!zu)); b.tabIndex = zu ? 0 : -1; }
   }
   css() { return KOPF_CSS; }
   chipSichtbar(ch, st) {
@@ -115,7 +128,7 @@ class GlasKopfCard extends GlasKarte {
       ? (Glas.bearbeiten ? `<button class="rund aktiv-rund" data-bearb aria-label="Bearbeiten beenden"><ha-icon data-i="mdi:check"></ha-icon></button>` : `<button class="rund glas" data-bearb aria-label="Dashboard bearbeiten"><ha-icon data-i="mdi:pencil-outline"></ha-icon></button>`) : "";
     const ava = ich?.tablet ? `<ha-icon data-i="mdi:tablet"></ha-icon>` : ich ? esc(String(ich.kurz || "").slice(0, 2)) : `<ha-icon data-i="mdi:home"></ha-icon>`;
     const blase = `<button class="blase glas" data-blase aria-hidden="true" tabindex="-1" aria-label="${esc(gruss)}, nach oben"><span class="ava" aria-hidden="true">${ava}</span><span class="bt">${esc(gruss)}</span></button>`;
-    return `${blase}<div class="oben"><div class="gruss"><h1>${esc(gruss)}</h1>${c.untertitel ? `<div class="leise">${esc(c.untertitel)}</div>` : ""}</div><div class="rechts">${stift}
+    return `${blase}<div class="oben"><div class="gruss"><h1>${esc(gruss)}</h1>${c.untertitel ? `<div class="leise">${esc(c.untertitel)}</div>` : ""}</div><span class="insel-platz" aria-hidden="true"></span><div class="rechts">${stift}
       ${ps.length > 1 ? `<div class="personen glas" role="group" aria-label="Wer schaut gerade?">${ps.map((p) => {
         const da = p.entity && h.states[p.entity]?.state === "home";
         return `<button class="person" data-p="${esc(p.id)}" aria-pressed="${ich?.id === p.id}" aria-label="${esc(p.name || "Tablet")}${da ? ", zu Hause" : ""}">

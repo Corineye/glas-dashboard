@@ -57,6 +57,7 @@ const BEARB_CSS = `
 .bearb .zieht{z-index:5}
 .bearb .zieht > :first-child{transform:scale(1.04);border-radius:var(--g-r);box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}
 .bearb .zieht > .deckel{cursor:grabbing}
+.bearb .ordner-ziel > :first-child{transform:scale(1.07);border-radius:var(--g-r);box-shadow:0 0 0 3px var(--g-akzent),0 10px 30px rgba(0,0,0,.2);transition:transform .22s cubic-bezier(.34,1.4,.64,1)}
 .bearb .gehalten > :first-child{transform:scale(1.03);transition:transform .18s cubic-bezier(.23,1,.32,1)}
 .bearb .abschn-raster:not(:has([data-i]))::after{content:"Kacheln hierher ziehen";grid-column:span 12;min-height:64px;display:flex;align-items:center;justify-content:center;
   border:1.5px dashed var(--g-text2);border-radius:var(--g-r);color:var(--g-text2);font-size:var(--g-s-klein)}
@@ -86,6 +87,11 @@ function flip(kinder, aendern) {
 // Kacheln eines Rasters bearbeitbar machen (Kinder mit data-i = Index in der Liste)
 function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = true, menue: eigenesMenue = null } = {}) {
   raster.classList.add("bearb");
+  const ordnerErlaubt = zugriff?.ort && zugriff.ort.art !== "abschnitte";
+  if (ordnerErlaubt) {
+    const l = zugriff.lesen(Glas.hass);
+    raster.querySelectorAll("[data-i]").forEach((z) => { const x = l[Number(z.dataset.i)]; if (x && (x.entity || x.ordner)) z.dataset.ordnerbar = "1"; });
+  }
   // eigene Kacheln: auch in Abschnitt-Kästen (Räume), aber nicht die eines inneren Rasters (Favoriten in der Startseite)
   const kinder = () => [...raster.querySelectorAll("[data-i]")].filter((z) => z.parentElement.closest(".bearb") === raster);
   const reihenfolgeSpeichern = () => {
@@ -110,7 +116,16 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
       z.classList.remove("gehalten");
       if (!x) return;
       if (!x.zieht) { if (ok && !x.weg) menue(); return; }
+      clearTimeout(x.ordnerT);
       z.classList.remove("zieht");
+      if (x.ordnerZiel && ok) {
+        x.ordnerZiel.classList.remove("ordner-ziel");
+        const von = Number(z.dataset.i), auf = Number(x.ordnerZiel.dataset.i);
+        z.style.transition = "transform .2s ease, opacity .2s ease"; z.style.opacity = "0";
+        zugriff.schreiben(Glas.hass, (l) => ordnerBilden(l, von, auf));
+        vibrieren(15);
+        return;
+      }
       z.style.transition = "transform .26s cubic-bezier(.23,1,.32,1)";
       z.style.transform = "";
       if (x.bewegt) reihenfolgeSpeichern();
@@ -136,7 +151,19 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
       }
       // Ziel unter dem Finger: davor oder dahinter einsortieren
       const ziel = kinder().find((k) => { if (k === z) return false; const r = k.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
-      if (ziel && ziel !== g.ziel) {
+      // Mitte einer Kachel kurz halten = Ordner anlegen (wie am iPhone); Rand = davor/dahinter einsortieren
+      let mitte = false;
+      if (ziel && ordnerErlaubt && ziel.dataset.ordnerbar && z.dataset.ordnerbar) {
+        const r = ziel.getBoundingClientRect(), rx = (e.clientX - r.left) / r.width;
+        mitte = rx > 0.26 && rx < 0.74;
+      }
+      if (mitte) {
+        if (g.ordnerKand !== ziel) {
+          clearTimeout(g.ordnerT); g.ordnerZiel?.classList.remove("ordner-ziel"); g.ordnerZiel = null; g.ordnerKand = ziel;
+          g.ordnerT = setTimeout(() => { if (g && g.ordnerKand === ziel) { g.ordnerZiel = ziel; ziel.classList.add("ordner-ziel"); vibrieren(10); } }, 420);
+        }
+      } else if (g.ordnerKand) { clearTimeout(g.ordnerT); g.ordnerZiel?.classList.remove("ordner-ziel"); g.ordnerZiel = null; g.ordnerKand = null; }
+      if (ziel && !mitte && ziel !== g.ziel) {
         const r = ziel.getBoundingClientRect(), vor = e.clientX < r.left + r.width / 2;
         const ref = vor ? ziel : ziel.nextElementSibling;
         if (ref !== z && (z.nextElementSibling !== ref || z.parentNode !== ziel.parentNode)) { flip(kinder(), () => ziel.parentNode.insertBefore(z, ref)); g.bewegt = true; }
@@ -146,7 +173,7 @@ function bearbeitRaster(raster, zugriff, quelle, { scroller = null, mitNeu = tru
         const box = [...raster.querySelectorAll(".abschn-raster")].find((b) => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
         if (box && box !== z.parentNode && !kinder().some((k) => k !== z && k.parentNode === box)) { flip(kinder(), () => box.appendChild(z)); g.bewegt = true; }
       }
-      g.ziel = ziel || null;
+      g.ziel = mitte ? g.ziel : ziel || null;
       // Am Rand automatisch scrollen
       const sc = scroller || document.scrollingElement;
       const box = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
@@ -243,6 +270,7 @@ async function kachelMenue(quelle, zugriff, i) {
   await haFormLaden();
   const h0 = Glas.hass;
   let eintrag = kopieJ(zugriff.lesen(h0)[i] || {});
+  if (eintrag.ordner) return ordnerMenue(quelle, zugriff, i);
   if (!eintrag.entity && !eintrag.karte) return;
   const s = new GlasSchicht({ quelle, hoch: true, titel: "Kachel bearbeiten" });
   let speicherT = null, wegFrage = false;
@@ -286,6 +314,10 @@ async function kachelMenue(quelle, zugriff, i) {
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:gesture-tap"></ha-icon>Verhalten</div><div data-f="verhalten"></div></div>
       <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:chart-timeline-variant"></ha-icon>Große Ansicht &amp; Verlauf</div><div data-f="verlauf"></div></div>`}
       ${raum ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:map-marker-outline"></ha-icon>Platz</div><div data-f="platz"></div></div>` : ""}
+      ${karte ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:folder-outline"></ha-icon>In Ordner legen</div>
+        <div class="karten-wahl">${zugriff.lesen(h).map((y, k) => (y.ordner ? `<button class="glas" data-in-ordner="${k}"><ha-icon data-i="mdi:folder-outline"></ha-icon><span>${esc(y.name || "Ordner")}<small>${(y.eintraege || []).length} Geräte</small></span></button>` : "")).join("")}
+          <button class="glas" data-in-ordner="neu"><ha-icon data-i="mdi:folder-plus-outline"></ha-icon><span>Neuer Ordner</span></button></div>
+        <div class="m-hinweis">Oder im Bearbeiten-Modus eine Kachel auf die Mitte einer anderen ziehen und kurz halten.</div></div>`}
       <div class="knoepfe"><button class="glas" data-aus>${an ? "Ausblenden" : "Wieder zeigen"}</button><button class="glas rot" data-weg>${wegFrage ? "Wirklich entfernen?" : "Entfernen"}</button></div>`;
     s.kopfBinden();
     const $ = (q) => s.inhalt.querySelector(q);
@@ -387,6 +419,18 @@ async function kachelMenue(quelle, zugriff, i) {
       s.inhalt.querySelectorAll("[data-a]").forEach((o) => o.setAttribute("aria-checked", neu.includes(o.dataset.a)));
       speichern(true); vorschau();
     }));
+    s.inhalt.querySelectorAll("[data-in-ordner]").forEach((b) => b.addEventListener("click", () => {
+      clearTimeout(speicherT);
+      const ziel = b.dataset.inOrdner, { gruppe, an: _an, ...rein } = kopieJ(eintrag);
+      zugriff.schreiben(Glas.hass, (l) => {
+        if (ziel === "neu") { l[i] = { ordner: true, name: "Neuer Ordner", groesse: "breit", an: true, ...(gruppe ? { gruppe } : {}), eintraege: [rein] }; return l; }
+        const k = Number(ziel);
+        l[k] = { ...l[k], eintraege: [...(l[k].eintraege || []), rein] };
+        return l.filter((_, n) => n !== i);
+      });
+      s.schliessen();
+      if (ziel === "neu") setTimeout(() => ordnerMenue(quelle, zugriff, i), 250);
+    }));
     $("[data-aus]").addEventListener("click", () => { eintrag.an = eintrag.an === false; speichern(true); zeichnen(); });
     $("[data-weg]").addEventListener("click", () => {
       if (!wegFrage) { wegFrage = true; $("[data-weg]").textContent = "Wirklich entfernen?"; return; }
@@ -454,8 +498,10 @@ async function abschnittMenue(quelle, zugriff, i, festId = null) {
   const zeigenAn = festId ? (Glas.einst.bereiche?.[festId]?.an !== false) : a.an !== false;
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(info[1], "Abschnitt der Startseite")}
     <div class="m-gruppe glas"><button class="haken" role="switch" data-zeigen aria-checked="${zeigenAn}">Auf der Startseite zeigen<span class="sw" aria-hidden="true"></span></button></div>
-    ${festId ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Breite</div>
-      <div class="segment" role="group" aria-label="Breite">${[["halb", "Halb"], ["ganz", "Ganz"]].map(([b, n]) => `<button data-b="${b}" aria-pressed="${(a.breite || "ganz") === b}">${n}</button>`).join("")}</div></div>`}
+    ${festId || a.id === "zuhause" ? "" : `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:resize"></ha-icon>Darstellung</div>
+      <div class="segment" role="group" aria-label="Darstellung">${[["halb", "Halb", "Karte"], ["ganz", "Ganz", "Karte"], ...(WIDGET_ARTEN.includes(a.id) ? [["widget", "Widget", "Quadrat"]] : [])]
+        .map(([b, n, k]) => `<button data-b="${b}" aria-pressed="${b === "widget" ? !!a.widget : !a.widget && (a.breite || "ganz") === b}">${n}<small>${k}</small></button>`).join("")}</div>
+      ${WIDGET_ARTEN.includes(a.id) ? `<div class="m-hinweis">Widget: quadratisch wie auf dem iPhone-Homescreen, zwei nebeneinander. Antippen öffnet die große Ansicht.</div>` : ""}</div>`}
     ${ABSCHNITT_EDITOR[a.id] ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:tune-variant"></ha-icon>Einstellungen</div><div data-ed></div></div>`
       : a.id === "favoriten" ? `<div class="m-gruppe glas"><div class="m-hinweis">Die Favoriten bearbeitest du direkt: Kachel antippen oder verschieben, unten „Hinzufügen“.</div></div>` : ""}`;
   s.kopfBinden();
@@ -467,7 +513,7 @@ async function abschnittMenue(quelle, zugriff, i, festId = null) {
   });
   s.inhalt.querySelectorAll("[data-b]").forEach((b) => b.addEventListener("click", () => {
     s.inhalt.querySelectorAll("[data-b]").forEach((o) => o.setAttribute("aria-pressed", o === b));
-    abschnittSetzen({ breite: b.dataset.b });
+    abschnittSetzen(b.dataset.b === "widget" ? { widget: true } : { breite: b.dataset.b, widget: false });
   }));
   const box = s.inhalt.querySelector("[data-ed]");
   if (box) {
@@ -509,9 +555,12 @@ async function raumMenue(quelle, hash) {
     }, 400);
   };
   const h = Glas.hass;
-  const benutzt = () => [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity || g.karte).map((g) => g.gruppe || (g.entity ? gruppeVon(h, g.entity) : `karte-${g.karte}`)))];
+  const benutzt = () => [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity || g.karte || g.ordner).map((g) => g.gruppe || (g.entity ? gruppeVon(h, g.entity) : g.ordner ? (g.eintraege?.[0]?.entity && h.states[g.eintraege[0].entity] ? gruppeVon(h, g.eintraege[0].entity) : "sonstiges") : `karte-${g.karte}`)))];
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
+    ${ordnerStil(Glas.einst) ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:folder-outline"></ha-icon>Kachel auf der Startseite</div>
+      <div class="knoepfe"><button class="glas" data-ordnerkachel>Ordner-Kachel einstellen</button></div>
+      <div class="m-hinweis">Temperatur, Luftfeuchte, offene Fenster und welche vier Geräte direkt in der Raum-Kachel stehen.</div></div>` : ""}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Fenster und Türen</div><div data-f="fenster"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:motion-sensor"></ha-icon>Kopfzeile: weitere Chips</div><div data-f="chips"></div></div>
@@ -522,6 +571,7 @@ async function raumMenue(quelle, hash) {
       <form class="neu-zeile" data-neu><input type="text" placeholder="Neuer Abschnitt, z. B. Sofa-Ecke" aria-label="Name des neuen Abschnitts" enterkeyhint="done"><button type="submit" disabled>Hinzufügen</button></form>
       <div class="m-hinweis">Ein neuer Abschnitt erscheint leer im Raum. Kacheln ziehst du im Bearbeiten-Modus hinein. Leere Abschnitte ohne Namen verschwinden.</div></div>`;
   s.kopfBinden();
+  s.inhalt.querySelector("[data-ordnerkachel]")?.addEventListener("click", () => ordnerKachelMenue(quelle, hash));
   const $ = (q) => s.inhalt.querySelector(q);
   const nimm = (v, f) => { f.forEach((k) => { if (v[k] === "" || v[k] === undefined || (Array.isArray(v[k]) && !v[k].length)) delete r[k]; else r[k] = v[k]; }); speichern(); };
   haForm($("[data-f=raum]"), { name: r.name, icon: r.icon, bereich: r.bereich }, [
