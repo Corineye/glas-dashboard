@@ -141,10 +141,19 @@ class GlasZuhauseCard extends HTMLElement {
       teile.push(w);
     }
     const abZugriff = listeZugriff({ art: "abschnitte", person });
+    // Räume als Ordner: oben Favoriten-Ordner und Raum-Kacheln, Wetter/Planer wandern in die untere Leiste
+    const ordner = ordnerStil(e), plaetze = ordner ? leistePlaetze(e) : [];
+    if (ordner) {
+      const favAn = s.abschnitte.find((a) => a.id === "favoriten")?.an !== false;
+      if (!bearb && favAn) teile.push(this.kind("favordner", "glas-favordner-card", { favoriten: s.favoriten || [] }));
+      teile.push(this.kind("raeume", "glas-raeume-card", {}));
+    }
     const raster = document.createElement("div");
     raster.className = "raster";
     for (const [ai, a] of s.abschnitte.entries()) {
       if (!a.an && !bearb) continue;
+      if (ordner && !bearb && a.id === "favoriten") continue;
+      if (ordner && ["wetter", "planer"].includes(a.id) && plaetze.includes(a.id)) continue;
       let el = null;
       const info = ABSCHNITTE.find(([id]) => id === a.id) || [a.id, a.id, "mdi:card-outline"];
       const platz = (text) => {
@@ -211,14 +220,19 @@ class GlasZuhauseCard extends HTMLElement {
       z.classList.toggle("widget", alsWidget);
       raster.appendChild(z);
     }
+    if (ordner && !bearb && raster.children.length) {
+      const t = document.createElement("h2");
+      t.className = "h2 abschnitt-titel"; t.textContent = "Mehr";
+      raster.prepend(t);
+    }
     teile.push(raster);
     if (bearb) bearbeitRaster(raster, abZugriff, this, { mitNeu: false, menue: (i) => abschnittMenue(this, abZugriff, i) });
     seite.replaceChildren(...teile);
     // Räume: Leiste + Blätter (leben unsichtbar, öffnen über #raum)
     const raeume = (e.raeume || []).filter((r) => r.hash);
     const unten = [];
-    if (raeume.length) {
-      unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
+    if (raeume.length || ordner) {
+      unten.push(this.kind("leiste", "glas-raumleiste-card", { zuhause_zeigen: true, ordner, plaetze, raeume: raeume.map((r) => ({ name: r.name, icon: r.icon, hash: r.hash, bereich: r.bereich })) }));
       raeume.forEach((r) => unten.push(this.kind(`raum-${r.hash}`, "glas-raum-card", raumCfg(this._hass, r))));
     }
     // Nur umhängen, wenn sich etwas geändert hat: sonst würde ein offenes Raum-Blatt geschlossen

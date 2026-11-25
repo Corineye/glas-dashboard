@@ -558,6 +558,9 @@ async function raumMenue(quelle, hash) {
   const benutzt = () => [...new Set((r.geraete || raumGeraeteVorschlag(h, r.bereich)).filter((g) => g.entity || g.karte || g.ordner).map((g) => g.gruppe || (g.entity ? gruppeVon(h, g.entity) : g.ordner ? (g.eintraege?.[0]?.entity && h.states[g.eintraege[0].entity] ? gruppeVon(h, g.eintraege[0].entity) : "sonstiges") : `karte-${g.karte}`)))];
   s.inhalt.innerHTML = `<style>${MENUE_CSS}</style>${s.kopfHtml(r.name, "Raum einstellen")}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:door"></ha-icon>Raum</div><div data-f="raum"></div></div>
+    ${ordnerStil(Glas.einst) ? `<div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:folder-outline"></ha-icon>Kachel auf der Startseite</div>
+      <div class="knoepfe"><button class="glas" data-ordnerkachel>Ordner-Kachel einstellen</button></div>
+      <div class="m-hinweis">Temperatur, Luftfeuchte, offene Fenster und welche vier Geräte direkt in der Raum-Kachel stehen.</div></div>` : ""}
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:thermometer"></ha-icon>Kopfzeile: Messwerte</div><div data-f="mess"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:window-open-variant"></ha-icon>Kopfzeile: Fenster und Türen</div><div data-f="fenster"></div></div>
     <div class="m-gruppe glas"><div class="m-titel"><ha-icon data-i="mdi:motion-sensor"></ha-icon>Kopfzeile: weitere Chips</div><div data-f="chips"></div></div>
@@ -568,6 +571,7 @@ async function raumMenue(quelle, hash) {
       <form class="neu-zeile" data-neu><input type="text" placeholder="Neuer Abschnitt, z. B. Sofa-Ecke" aria-label="Name des neuen Abschnitts" enterkeyhint="done"><button type="submit" disabled>Hinzufügen</button></form>
       <div class="m-hinweis">Ein neuer Abschnitt erscheint leer im Raum. Kacheln ziehst du im Bearbeiten-Modus hinein. Leere Abschnitte ohne Namen verschwinden.</div></div>`;
   s.kopfBinden();
+  s.inhalt.querySelector("[data-ordnerkachel]")?.addEventListener("click", () => ordnerKachelMenue(quelle, hash));
   const $ = (q) => s.inhalt.querySelector(q);
   const nimm = (v, f) => { f.forEach((k) => { if (v[k] === "" || v[k] === undefined || (Array.isArray(v[k]) && !v[k].length)) delete r[k]; else r[k] = v[k]; }); speichern(); };
   haForm($("[data-f=raum]"), { name: r.name, icon: r.icon, bereich: r.bereich }, [

@@ -26,7 +26,7 @@ for (const [tag, Karte, Editor, name, beschreibung] of KARTEN) {
   if (!customElements.get(`${tag}-editor`)) customElements.define(`${tag}-editor`, Editor);
   if (!window.customCards.some((k) => k.type === tag)) window.customCards.push({ type: tag, name, description: beschreibung, preview: true, documentationURL: "https://github.com/Corineye/glas-dashboard" });
 }
-for (const [tag, K] of [["glas-personen-editor", GlasPersonenEditor], ["glas-chips-editor", GlasChipsEditor], ["glas-einstellungen", GlasEinstellungen], ["ll-strategy-dashboard-glas", GlasStrategie]]) {
+for (const [tag, K] of [["glas-personen-editor", GlasPersonenEditor], ["glas-chips-editor", GlasChipsEditor], ["glas-raeume-card", GlasRaeumeCard], ["glas-favordner-card", GlasFavordnerCard], ["glas-einstellungen", GlasEinstellungen], ["ll-strategy-dashboard-glas", GlasStrategie]]) {
   if (!customElements.get(tag)) customElements.define(tag, K);
 }
 console.info(`%c GLAS-DASHBOARD %c ${VERSION} `, "color:#fff;background:#0a84ff;font-weight:700;border-radius:4px 0 0 4px;padding:2px 6px", "color:#0a84ff;background:#e8f1ff;border-radius:0 4px 4px 0;padding:2px 6px");

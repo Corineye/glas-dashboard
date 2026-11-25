@@ -453,6 +453,10 @@ class GlasEinstellungen extends HTMLElement {
     }
     const s = (S[this._fuer] = startseiteVon(this._d, this._fuer === "alle" ? null : { id: this._fuer }));
     if (this._fuer !== "alle") s.eigen = true;
+    const ro = raeumeOrdner(this._d);
+    const og = this.html(box, `<div class="gruppe"><div class="zeile"><span class="name"><b>Räume als Ordner</b><span>${ro.an !== false ? `An · Leiste unten: ${leistePlaetze(this._d).map((id) => RO_PLAETZE.find(([k]) => k === id)?.[1].replace(/ \(.*\)/, "")).join(", ") || "leer"}` : "Aus · Startseite und Raumleiste wie bisher"}</span></span>
+      <button class="knopf" data-ro>Einstellen</button></div></div>`);
+    og.querySelector("[data-ro]").addEventListener("click", () => raeumeEinstMenue(this, (ro2) => { if (ro2) this._d.raeume_ordner = ro2; else this.zeichnen(); }));
     this.html(box, `<h2>Abschnitte</h2>`);
     const g = this.html(box, `<div class="gruppe"></div>`);
     s.abschnitte.forEach((a, i) => {
