@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Glas-Dashboard · Grundbausteine (Design-Tokens, Helfer, Personen, Portale)
 // ---------------------------------------------------------------------------
-const VERSION = "0.11.0";
+const VERSION = "0.11.1";
 
 // Ein einziges Maßsystem für alle Karten (Ergebnis der Grafikprüfung):
 // Abstände 4 / 8 / 12 / 16 / 20, Radien 14 / 22 / 32 / rund, Schrift 11 / 13 / 15 / 17 / 20 / 28
@@ -4620,6 +4620,13 @@ class GlasRaumleisteCard extends GlasKarte {
   }
   render() {
     if (!this._config || !this._hass) return;
+    // Nur solange das Dashboard wirklich offen ist: HA reicht hass auch an zwischengespeicherte,
+    // abgehängte Panels weiter – sonst schwebt die Leiste über anderen Seiten (z. B. Planer)
+    if (!this.isConnected || (this._pfad && location.pathname.split("/")[1] !== this._pfad)) {
+      this._portal?.remove(); this._portal = null; this._kz = null;
+      return;
+    }
+    this._pfad = this._pfad || location.pathname.split("/")[1];
     const bearbeiten = istBearbeiten();
     karteVerstecken(this, !bearbeiten);
     if (bearbeiten) {
