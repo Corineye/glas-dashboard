@@ -75,6 +75,13 @@ class GlasRaumleisteCard extends GlasKarte {
   }
   render() {
     if (!this._config || !this._hass) return;
+    // Nur solange das Dashboard wirklich offen ist: HA reicht hass auch an zwischengespeicherte,
+    // abgehängte Panels weiter – sonst schwebt die Leiste über anderen Seiten (z. B. Planer)
+    if (!this.isConnected || (this._pfad && location.pathname.split("/")[1] !== this._pfad)) {
+      this._portal?.remove(); this._portal = null; this._kz = null;
+      return;
+    }
+    this._pfad = this._pfad || location.pathname.split("/")[1];
     const bearbeiten = istBearbeiten();
     karteVerstecken(this, !bearbeiten);
     if (bearbeiten) {
